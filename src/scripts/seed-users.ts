@@ -193,12 +193,16 @@ async function seed(): Promise<void> {
       }
 
       for (const input of seedUsers) {
-        let user = await users.findOneBy({ username: input.username });
+        let user = await users.findOne({
+          where: { username: input.username },
+          withDeleted: true,
+        });
         user ??= users.create({
           username: input.username,
           createdBy: null,
           updatedBy: null,
         });
+        user.deletedAt = null;
         user.passwordHash = await argon2.hash(password);
         user.refreshTokenHash = null;
         user.status = UserStatus.Enabled;

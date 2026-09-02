@@ -1,6 +1,14 @@
 import { AuditedEntity } from '../common/entities/audited.entity';
 import { RoleEntity } from '../roles/role.entity';
-import { Column, Entity, JoinTable, ManyToMany } from 'typeorm';
+import {
+  Column,
+  DeleteDateColumn,
+  Entity,
+  Index,
+  JoinTable,
+  ManyToMany,
+  VersionColumn,
+} from 'typeorm';
 
 export enum UserStatus {
   Enabled = 'enabled',
@@ -8,6 +16,7 @@ export enum UserStatus {
 }
 
 @Entity({ name: 'users' })
+@Index('IDX_users_status', ['status'], { where: '"deleted_at" IS NULL' })
 export class UserEntity extends AuditedEntity {
   @Column({ type: 'varchar', length: 80, unique: true })
   username: string;
@@ -43,6 +52,12 @@ export class UserEntity extends AuditedEntity {
     nullable: true,
   })
   refreshTokenHash: string | null;
+
+  @VersionColumn({ type: 'integer', default: 1 })
+  version: number;
+
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
+  deletedAt: Date | null;
 
   @ManyToMany(() => RoleEntity, (role) => role.users)
   @JoinTable({

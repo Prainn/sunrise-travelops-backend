@@ -14,6 +14,7 @@ import { createTypeOrmOptions } from './config/typeorm.config';
 import { HealthModule } from './health/health.module';
 import { RolesModule } from './roles/roles.module';
 import { SystemModule } from './system/system.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SystemModule } from './system/system.module';
     }),
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     AuthModule,
+    UsersModule,
     RolesModule,
     SystemModule,
     HealthModule,

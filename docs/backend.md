@@ -22,7 +22,7 @@
 - 只有 `enabled` 状态用户可以登录和刷新 Token。
 - 全局 JWT Guard 与权限 Guard；公开接口通过 `@Public()` 声明。
 - 登录接口每分钟最多 5 次请求，刷新接口每分钟最多 10 次请求。
-- 已保存前端原型使用的系统管理、资源、询盘和行程权限，并通过角色关联到种子用户；系统分类 API 已实现，其他业务管理 API 仍待接入。
+- 已保存前端原型使用的系统管理、资源、询盘和行程权限，并通过角色关联到种子用户；系统字典、业务字典和用户管理 API 已实现，其他业务管理 API 仍待接入。
 - 登录和本地用户初始化的密码最小长度为 6 位；数据库只保存 Argon2 哈希，不保存明文密码。
 
 认证相关数据库表：
@@ -61,7 +61,7 @@ SEED_USER_PASSWORD="<本地开发密码>" pnpm users:seed
 
 ### System Dictionaries
 
-系统分类用于维护来源渠道、资源类型、状态原因等可扩展参考数据。本期实现与前端 `/system/dict`、`/system/dict-item` 页面一致的“分类 + 分类选项”能力；编号规则、时区、完整系统参数和独立业务分类不在本期范围内。
+系统字典用于维护来源渠道、资源类型、状态原因等可扩展参考数据。本期实现与前端 `/system/dict`、`/system/dict-item` 页面一致的“字典 + 字典项”能力；编号规则、时区和完整系统参数不在本期范围内。业务字典使用下文的独立接口。
 
 所有接口：
 
@@ -187,6 +187,172 @@ pnpm migration:run
 | `DICTIONARY_ID_MISMATCH`       | `400`     | 请求体 ID 与路径 ID 不一致          |
 | `DICTIONARY_CODE_MISMATCH`     | `400`     | 请求体分类编码与路径编码不一致      |
 
+### Business Dictionaries
+
+业务字典采用与系统字典一致的“字典类型 + 字典项”两层命名。`resource-unit`（资源计价单位）和 `transport-method`（交通方式）是内置类型；管理员可以新增自定义类型。所有接口要求 Bearer Token，并在后端校验 `sys:business-dictionary:*` 权限。
+
+#### 业务字典类型接口
+
+| 方法     | 路径                                             | 权限                             | 说明                                           |
+| -------- | ------------------------------------------------ | -------------------------------- | ---------------------------------------------- |
+| `GET`    | `/api/system/business-dictionaries`              | `sys:business-dictionary:list`   | 返回全部类型及其 `items`，可直接初始化页面     |
+| `POST`   | `/api/system/business-dictionaries`              | `sys:business-dictionary:create` | 新增自定义类型                                 |
+| `PUT`    | `/api/system/business-dictionaries/:id`          | `sys:business-dictionary:update` | 修改类型名称；内置类型不能修改编码             |
+| `DELETE` | `/api/system/business-dictionaries?ids=:id1,...` | `sys:business-dictionary:delete` | 批量软删除自定义类型及其分类项；不能删内置类型 |
+
+类型写入示例：
+
+```json
+{
+  "name": "服务等级",
+  "englishName": "Service Levels",
+  "code": "service-level"
+}
+```
+
+`code` 允许小写字母开头，以及字母、数字和连字符；编码全局唯一，软删除后仍不能复用。修改请求可以携带 `id`，但必须与路径 ID 一致。
+
+列表响应与前端页面模型一致：
+
+```json
+[
+  {
+    "id": "10000000-0000-4000-8000-000000000001",
+    "code": "resource-unit",
+    "name": "资源计价单位",
+    "englishName": "Resource Price Units",
+    "builtIn": true,
+    "items": []
+  }
+]
+```
+
+#### 业务字典项接口
+
+| 方法     | 路径                                                             | 权限                             | 说明                         |
+| -------- | ---------------------------------------------------------------- | -------------------------------- | ---------------------------- |
+| `GET`    | `/api/system/business-dictionaries/:typeCode/items`              | `sys:business-dictionary:list`   | 查询指定类型的分类项         |
+| `POST`   | `/api/system/business-dictionaries/:typeCode/items`              | `sys:business-dictionary:create` | 新增分类项                   |
+| `PUT`    | `/api/system/business-dictionaries/:typeCode/items/:id`          | `sys:business-dictionary:update` | 修改分类项                   |
+| `DELETE` | `/api/system/business-dictionaries/:typeCode/items?ids=:id1,...` | `sys:business-dictionary:delete` | 批量软删除指定类型下的分类项 |
+
+查询支持可选的 `keyword` 和 `status`。`keyword` 同时匹配名称、英文名称和编码；`status` 为 `enabled` 或 `disabled`。分类项不分页，响应为数组。
+
+分类项写入示例：
+
+```json
+{
+  "code": "roomNight",
+  "name": "间夜",
+  "englishName": "Room night",
+  "resourceTypes": ["hotel"],
+  "status": "enabled",
+  "remark": "酒店房型按间夜计价"
+}
+```
+
+`resourceTypes` 可使用 `hotel`、`attraction`、`restaurant`、`vehicle`、`guide`。`resource-unit` 类型至少需要一个适用资源类型；其他类型会统一保存为空数组。同一类型下 `code` 唯一，软删除后仍不复用。
+
+Migration `AddBusinessDictionariesAndUserManagement1788372000000` 会按前端 `src/data/data.ts` 初始化：
+
+- `resource-unit`：间夜、人次、人/餐、桌、辆/天、人/天。
+- `transport-method`：飞机、商务车、动车、旅游大巴、船、步行。
+
+业务字典类型和字典项都有创建人、修改人、时间、乐观锁版本和软删除时间。当前旅游资源、行程仍在前端 Mock 中，因此删除字典项时尚不能在数据库中检查业务引用；接入这些领域后应在服务端增加“已使用不能删除”的引用校验。
+
+主要错误码：
+
+| 错误码                                           | HTTP 状态 | 说明                           |
+| ------------------------------------------------ | --------- | ------------------------------ |
+| `BUSINESS_DICTIONARY_TYPE_NOT_FOUND`             | `404`     | 业务字典类型不存在或已删除     |
+| `BUSINESS_DICTIONARY_ITEM_NOT_FOUND`             | `404`     | 当前类型下分类项不存在或已删除 |
+| `BUSINESS_DICTIONARY_TYPE_CODE_EXISTS`           | `409`     | 类型编码重复                   |
+| `BUSINESS_DICTIONARY_ITEM_CODE_EXISTS`           | `409`     | 当前类型下分类项编码重复       |
+| `BUILT_IN_BUSINESS_DICTIONARY_CODE_IMMUTABLE`    | `409`     | 尝试修改内置类型编码           |
+| `BUILT_IN_BUSINESS_DICTIONARY_CANNOT_BE_DELETED` | `409`     | 尝试删除内置类型               |
+| `BUSINESS_DICTIONARY_RESOURCE_TYPES_REQUIRED`    | `400`     | 资源计价单位未指定适用资源类型 |
+| `RESOURCE_ID_MISMATCH`                           | `400`     | 请求体 ID 与路径 ID 不一致     |
+
+### User Management
+
+用户管理对应前端 `/system/user` 页面，包括分页筛选、表单回填、新增、修改、批量软删除、管理员重置密码，以及角色和部门下拉选项。所有接口要求 Bearer Token，并分别校验 `sys:user:list`、`create`、`update`、`delete` 或 `reset-password` 权限。
+
+| 方法     | 路径                             | 权限                      | 说明                                 |
+| -------- | -------------------------------- | ------------------------- | ------------------------------------ |
+| `GET`    | `/api/users`                     | `sys:user:list`           | 分页查询用户                         |
+| `GET`    | `/api/users/options/roles`       | `sys:user:list`           | 查询可分配且已启用的角色选项         |
+| `GET`    | `/api/users/options/departments` | `sys:user:list`           | 查询部门选项                         |
+| `GET`    | `/api/users/:id`                 | `sys:user:list`           | 查询用户表单数据                     |
+| `POST`   | `/api/users`                     | `sys:user:create`         | 新增用户                             |
+| `PUT`    | `/api/users/:id`                 | `sys:user:update`         | 修改用户资料、角色和启停状态         |
+| `DELETE` | `/api/users?ids=:id1,:id2`       | `sys:user:delete`         | 批量软删除用户                       |
+| `POST`   | `/api/users/:id/reset-password`  | `sys:user:reset-password` | 重置密码并撤销该用户的 Refresh Token |
+
+分页参数：
+
+| 参数         | 类型      | 默认值 | 说明                                 |
+| ------------ | --------- | ------ | ------------------------------------ |
+| `page`       | integer   | `1`    | 页码                                 |
+| `pageNum`    | integer   | -      | 前端兼容参数；存在时覆盖 `page`      |
+| `pageSize`   | integer   | `20`   | 每页数量，最大 `100`                 |
+| `keyword`    | string    | -      | 搜索用户名、昵称或手机号             |
+| `keywords`   | string    | -      | 前端兼容参数；存在时覆盖 `keyword`   |
+| `status`     | `0 \| 1`  | -      | `0` 停用，`1` 启用                   |
+| `deptId`     | integer   | -      | 部门 ID                              |
+| `roleId`     | UUID      | -      | 角色 ID                              |
+| `createTime` | string[2] | -      | 开始、结束日期；支持数组或逗号分隔值 |
+
+响应返回 `list`、`total`、`page` 和 `pageSize`。列表项和表单详情都返回 `deptId`、`deptName`、`roleIds`、逗号连接的 `roleNames`，并将状态映射为前端使用的 `0 | 1`。
+
+用户写入示例：
+
+```json
+{
+  "username": "operations_li",
+  "nickname": "李明",
+  "avatar": "",
+  "gender": 0,
+  "mobile": "",
+  "email": "operations.li@sunrise.local",
+  "deptId": 3,
+  "roleIds": ["角色 UUID"],
+  "status": 1
+}
+```
+
+新增时可以额外提交 6 至 128 位的 `password`。如果省略，后端会生成高强度随机初始密码，并只在本次 `201` 响应的 `temporaryPassword` 字段中返回；前端必须立即展示或安全交付，此后无法再次读取。数据库始终只保存 Argon2 哈希。
+
+更新时不要求提交 `username`。为兼容旧调用方，请求仍可携带原用户名，但如果与数据库中的用户名不同会返回 `USERNAME_IMMUTABLE`。停用用户会立即清除其 Refresh Token，现有 Access Token 在下一次鉴权加载用户时也会因状态失效。角色选项不暴露内部 `ROOT` 角色；更新已有 Root 用户时后端会保留其 Root 角色，避免普通表单误删。
+
+密码重置请求：
+
+```json
+{
+  "password": "新的安全密码"
+}
+```
+
+用户删除采用软删除，并清除 Refresh Token。当前登录用户不能删除或停用自己；拥有 `ROOT` 角色的账号不能删除。用户名即使软删除后也不允许复用，以保留审计和历史关联。
+
+部门当前是 P0 固定配置：系统管理部、资源管理部、计调部；角色来自数据库 `roles` 表。部门后续如果需要独立维护，再迁移为部门实体，不在用户表中重复保存部门名称。
+
+主要错误码：
+
+| 错误码                              | HTTP 状态 | 说明                                         |
+| ----------------------------------- | --------- | -------------------------------------------- |
+| `USER_NOT_FOUND`                    | `404`     | 用户不存在或已删除                           |
+| `USERS_NOT_FOUND`                   | `404`     | 批量删除包含不存在的用户 ID                  |
+| `USERNAME_EXISTS`                   | `409`     | 用户名已存在                                 |
+| `USERNAME_IMMUTABLE`                | `409`     | 尝试修改用户名                               |
+| `CURRENT_USER_CANNOT_BE_DISABLED`   | `409`     | 当前用户尝试停用自己                         |
+| `CURRENT_USER_CANNOT_BE_DELETED`    | `409`     | 当前用户尝试删除自己                         |
+| `ROOT_USER_CANNOT_BE_DELETED`       | `409`     | 尝试删除 Root 账号                           |
+| `ROLES_NOT_FOUND_OR_NOT_ASSIGNABLE` | `400`     | 角色不存在、已停用或属于不可分配的 Root 角色 |
+| `DEPARTMENT_NOT_FOUND`              | `400`     | 部门 ID 不在 P0 固定配置中                   |
+| `RESOURCE_ID_MISMATCH`              | `400`     | 请求体 ID 与路径 ID 不一致                   |
+
+相关 Migration 还会给 `users` 增加乐观锁版本和软删除时间，并为未删除用户的状态查询建立索引。
+
 ### Health
 
 | 方法  | 路径          | 鉴权 | 说明                                   |
@@ -245,5 +411,3 @@ API 与数据库均正常时返回 `200`；任一健康检查失败时返回非 
 4. 建立主链路手工用例：登录 → 资源维护 → 创建询盘 → 创建/复制 Draft → 编辑每日资源 → 验证 10% 建议价 → 手工改价 → PDF 预览/取消/确认下载 → Quoted 只读 → 查看日志。
 5. 为每条用例固定 Mock 输入以及预期状态、金额、日志条数和 PDF 关键文本，并保留截图或录屏证据。
 6. 优先将登录、询盘到报价 PDF 的主链路补为 Playwright E2E；后端接入后使用同一批用例做契约和回归验收。
-
-待办来源：[前端接入后端待办](../../sunrise-travel-ops-web/docs/backend-integration-todo.md)。
