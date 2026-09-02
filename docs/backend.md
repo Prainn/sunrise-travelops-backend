@@ -1,6 +1,6 @@
 # Sunrise TravelOps 后端说明
 
-更新日期：2026-09-01
+更新日期：2026-09-02
 
 ## 已实现功能
 
@@ -22,7 +22,7 @@
 - 只有 `enabled` 状态用户可以登录和刷新 Token。
 - 全局 JWT Guard 与权限 Guard；公开接口通过 `@Public()` 声明。
 - 登录接口每分钟最多 5 次请求，刷新接口每分钟最多 10 次请求。
-- 已保存前端原型使用的系统管理、资源、询盘和行程权限，并通过角色关联到种子用户；目前尚无对应业务管理 API。
+- 已保存前端原型使用的系统管理、资源、询盘和行程权限，并通过角色关联到种子用户；系统分类 API 已实现，其他业务管理 API 仍待接入。
 - 登录和本地用户初始化的密码最小长度为 6 位；数据库只保存 Argon2 哈希，不保存明文密码。
 
 认证相关数据库表：
@@ -58,6 +58,134 @@ SEED_USER_PASSWORD="<本地开发密码>" pnpm users:seed
 ```
 
 种子脚本不会把明文密码写入源码或数据库；重复执行会更新上述用户，不会重复插入。
+
+### System Dictionaries
+
+系统分类用于维护来源渠道、资源类型、状态原因等可扩展参考数据。本期实现与前端 `/system/dict`、`/system/dict-item` 页面一致的“分类 + 分类选项”能力；编号规则、时区、完整系统参数和独立业务分类不在本期范围内。
+
+所有接口：
+
+- 使用 `/api` 全局前缀并要求 Bearer Token。
+- 管理接口使用页面对应的 `sys:dict:*` 或 `sys:dict-item:*` 权限；已启用选项查询只要求登录。
+- 使用统一错误结构：`code`、`message`、`details`、`timestamp`、`path`。
+- 删除为软删除，不物理清除分类或分类选项。
+
+#### 分类接口
+
+| 方法     | 路径                                     | 权限              | 说明                     |
+| -------- | ---------------------------------------- | ----------------- | ------------------------ |
+| `GET`    | `/api/system/dictionaries`               | `sys:dict:list`   | 分页查询分类             |
+| `GET`    | `/api/system/dictionaries/options`       | `sys:dict:list`   | 查询已启用分类的下拉选项 |
+| `GET`    | `/api/system/dictionaries/:id`           | `sys:dict:list`   | 查询分类表单数据         |
+| `POST`   | `/api/system/dictionaries`               | `sys:dict:create` | 新增分类                 |
+| `PUT`    | `/api/system/dictionaries/:id`           | `sys:dict:update` | 修改分类                 |
+| `DELETE` | `/api/system/dictionaries?ids=:id1,:id2` | `sys:dict:delete` | 批量软删除分类及其选项   |
+
+分页查询参数：
+
+| 参数       | 类型     | 默认值 | 说明                               |
+| ---------- | -------- | ------ | ---------------------------------- |
+| `page`     | integer  | `1`    | 页码                               |
+| `pageNum`  | integer  | -      | 前端兼容参数；存在时覆盖 `page`    |
+| `pageSize` | integer  | `20`   | 每页数量，最大 `100`               |
+| `keyword`  | string   | -      | 按分类名称或编码模糊搜索           |
+| `keywords` | string   | -      | 前端兼容参数；存在时覆盖 `keyword` |
+| `status`   | `0 \| 1` | -      | `0` 停用，`1` 启用                 |
+
+分页响应返回 `list`、`total`、`page` 和 `pageSize`。前端当前只使用 `list` 与 `total`，额外分页元数据可以忽略。
+
+分类写入示例：
+
+```json
+{
+  "name": "来源渠道",
+  "dictCode": "inquiry_source",
+  "status": 1,
+  "remark": "询盘来源渠道"
+}
+```
+
+`dictCode` 会去除首尾空格并转换为小写，只允许小写字母开头以及小写字母、数字、下划线。编码全局唯一；已软删除的编码也不能直接复用，以保留恢复和历史引用能力。
+
+修改时兼容前端表单携带的 `id`。如果请求体 `id` 与路径 ID 不同，返回 `DICTIONARY_ID_MISMATCH`。
+
+#### 分类选项接口
+
+| 方法     | 路径                                                     | 权限                   | 说明                     |
+| -------- | -------------------------------------------------------- | ---------------------- | ------------------------ |
+| `GET`    | `/api/system/dictionaries/:dictCode/items`               | `sys:dict-item:list`   | 分页查询分类选项         |
+| `GET`    | `/api/system/dictionaries/:dictCode/items/options`       | 已登录                 | 按 `sort` 查询已启用选项 |
+| `GET`    | `/api/system/dictionaries/:dictCode/items/:id`           | `sys:dict-item:list`   | 查询选项表单数据         |
+| `POST`   | `/api/system/dictionaries/:dictCode/items`               | `sys:dict-item:create` | 新增分类选项             |
+| `PUT`    | `/api/system/dictionaries/:dictCode/items/:id`           | `sys:dict-item:update` | 修改分类选项             |
+| `DELETE` | `/api/system/dictionaries/:dictCode/items?ids=:id1,:id2` | `sys:dict-item:delete` | 批量软删除分类选项       |
+
+分页参数与分类接口一致，同时支持 `status` 过滤；关键字会匹配选项名称或选项值。
+
+选项写入示例：
+
+```json
+{
+  "dictCode": "gender",
+  "label": "男",
+  "value": "1",
+  "status": 1,
+  "sort": 1,
+  "tagType": "primary"
+}
+```
+
+兼容前端表单提交的 `id` 和 `dictCode`，但路径参数始终是权威值。请求体与路径不一致时分别返回 `DICTIONARY_ID_MISMATCH` 或 `DICTIONARY_CODE_MISMATCH`。
+
+同一分类下 `value` 唯一。`tagType` 可为：空字符串、`primary`、`success`、`info`、`warning`、`danger`。
+
+启用选项查询响应：
+
+```json
+[
+  {
+    "value": "1",
+    "label": "男",
+    "tagType": "primary"
+  }
+]
+```
+
+该选项接口会被个人资料等普通业务页面使用，因此只要求登录，不要求系统分类管理权限。停用选项不会出现在响应中，但记录仍然保留，历史业务数据可继续通过稳定 ID 读取原始显示值。
+
+#### 数据表与初始化数据
+
+Migration `AddSystemDictionaries1788285600000` 新增：
+
+- `system_dictionary_types`
+- `system_dictionary_items`
+
+分类选项通过 `type_id` 关联分类，因此修改 `dictCode` 不需要改写全部选项。两张表均有创建人、修改人、时间、乐观锁版本和软删除时间。
+
+Migration 会按前端 `src/data/data.ts` 初始化：
+
+- `gender`：男、女、未设置
+- `common_status`：启用、禁用
+- `yes_no`：是、否
+
+执行：
+
+```bash
+pnpm migration:run
+```
+
+#### 业务错误码
+
+| 错误码                         | HTTP 状态 | 说明                                |
+| ------------------------------ | --------- | ----------------------------------- |
+| `DICTIONARY_TYPE_NOT_FOUND`    | `404`     | 分类不存在或已删除                  |
+| `DICTIONARY_ITEM_NOT_FOUND`    | `404`     | 当前分类下不存在该选项              |
+| `DICTIONARY_TYPES_NOT_FOUND`   | `404`     | 批量删除包含不存在的分类 ID         |
+| `DICTIONARY_ITEMS_NOT_FOUND`   | `404`     | 批量删除包含不属于当前分类的选项 ID |
+| `DICTIONARY_CODE_EXISTS`       | `409`     | 分类编码重复                        |
+| `DICTIONARY_ITEM_VALUE_EXISTS` | `409`     | 当前分类下选项值重复                |
+| `DICTIONARY_ID_MISMATCH`       | `400`     | 请求体 ID 与路径 ID 不一致          |
+| `DICTIONARY_CODE_MISMATCH`     | `400`     | 请求体分类编码与路径编码不一致      |
 
 ### Health
 

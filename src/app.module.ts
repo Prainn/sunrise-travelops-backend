@@ -13,6 +13,7 @@ import { validateEnvironment } from './config/environment';
 import { createTypeOrmOptions } from './config/typeorm.config';
 import { HealthModule } from './health/health.module';
 import { RolesModule } from './roles/roles.module';
+import { SystemModule } from './system/system.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { RolesModule } from './roles/roles.module';
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     AuthModule,
     RolesModule,
+    SystemModule,
     HealthModule,
   ],
   providers: [
