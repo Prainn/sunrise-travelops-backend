@@ -13,6 +13,7 @@ import { validateEnvironment } from './config/environment';
 import { createTypeOrmOptions } from './config/typeorm.config';
 import { HealthModule } from './health/health.module';
 import { RolesModule } from './roles/roles.module';
+import { ResourcesModule } from './resources/resources.module';
 import { SystemModule } from './system/system.module';
 import { UsersModule } from './users/users.module';
 
@@ -43,6 +44,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     UsersModule,
     RolesModule,
+    ResourcesModule,
     SystemModule,
     HealthModule,
   ],

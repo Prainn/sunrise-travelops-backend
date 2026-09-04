@@ -49,7 +49,34 @@ export class ApiExceptionFilter implements ExceptionFilter {
     details: Record<string, unknown>;
   } {
     if (exception instanceof QueryFailedError) {
-      const driverError = exception.driverError as { code?: unknown };
+      const driverError = exception.driverError as {
+        code?: unknown;
+        constraint?: unknown;
+      };
+      if (
+        driverError.code === '23505' &&
+        typeof driverError.constraint === 'string'
+      ) {
+        if (/^UQ_resource_.+_code$/.test(driverError.constraint)) {
+          return {
+            status: HttpStatus.CONFLICT,
+            code: 'RESOURCE_CODE_EXISTS',
+            message: 'Resource code already exists',
+            details: {},
+          };
+        }
+        if (
+          driverError.constraint ===
+          'UQ_resource_agency_contacts_agency_name_key'
+        ) {
+          return {
+            status: HttpStatus.CONFLICT,
+            code: 'AGENCY_CONTACT_NAME_EXISTS',
+            message: 'Contact name already exists for this agency',
+            details: {},
+          };
+        }
+      }
       const isConstraintViolation =
         typeof driverError.code === 'string' &&
         driverError.code.startsWith('23');
