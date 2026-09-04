@@ -1,6 +1,6 @@
 # Sunrise TravelOps 后端说明
 
-更新日期：2026-09-02
+更新日期：2026-09-04
 
 ## 已实现功能
 
@@ -353,6 +353,87 @@ Migration `AddBusinessDictionariesAndUserManagement1788372000000` 会按前端 `
 
 相关 Migration 还会给 `users` 增加乐观锁版本和软删除时间，并为未删除用户的状态查询建立索引。
 
+### Resources
+
+旅游资源库已实现 7 类顶级资源：旅行社、地接社、酒店、餐厅、景点、车辆与司机组合资源、导游。所有资源接口都要求 Bearer Token，使用现有 `resource:{type}:list/create/update/delete` 权限，并返回裸业务对象。
+
+#### 数据表
+
+Migration `AddResources1788458400000` 创建：
+
+- `resource_agencies`、`resource_agency_contacts`
+- `resource_suppliers`
+- `resource_hotels`
+- `resource_restaurants`、`resource_restaurant_prices`
+- `resource_attractions`、`resource_attraction_prices`
+- `resource_transports`
+- `resource_guides`
+
+所有表使用 UUID 主键、审计字段、`version` 乐观锁和 `deleted_at` 软删除。顶级资源的 `code` 具有全表唯一约束，软删除后仍不能复用。金额列使用 `numeric(12,2)`，API 始终返回两位小数字符串；业务日期返回 `YYYY-MM-DD`，审计时间返回带时区的 ISO 8601。
+
+#### 顶级资源 API
+
+以下 `{resource}` 可为 `agencies`、`suppliers`、`hotels`、`restaurants`、`attractions`、`transports` 或 `guides`：
+
+| 方法     | 路径                                  | 权限                              | 说明                 |
+| -------- | ------------------------------------- | --------------------------------- | -------------------- |
+| `GET`    | `/api/resources/{resource}`           | 对应资源 `list` 权限              | 分页、搜索和筛选     |
+| `GET`    | `/api/resources/{resource}/:id`       | 对应资源 `list` 权限              | 查询详情             |
+| `POST`   | `/api/resources/{resource}`           | 对应资源 `create` 权限            | 新增资源             |
+| `PUT`    | `/api/resources/{resource}/:id`       | 对应资源 `update` 权限            | 按 `version` 修改    |
+| `DELETE` | `/api/resources/{resource}?ids=:ids`  | 对应资源 `delete` 权限            | 原子批量软删除       |
+
+列表支持 `page`、兼容别名 `pageNum`、`pageSize`、`keyword`、兼容别名 `keywords` 和 `status`。分页响应为：
+
+```json
+{
+  "list": [],
+  "total": 0,
+  "page": 1,
+  "pageSize": 20
+}
+```
+
+酒店和餐厅支持 `city`、`unit`；景点支持 `area`、`category`、`unit`；车辆支持 `city`、`unit`；导游支持 `gender`、`employmentType`、`language`、`unit`。旅行社列表返回 `contactCount`，餐厅和景点列表返回 `priceCount`；详情同时返回完整 `contacts` 或 `prices`。
+
+#### 子项与地接社选项 API
+
+| 方法     | 路径                                                     | 权限                   |
+| -------- | -------------------------------------------------------- | ---------------------- |
+| `GET`    | `/api/resources/agencies/:agencyId/contacts`             | `resource:agency:list` |
+| `POST`   | `/api/resources/agencies/:agencyId/contacts`             | `resource:agency:create` |
+| `PUT`    | `/api/resources/agencies/:agencyId/contacts/:contactId`  | `resource:agency:update` |
+| `DELETE` | `/api/resources/agencies/:agencyId/contacts?ids=:ids`    | `resource:agency:delete` |
+| `GET`    | `/api/resources/restaurants/:restaurantId/prices`        | `resource:restaurant:list` |
+| `POST`   | `/api/resources/restaurants/:restaurantId/prices`        | `resource:restaurant:create` |
+| `PUT`    | `/api/resources/restaurants/:restaurantId/prices/:priceId` | `resource:restaurant:update` |
+| `DELETE` | `/api/resources/restaurants/:restaurantId/prices?ids=:ids` | `resource:restaurant:delete` |
+| `GET`    | `/api/resources/attractions/:attractionId/prices`        | `resource:attraction:list` |
+| `POST`   | `/api/resources/attractions/:attractionId/prices`        | `resource:attraction:create` |
+| `PUT`    | `/api/resources/attractions/:attractionId/prices/:priceId` | `resource:attraction:update` |
+| `DELETE` | `/api/resources/attractions/:attractionId/prices?ids=:ids` | `resource:attraction:delete` |
+| `GET`    | `/api/resources/suppliers/options`                       | `resource:supplier:list` |
+
+`suppliers/options` 只返回未删除、已启用的地接社，字段为 `id`、`code`、`name`。
+
+#### 字段、枚举与业务规则
+
+- 通用状态：`enabled | disabled`。
+- 酒店只有一个 `basicRoomType`。`individualPrice` 必填且非负；`groupPrice` 和 `minimumGroupSize` 可分别为空，非空时前者非负、后者为正整数。当前模块只保存这三个字段，不执行报价计算；后续报价只有在成团价和成团人数都存在且成人加儿童总人数达到门槛时才使用成团价。
+- 餐厅价格保存菜单、菜品、单位、价格、可选用餐人数和提供方；价格非负，用餐人数非空时为正整数。
+- 景点 `category`：`scenic | performance | experience | transport | package`；价格 `itemType`：`ticket | transport | guide | activity | package`。起止日期都存在时起始日期不得晚于结束日期；免费价格的门市价和结算价统一保存为 `0.00`。
+- 车辆与司机是同一组合资源；`seats` 为正整数，`dailyPrice` 非负，不存在独立司机表或绑定模块。
+- 导游 `gender`：`male | female`；`employmentType`：`full-time | part-time`；`languages` 保存为 PostgreSQL `text[]`，年龄为 1 至 130 的整数，可选日价非负。`licensePhotoUrl` 只保存字符串地址。
+- 酒店、餐厅、景点、车辆、导游及餐厅/景点价格的 `unit` 必须引用已启用、未删除且适用于对应资源类型的 `resource-unit` 字典项；车辆按字典类型 `vehicle` 校验。
+- 餐厅价格、景点价格和导游选择“地接社提供”时必须引用未删除、已启用的地接社；选择直营时 `groundOperatorId` 强制保存为 `null`。
+- 删除仍被餐厅价格、景点价格或导游引用的地接社返回 `RESOURCE_IN_USE` 和各引用类型数量。删除旅行社、餐厅或景点会在事务中同步软删除其联系人或价格。
+- 旅行社联系人姓名在同一旅行社内忽略大小写唯一；子项只能通过其真实父级 URL 修改或删除。
+- 批量删除会先验证全部 ID，任一 ID 不存在时返回 `missingIds`，不执行部分删除。修改请求必须提交当前 `version`，旧版本返回 `VERSION_CONFLICT`。
+
+主要资源错误码：`AGENCY_NOT_FOUND`、`SUPPLIER_NOT_FOUND`、`HOTEL_NOT_FOUND`、`RESTAURANT_NOT_FOUND`、`ATTRACTION_NOT_FOUND`、`TRANSPORT_NOT_FOUND`、`GUIDE_NOT_FOUND`、`AGENCY_CONTACT_NOT_FOUND`、`RESTAURANT_PRICE_NOT_FOUND`、`ATTRACTION_PRICE_NOT_FOUND`、`RESOURCE_CODE_EXISTS`、`RESOURCE_ID_MISMATCH`、`RESOURCE_UNIT_INVALID`、`GROUND_OPERATOR_REQUIRED`、`GROUND_OPERATOR_NOT_FOUND_OR_DISABLED`、`RESOURCE_IN_USE`、`VERSION_CONFLICT`。
+
+当前未实现资源导入导出、文件上传/对象存储、资源自动编号、资源历史版本、恢复接口、独立司机/车辆司机绑定、酒店多房型与独立价格表，以及与询价、行程、报价、成本或 PDF 的集成。
+
 ### Health
 
 | 方法  | 路径          | 鉴权 | 说明                                   |
@@ -382,7 +463,6 @@ API 与数据库均正常时返回 `200`；任一健康检查失败时返回非 
 - 后端根据锁定的 Quote Version 生成、保存并返回正式 PDF，同时记录文件哈希、生成人、服务端生成时间和历史文件。
 - 状态变化、审计日志和版本快照必须在同一数据库事务中原子完成；前端只调用一个业务命令接口，并使用服务端结果刷新界面。
 - 后端必须重复校验角色、动作和数据范围，不能只依赖前端的菜单或按钮权限。
-- 旅行社维护统一邮箱和多个联系人；联系人只包含稳定 ID、姓名和电话。
 - 询盘保存旅行社与联系人的引用，邮箱固定取旅行社邮箱。
 - 询盘内新增联系人必须通过后端接口同步到当前旅行社；接口需要处理同一旅行社下的重复姓名，并返回最终联系人记录，不能只保存自由文本。
 
