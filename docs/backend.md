@@ -4,6 +4,53 @@
 
 ## 已实现功能
 
+### API Response Contract
+
+除 `204 No Content`、`/api/health` 和文件/图片/流式下载外，所有 JSON 成功响应由全局拦截器统一包装，Controller 与 Service 只返回业务数据：
+
+```json
+{
+  "code": "SUCCESS",
+  "message": "success",
+  "data": {}
+}
+```
+
+分页业务数据固定使用 `list`、`total`、`page`、`pageSize`：
+
+```json
+{
+  "code": "SUCCESS",
+  "message": "success",
+  "data": {
+    "list": [],
+    "total": 0,
+    "page": 1,
+    "pageSize": 20
+  }
+}
+```
+
+所有 JSON 错误响应由全局异常过滤器转换，并保留正确的 HTTP 状态码：
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "请求参数校验失败",
+  "data": null,
+  "details": {
+    "username": ["用户名格式不正确"]
+  },
+  "timestamp": "2026-09-04T07:30:00.000Z",
+  "path": "/api/users",
+  "requestId": "5b27da65-73b8-4d6c-9037-39467bd6d34f"
+}
+```
+
+`requestId` 在请求日志提供 ID 时返回。Validation Error 会按字段整理为字符串数组，不返回 class-validator 的原始英文错误。业务异常统一使用 `BusinessException` 和 `ErrorCode` 字符串常量；未处理的服务端异常只向客户端返回 `INTERNAL_SERVER_ERROR`，完整错误与堆栈仅写入服务端日志。Swagger 中的 `ApiResponse`、`ApiErrorResponse` 和 `PageResult` 是可复用 schema，现有接口的成功响应均描述实际的 `data` 包装层。
+
+下文标记为“`data` 内容”的响应示例省略外层统一成功结构。
+
 ### Auth
 
 | 方法   | 路径                | 鉴权         | 说明                                                     |
@@ -67,7 +114,7 @@ SEED_USER_PASSWORD="<本地开发密码>" pnpm users:seed
 
 - 使用 `/api` 全局前缀并要求 Bearer Token。
 - 管理接口使用页面对应的 `sys:dict:*` 或 `sys:dict-item:*` 权限；已启用选项查询只要求登录。
-- 使用统一错误结构：`code`、`message`、`details`、`timestamp`、`path`。
+- 使用统一错误结构：`code`、`message`、`data: null`、`details`、`timestamp`、`path` 和可选 `requestId`。
 - 删除为软删除，不物理清除分类或分类选项。
 
 #### 分类接口
@@ -83,16 +130,14 @@ SEED_USER_PASSWORD="<本地开发密码>" pnpm users:seed
 
 分页查询参数：
 
-| 参数       | 类型     | 默认值 | 说明                               |
-| ---------- | -------- | ------ | ---------------------------------- |
-| `page`     | integer  | `1`    | 页码                               |
-| `pageNum`  | integer  | -      | 前端兼容参数；存在时覆盖 `page`    |
-| `pageSize` | integer  | `20`   | 每页数量，最大 `100`               |
-| `keyword`  | string   | -      | 按分类名称或编码模糊搜索           |
-| `keywords` | string   | -      | 前端兼容参数；存在时覆盖 `keyword` |
-| `status`   | `0 \| 1` | -      | `0` 停用，`1` 启用                 |
+| 参数       | 类型     | 默认值 | 说明                     |
+| ---------- | -------- | ------ | ------------------------ |
+| `page`     | integer  | `1`    | 页码                     |
+| `pageSize` | integer  | `20`   | 每页数量，最大 `100`     |
+| `keyword`  | string   | -      | 按分类名称或编码模糊搜索 |
+| `status`   | `0 \| 1` | -      | `0` 停用，`1` 启用       |
 
-分页响应返回 `list`、`total`、`page` 和 `pageSize`。前端当前只使用 `list` 与 `total`，额外分页元数据可以忽略。
+分页响应的 `data` 返回 `list`、`total`、`page` 和 `pageSize`。前端当前只使用 `list` 与 `total`，额外分页元数据可以忽略。
 
 分类写入示例：
 
@@ -139,7 +184,7 @@ SEED_USER_PASSWORD="<本地开发密码>" pnpm users:seed
 
 同一分类下 `value` 唯一。`tagType` 可为：空字符串、`primary`、`success`、`info`、`warning`、`danger`。
 
-启用选项查询响应：
+启用选项查询响应的 `data` 内容：
 
 ```json
 [
@@ -212,7 +257,7 @@ pnpm migration:run
 
 `code` 允许小写字母开头，以及字母、数字和连字符；编码全局唯一，软删除后仍不能复用。修改请求可以携带 `id`，但必须与路径 ID 一致。
 
-列表响应与前端页面模型一致：
+列表响应的 `data` 内容与前端页面模型一致：
 
 ```json
 [
@@ -293,16 +338,14 @@ Migration `AddBusinessDictionariesAndUserManagement1788372000000` 会按前端 `
 | 参数         | 类型      | 默认值 | 说明                                 |
 | ------------ | --------- | ------ | ------------------------------------ |
 | `page`       | integer   | `1`    | 页码                                 |
-| `pageNum`    | integer   | -      | 前端兼容参数；存在时覆盖 `page`      |
 | `pageSize`   | integer   | `20`   | 每页数量，最大 `100`                 |
 | `keyword`    | string    | -      | 搜索用户名、昵称或手机号             |
-| `keywords`   | string    | -      | 前端兼容参数；存在时覆盖 `keyword`   |
 | `status`     | `0 \| 1`  | -      | `0` 停用，`1` 启用                   |
 | `deptId`     | integer   | -      | 部门 ID                              |
 | `roleId`     | UUID      | -      | 角色 ID                              |
 | `createTime` | string[2] | -      | 开始、结束日期；支持数组或逗号分隔值 |
 
-响应返回 `list`、`total`、`page` 和 `pageSize`。列表项和表单详情都返回 `deptId`、`deptName`、`roleIds`、逗号连接的 `roleNames`，并将状态映射为前端使用的 `0 | 1`。
+分页响应的 `data` 返回 `list`、`total`、`page` 和 `pageSize`。列表项和表单详情都返回 `deptId`、`deptName`、`roleIds`、逗号连接的 `roleNames`，并将状态映射为前端使用的 `0 | 1`。
 
 用户写入示例：
 
@@ -342,7 +385,7 @@ Migration `AddBusinessDictionariesAndUserManagement1788372000000` 会按前端 `
 | ----------------------------------- | --------- | -------------------------------------------- |
 | `USER_NOT_FOUND`                    | `404`     | 用户不存在或已删除                           |
 | `USERS_NOT_FOUND`                   | `404`     | 批量删除包含不存在的用户 ID                  |
-| `USERNAME_EXISTS`                   | `409`     | 用户名已存在                                 |
+| `USERNAME_ALREADY_EXISTS`           | `409`     | 用户名已存在                                 |
 | `USERNAME_IMMUTABLE`                | `409`     | 尝试修改用户名                               |
 | `CURRENT_USER_CANNOT_BE_DISABLED`   | `409`     | 当前用户尝试停用自己                         |
 | `CURRENT_USER_CANNOT_BE_DELETED`    | `409`     | 当前用户尝试删除自己                         |
@@ -375,22 +418,26 @@ Migration `AddResources1788458400000` 创建：
 
 以下 `{resource}` 可为 `agencies`、`suppliers`、`hotels`、`restaurants`、`attractions`、`transports` 或 `guides`：
 
-| 方法     | 路径                                  | 权限                              | 说明                 |
-| -------- | ------------------------------------- | --------------------------------- | -------------------- |
-| `GET`    | `/api/resources/{resource}`           | 对应资源 `list` 权限              | 分页、搜索和筛选     |
-| `GET`    | `/api/resources/{resource}/:id`       | 对应资源 `list` 权限              | 查询详情             |
-| `POST`   | `/api/resources/{resource}`           | 对应资源 `create` 权限            | 新增资源             |
-| `PUT`    | `/api/resources/{resource}/:id`       | 对应资源 `update` 权限            | 按 `version` 修改    |
-| `DELETE` | `/api/resources/{resource}?ids=:ids`  | 对应资源 `delete` 权限            | 原子批量软删除       |
+| 方法     | 路径                                 | 权限                   | 说明              |
+| -------- | ------------------------------------ | ---------------------- | ----------------- |
+| `GET`    | `/api/resources/{resource}`          | 对应资源 `list` 权限   | 分页、搜索和筛选  |
+| `GET`    | `/api/resources/{resource}/:id`      | 对应资源 `list` 权限   | 查询详情          |
+| `POST`   | `/api/resources/{resource}`          | 对应资源 `create` 权限 | 新增资源          |
+| `PUT`    | `/api/resources/{resource}/:id`      | 对应资源 `update` 权限 | 按 `version` 修改 |
+| `DELETE` | `/api/resources/{resource}?ids=:ids` | 对应资源 `delete` 权限 | 原子批量软删除    |
 
-列表支持 `page`、兼容别名 `pageNum`、`pageSize`、`keyword`、兼容别名 `keywords` 和 `status`。分页响应为：
+列表统一支持 `page`、`pageSize`、`keyword` 和 `status`。分页响应为：
 
 ```json
 {
-  "list": [],
-  "total": 0,
-  "page": 1,
-  "pageSize": 20
+  "code": "SUCCESS",
+  "message": "success",
+  "data": {
+    "list": [],
+    "total": 0,
+    "page": 1,
+    "pageSize": 20
+  }
 }
 ```
 
@@ -398,21 +445,21 @@ Migration `AddResources1788458400000` 创建：
 
 #### 子项与地接社选项 API
 
-| 方法     | 路径                                                     | 权限                   |
-| -------- | -------------------------------------------------------- | ---------------------- |
-| `GET`    | `/api/resources/agencies/:agencyId/contacts`             | `resource:agency:list` |
-| `POST`   | `/api/resources/agencies/:agencyId/contacts`             | `resource:agency:create` |
-| `PUT`    | `/api/resources/agencies/:agencyId/contacts/:contactId`  | `resource:agency:update` |
-| `DELETE` | `/api/resources/agencies/:agencyId/contacts?ids=:ids`    | `resource:agency:delete` |
-| `GET`    | `/api/resources/restaurants/:restaurantId/prices`        | `resource:restaurant:list` |
-| `POST`   | `/api/resources/restaurants/:restaurantId/prices`        | `resource:restaurant:create` |
+| 方法     | 路径                                                       | 权限                         |
+| -------- | ---------------------------------------------------------- | ---------------------------- |
+| `GET`    | `/api/resources/agencies/:agencyId/contacts`               | `resource:agency:list`       |
+| `POST`   | `/api/resources/agencies/:agencyId/contacts`               | `resource:agency:create`     |
+| `PUT`    | `/api/resources/agencies/:agencyId/contacts/:contactId`    | `resource:agency:update`     |
+| `DELETE` | `/api/resources/agencies/:agencyId/contacts?ids=:ids`      | `resource:agency:delete`     |
+| `GET`    | `/api/resources/restaurants/:restaurantId/prices`          | `resource:restaurant:list`   |
+| `POST`   | `/api/resources/restaurants/:restaurantId/prices`          | `resource:restaurant:create` |
 | `PUT`    | `/api/resources/restaurants/:restaurantId/prices/:priceId` | `resource:restaurant:update` |
 | `DELETE` | `/api/resources/restaurants/:restaurantId/prices?ids=:ids` | `resource:restaurant:delete` |
-| `GET`    | `/api/resources/attractions/:attractionId/prices`        | `resource:attraction:list` |
-| `POST`   | `/api/resources/attractions/:attractionId/prices`        | `resource:attraction:create` |
+| `GET`    | `/api/resources/attractions/:attractionId/prices`          | `resource:attraction:list`   |
+| `POST`   | `/api/resources/attractions/:attractionId/prices`          | `resource:attraction:create` |
 | `PUT`    | `/api/resources/attractions/:attractionId/prices/:priceId` | `resource:attraction:update` |
 | `DELETE` | `/api/resources/attractions/:attractionId/prices?ids=:ids` | `resource:attraction:delete` |
-| `GET`    | `/api/resources/suppliers/options`                       | `resource:supplier:list` |
+| `GET`    | `/api/resources/suppliers/options`                         | `resource:supplier:list`     |
 
 `suppliers/options` 只返回未删除、已启用的地接社，字段为 `id`、`code`、`name`。
 
@@ -428,9 +475,9 @@ Migration `AddResources1788458400000` 创建：
 - 餐厅价格、景点价格和导游选择“地接社提供”时必须引用未删除、已启用的地接社；选择直营时 `groundOperatorId` 强制保存为 `null`。
 - 删除仍被餐厅价格、景点价格或导游引用的地接社返回 `RESOURCE_IN_USE` 和各引用类型数量。删除旅行社、餐厅或景点会在事务中同步软删除其联系人或价格。
 - 旅行社联系人姓名在同一旅行社内忽略大小写唯一；子项只能通过其真实父级 URL 修改或删除。
-- 批量删除会先验证全部 ID，任一 ID 不存在时返回 `missingIds`，不执行部分删除。修改请求必须提交当前 `version`，旧版本返回 `VERSION_CONFLICT`。
+- 批量删除会先验证全部 ID，任一 ID 不存在时返回 `missingIds`，不执行部分删除。修改请求必须提交当前 `version`，旧版本返回 `RESOURCE_VERSION_CONFLICT`。
 
-主要资源错误码：`AGENCY_NOT_FOUND`、`SUPPLIER_NOT_FOUND`、`HOTEL_NOT_FOUND`、`RESTAURANT_NOT_FOUND`、`ATTRACTION_NOT_FOUND`、`TRANSPORT_NOT_FOUND`、`GUIDE_NOT_FOUND`、`AGENCY_CONTACT_NOT_FOUND`、`RESTAURANT_PRICE_NOT_FOUND`、`ATTRACTION_PRICE_NOT_FOUND`、`RESOURCE_CODE_EXISTS`、`RESOURCE_ID_MISMATCH`、`RESOURCE_UNIT_INVALID`、`GROUND_OPERATOR_REQUIRED`、`GROUND_OPERATOR_NOT_FOUND_OR_DISABLED`、`RESOURCE_IN_USE`、`VERSION_CONFLICT`。
+主要资源错误码：`AGENCY_NOT_FOUND`、`SUPPLIER_NOT_FOUND`、`HOTEL_NOT_FOUND`、`RESTAURANT_NOT_FOUND`、`ATTRACTION_NOT_FOUND`、`TRANSPORT_NOT_FOUND`、`GUIDE_NOT_FOUND`、`AGENCY_CONTACT_NOT_FOUND`、`RESTAURANT_PRICE_NOT_FOUND`、`ATTRACTION_PRICE_NOT_FOUND`、`RESOURCE_CODE_EXISTS`、`RESOURCE_ID_MISMATCH`、`RESOURCE_UNIT_INVALID`、`GROUND_OPERATOR_REQUIRED`、`GROUND_OPERATOR_NOT_FOUND_OR_DISABLED`、`RESOURCE_IN_USE`、`RESOURCE_VERSION_CONFLICT`。
 
 当前未实现资源导入导出、文件上传/对象存储、资源自动编号、资源历史版本、恢复接口、独立司机/车辆司机绑定、酒店多房型与独立价格表，以及与询价、行程、报价、成本或 PDF 的集成。
 
@@ -440,7 +487,7 @@ Migration `AddResources1788458400000` 创建：
 | ----- | ------------- | ---- | -------------------------------------- |
 | `GET` | `/api/health` | 否   | 检查 NestJS API 和 PostgreSQL 连接状态 |
 
-API 与数据库均正常时返回 `200`；任一健康检查失败时返回非 `2xx` 状态。
+API 与数据库均正常时返回原始 Terminus 健康结构和 `200`，不经过成功响应包装；任一健康检查失败时返回非 `2xx` 状态。
 
 ## 当前公共能力
 
@@ -448,7 +495,8 @@ API 与数据库均正常时返回 `200`；任一健康检查失败时返回非 
 - 开发服务端口：`4000`
 - Swagger：`http://localhost:4000/api/docs`
 - DTO 校验：自动转换、白名单过滤并拒绝未声明字段
-- 统一错误响应：`code`、`message`、`details`、`timestamp`、`path`
+- 统一成功响应：`code: SUCCESS`、`message: success`、`data`
+- 统一错误响应：`code`、`message`、`data: null`、`details`、`timestamp`、`path`、可选 `requestId`
 - Pino 结构化日志与请求 ID；认证头、密码和 Refresh Token 会被脱敏
 - Helmet、CORS、全局限流和优雅关闭
 - PostgreSQL 16、TypeORM Migration、Docker Compose

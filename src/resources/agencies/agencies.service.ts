@@ -2,7 +2,8 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { PageResult } from '../../common/types/page-result';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { AgencyContactEntity, AgencyEntity } from './agency.entity';
 import {
   AgencyContactResponse,
@@ -75,11 +76,11 @@ export class AgenciesService {
       relations: { contacts: true },
     });
     if (!entity)
-      throw new ApplicationError(
-        'AGENCY_NOT_FOUND',
-        'Agency was not found',
-        404,
-      );
+      throw new BusinessException({
+        code: ErrorCode.AGENCY_NOT_FOUND,
+        message: 'Agency was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     return {
       ...this.toListResponse(entity),
       contactCount: entity.contacts.length,
@@ -115,7 +116,7 @@ export class AgenciesService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'AGENCY_NOT_FOUND',
+        ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -134,7 +135,7 @@ export class AgenciesService {
       const entities = await requireResources(
         repository,
         ids,
-        'AGENCY_NOT_FOUND',
+        ErrorCode.AGENCY_NOT_FOUND,
       );
       const uniqueIds = entities.map((entity) => entity.id);
       await manager
@@ -159,7 +160,7 @@ export class AgenciesService {
   }
 
   async listContacts(agencyId: string): Promise<AgencyContactResponse[]> {
-    await requireResource(this.agencies, agencyId, 'AGENCY_NOT_FOUND');
+    await requireResource(this.agencies, agencyId, ErrorCode.AGENCY_NOT_FOUND);
     return (
       await this.contacts.find({
         where: { agencyId },
@@ -177,7 +178,7 @@ export class AgenciesService {
       await requireResource(
         manager.getRepository(AgencyEntity),
         agencyId,
-        'AGENCY_NOT_FOUND',
+        ErrorCode.AGENCY_NOT_FOUND,
       );
       const repository = manager.getRepository(AgencyContactEntity);
       const nameKey = input.name.toLowerCase();
@@ -186,11 +187,11 @@ export class AgenciesService {
           where: { agencyId, nameKey },
         })
       )
-        throw new ApplicationError(
-          'AGENCY_CONTACT_NAME_EXISTS',
-          'Contact name already exists for this agency',
-          HttpStatus.CONFLICT,
-        );
+        throw new BusinessException({
+          code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
+          message: 'Contact name already exists for this agency',
+          status: HttpStatus.CONFLICT,
+        });
       return this.toContactResponse(
         await repository.save(
           repository.create({
@@ -216,7 +217,7 @@ export class AgenciesService {
       await requireResource(
         manager.getRepository(AgencyEntity),
         agencyId,
-        'AGENCY_NOT_FOUND',
+        ErrorCode.AGENCY_NOT_FOUND,
       );
       const repository = manager.getRepository(AgencyContactEntity);
       const entity = await repository.findOne({
@@ -224,11 +225,11 @@ export class AgenciesService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!entity)
-        throw new ApplicationError(
-          'AGENCY_CONTACT_NOT_FOUND',
-          'Contact was not found for this agency',
-          404,
-        );
+        throw new BusinessException({
+          code: ErrorCode.AGENCY_CONTACT_NOT_FOUND,
+          message: 'Contact was not found for this agency',
+          status: HttpStatus.NOT_FOUND,
+        });
       assertVersion(entity.version, input.version);
       const nameKey = input.name.toLowerCase();
       if (
@@ -236,11 +237,11 @@ export class AgenciesService {
           where: { agencyId, nameKey, id: Not(contactId) },
         })
       )
-        throw new ApplicationError(
-          'AGENCY_CONTACT_NAME_EXISTS',
-          'Contact name already exists for this agency',
-          HttpStatus.CONFLICT,
-        );
+        throw new BusinessException({
+          code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
+          message: 'Contact name already exists for this agency',
+          status: HttpStatus.CONFLICT,
+        });
       Object.assign(entity, input, {
         id: contactId,
         agencyId,
@@ -260,7 +261,7 @@ export class AgenciesService {
       await requireResource(
         manager.getRepository(AgencyEntity),
         agencyId,
-        'AGENCY_NOT_FOUND',
+        ErrorCode.AGENCY_NOT_FOUND,
       );
       const uniqueIds = [...new Set(ids)];
       const repository = manager.getRepository(AgencyContactEntity);
@@ -268,7 +269,7 @@ export class AgenciesService {
       assertAllFound(
         uniqueIds,
         entities.map((item) => item.id),
-        'AGENCY_CONTACT_NOT_FOUND',
+        ErrorCode.AGENCY_CONTACT_NOT_FOUND,
       );
       await repository
         .createQueryBuilder()

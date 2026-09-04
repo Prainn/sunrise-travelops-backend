@@ -1,6 +1,6 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { Test } from '@nestjs/testing';
@@ -11,6 +11,8 @@ import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../src/auth/guards/permissions.guard';
 import { JwtStrategy } from '../src/auth/jwt.strategy';
 import { ApiExceptionFilter } from '../src/common/filters/api-exception.filter';
+import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
+import { createValidationException } from '../src/common/validation/validation-exception.factory';
 import { HotelsController } from '../src/resources/hotels/hotels.controller';
 import { HotelsService } from '../src/resources/hotels/hotels.service';
 import { RestaurantsController } from '../src/resources/restaurants/restaurants.controller';
@@ -72,12 +74,17 @@ describe('Resources API authorization (e2e)', () => {
         },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: PermissionsGuard },
+        { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
     app = module.createNestApplication();
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        exceptionFactory: createValidationException,
+      }),
     );
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
@@ -88,7 +95,13 @@ describe('Resources API authorization (e2e)', () => {
   afterAll(async () => app.close());
 
   it('requires a bearer token and the resource list permission', async () => {
-    await request(server).get('/api/resources/hotels').expect(401);
+    const unauthenticated = await request(server)
+      .get('/api/resources/hotels')
+      .expect(401);
+    expect(unauthenticated.body).toMatchObject({
+      code: 'AUTH_TOKEN_INVALID',
+      data: null,
+    });
 
     const token = await jwt.signAsync(
       { sub: '00000000-0000-4000-8000-000000000001', type: 'access' },
@@ -98,13 +111,20 @@ describe('Resources API authorization (e2e)', () => {
       .get('/api/resources/hotels')
       .set('Authorization', `Bearer ${token}`)
       .expect(403);
-    expect(denied.body).toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(denied.body).toMatchObject({
+      code: 'AUTH_FORBIDDEN',
+      data: null,
+    });
 
     permissions.push('resource:hotel:list');
     await request(server)
       .get('/api/resources/hotels')
       .set('Authorization', `Bearer ${token}`)
-      .expect(200, { list: [], total: 0, page: 1, pageSize: 20 });
+      .expect(200, {
+        code: 'SUCCESS',
+        message: 'success',
+        data: { list: [], total: 0, page: 1, pageSize: 20 },
+      });
   });
 
   it('accepts an existing UUID v5 parent id for a child-resource route', async () => {
@@ -119,6 +139,6 @@ describe('Resources API authorization (e2e)', () => {
     await request(server)
       .get(`/api/resources/restaurants/${uuidV5}/prices`)
       .set('Authorization', `Bearer ${token}`)
-      .expect(200, []);
+      .expect(200, { code: 'SUCCESS', message: 'success', data: [] });
   });
 });

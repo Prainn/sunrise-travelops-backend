@@ -13,9 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -23,18 +21,28 @@ import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
 import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
+import {
   BatchIdsQueryDto,
   DictionaryCodeParamDto,
   DictionaryItemInputDto,
   DictionaryItemParamDto,
   DictionaryItemQueryDto,
+  DictionaryItemResponse,
+  DictionaryItemOptionResponse,
   DictionaryTypeInputDto,
+  DictionaryTypeOptionResponse,
   DictionaryTypeQueryDto,
+  DictionaryTypeResponse,
 } from './dto/dictionary.dto';
 import { SystemDictionariesService } from './system-dictionaries.service';
 
 @ApiTags('System')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('system/dictionaries')
 export class SystemDictionariesController {
   constructor(private readonly dictionaries: SystemDictionariesService) {}
@@ -42,7 +50,10 @@ export class SystemDictionariesController {
   @Get()
   @Permissions('sys:dict:list')
   @ApiOperation({ summary: 'List dictionary types' })
-  @ApiOkResponse({ description: 'Paginated dictionary type list' })
+  @ApiPaginatedResponse(
+    DictionaryTypeResponse,
+    'Paginated dictionary type list',
+  )
   getDictionaryTypePage(@Query() query: DictionaryTypeQueryDto) {
     return this.dictionaries.getDictionaryTypePage(query);
   }
@@ -50,7 +61,11 @@ export class SystemDictionariesController {
   @Get('options')
   @Permissions('sys:dict:list')
   @ApiOperation({ summary: 'List enabled dictionary types as options' })
-  @ApiOkResponse({ description: 'Enabled dictionary type options' })
+  @ApiSuccessResponse({
+    type: DictionaryTypeOptionResponse,
+    isArray: true,
+    description: 'Enabled dictionary type options',
+  })
   getDictionaryTypeOptions() {
     return this.dictionaries.getDictionaryTypeOptions();
   }
@@ -58,7 +73,10 @@ export class SystemDictionariesController {
   @Get(':id')
   @Permissions('sys:dict:list')
   @ApiOperation({ summary: 'Get one dictionary type' })
-  @ApiOkResponse({ description: 'Dictionary type form data' })
+  @ApiSuccessResponse({
+    type: DictionaryTypeResponse,
+    description: 'Dictionary type form data',
+  })
   getDictionaryType(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.dictionaries.getDictionaryType(id);
   }
@@ -66,7 +84,11 @@ export class SystemDictionariesController {
   @Post()
   @Permissions('sys:dict:create')
   @ApiOperation({ summary: 'Create a dictionary type' })
-  @ApiCreatedResponse({ description: 'Created dictionary type' })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: DictionaryTypeResponse,
+    description: 'Created dictionary type',
+  })
   createDictionaryType(
     @Body() input: DictionaryTypeInputDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -77,7 +99,10 @@ export class SystemDictionariesController {
   @Put(':id')
   @Permissions('sys:dict:update')
   @ApiOperation({ summary: 'Update a dictionary type' })
-  @ApiOkResponse({ description: 'Updated dictionary type' })
+  @ApiSuccessResponse({
+    type: DictionaryTypeResponse,
+    description: 'Updated dictionary type',
+  })
   updateDictionaryType(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: DictionaryTypeInputDto,
@@ -101,7 +126,10 @@ export class SystemDictionariesController {
   @Get(':dictCode/items')
   @Permissions('sys:dict-item:list')
   @ApiOperation({ summary: 'List items for a dictionary type' })
-  @ApiOkResponse({ description: 'Paginated dictionary item list' })
+  @ApiPaginatedResponse(
+    DictionaryItemResponse,
+    'Paginated dictionary item list',
+  )
   getDictionaryItemPage(
     @Param() params: DictionaryCodeParamDto,
     @Query() query: DictionaryItemQueryDto,
@@ -111,7 +139,11 @@ export class SystemDictionariesController {
 
   @Get(':dictCode/items/options')
   @ApiOperation({ summary: 'List enabled dictionary items as options' })
-  @ApiOkResponse({ description: 'Enabled dictionary item options' })
+  @ApiSuccessResponse({
+    type: DictionaryItemOptionResponse,
+    isArray: true,
+    description: 'Enabled dictionary item options',
+  })
   getDictionaryItemOptions(@Param() params: DictionaryCodeParamDto) {
     return this.dictionaries.getDictionaryItemOptions(params.dictCode);
   }
@@ -119,7 +151,10 @@ export class SystemDictionariesController {
   @Get(':dictCode/items/:id')
   @Permissions('sys:dict-item:list')
   @ApiOperation({ summary: 'Get one dictionary item' })
-  @ApiOkResponse({ description: 'Dictionary item form data' })
+  @ApiSuccessResponse({
+    type: DictionaryItemResponse,
+    description: 'Dictionary item form data',
+  })
   getDictionaryItem(@Param() params: DictionaryItemParamDto) {
     return this.dictionaries.getDictionaryItem(params.dictCode, params.id);
   }
@@ -127,7 +162,11 @@ export class SystemDictionariesController {
   @Post(':dictCode/items')
   @Permissions('sys:dict-item:create')
   @ApiOperation({ summary: 'Create a dictionary item' })
-  @ApiCreatedResponse({ description: 'Created dictionary item' })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: DictionaryItemResponse,
+    description: 'Created dictionary item',
+  })
   createDictionaryItem(
     @Param() params: DictionaryCodeParamDto,
     @Body() input: DictionaryItemInputDto,
@@ -143,7 +182,10 @@ export class SystemDictionariesController {
   @Put(':dictCode/items/:id')
   @Permissions('sys:dict-item:update')
   @ApiOperation({ summary: 'Update a dictionary item' })
-  @ApiOkResponse({ description: 'Updated dictionary item' })
+  @ApiSuccessResponse({
+    type: DictionaryItemResponse,
+    description: 'Updated dictionary item',
+  })
   updateDictionaryItem(
     @Param() params: DictionaryItemParamDto,
     @Body() input: DictionaryItemInputDto,

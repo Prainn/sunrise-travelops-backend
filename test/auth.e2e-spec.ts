@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Server } from 'node:http';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { Test } from '@nestjs/testing';
@@ -23,6 +23,8 @@ import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../src/auth/guards/permissions.guard';
 import { JwtStrategy } from '../src/auth/jwt.strategy';
 import { ApiExceptionFilter } from '../src/common/filters/api-exception.filter';
+import { ResponseInterceptor } from '../src/common/interceptors/response.interceptor';
+import { createValidationException } from '../src/common/validation/validation-exception.factory';
 import { UserEntity, UserStatus } from '../src/users/user.entity';
 
 @Controller('protected')
@@ -113,13 +115,18 @@ describe('Auth API (e2e)', () => {
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: PermissionsGuard },
+        { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
 
     app = module.createNestApplication();
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
-      new ValidationPipe({ whitelist: true, transform: true }),
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        exceptionFactory: createValidationException,
+      }),
     );
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
@@ -136,8 +143,12 @@ describe('Auth API (e2e)', () => {
       .send({ username: 'coordinator', password: '123456' })
       .expect(200);
 
-    expect(login.body).toMatchObject({ tokenType: 'Bearer' });
-    const loginTokens = parseAuthTokens(login.body as unknown);
+    expect(login.body).toMatchObject({
+      code: 'SUCCESS',
+      message: 'success',
+      data: { tokenType: 'Bearer' },
+    });
+    const loginTokens = parseAuthTokens(responseData(login.body as unknown));
     expect(loginTokens.accessToken.length).toBeLessThan(500);
     expect(decodeJwtPayload(loginTokens.accessToken)).toMatchObject({
       sub: storedUser.id,
@@ -149,33 +160,50 @@ describe('Auth API (e2e)', () => {
     await request(server)
       .get('/api/protected/users')
       .set('Authorization', `Bearer ${loginTokens.accessToken}`)
-      .expect(200, { ok: true });
+      .expect(200, {
+        code: 'SUCCESS',
+        message: 'success',
+        data: { ok: true },
+      });
 
     const refresh = await request(server)
       .post('/api/auth/refresh')
       .send({ refreshToken: loginTokens.refreshToken })
       .expect(200);
-    const refreshedTokens = parseAuthTokens(refresh.body as unknown);
+    const refreshedTokens = parseAuthTokens(
+      responseData(refresh.body as unknown),
+    );
     expect(refreshedTokens.refreshToken).not.toBe(loginTokens.refreshToken);
 
     const denied = await request(server)
       .get('/api/protected/roles')
       .set('Authorization', `Bearer ${refreshedTokens.accessToken}`)
       .expect(403);
-    expect(denied.body).toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(denied.body).toMatchObject({
+      code: 'AUTH_FORBIDDEN',
+      data: null,
+    });
   });
 
   it('throttles repeated login attempts', async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await request(server)
+      const rejected = await request(server)
         .post('/api/auth/login')
         .send({ username: 'coordinator', password: 'wrong-password' })
         .expect(401);
+      expect(rejected.body).toMatchObject({
+        code: 'AUTH_INVALID_CREDENTIALS',
+        data: null,
+      });
     }
-    await request(server)
+    const throttled = await request(server)
       .post('/api/auth/login')
       .send({ username: 'coordinator', password: 'wrong-password' })
       .expect(429);
+    expect(throttled.body).toMatchObject({
+      code: 'TOO_MANY_REQUESTS',
+      data: null,
+    });
   });
 });
 
@@ -198,6 +226,13 @@ function parseAuthTokens(value: unknown): AuthTokens {
     expiresIn: value.expiresIn,
     tokenType: 'Bearer',
   };
+}
+
+function responseData(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || !('data' in value)) {
+    throw new Error('Expected an API success response');
+  }
+  return value.data;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {

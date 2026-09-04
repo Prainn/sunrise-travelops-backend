@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import { HotelEntity } from './hotel.entity';
 import {
@@ -63,7 +64,7 @@ export class HotelsService {
   }
   async get(id: string): Promise<HotelResponse> {
     return this.toResponse(
-      await requireResource(this.hotels, id, 'HOTEL_NOT_FOUND'),
+      await requireResource(this.hotels, id, ErrorCode.HOTEL_NOT_FOUND),
     );
   }
   async create(input: CreateHotelDto, actorId: string): Promise<HotelResponse> {
@@ -92,7 +93,7 @@ export class HotelsService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'HOTEL_NOT_FOUND',
+        ErrorCode.HOTEL_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -113,7 +114,7 @@ export class HotelsService {
       const entities = await requireResources(
         repository,
         ids,
-        'HOTEL_NOT_FOUND',
+        ErrorCode.HOTEL_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       await repository

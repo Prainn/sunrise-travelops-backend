@@ -28,73 +28,19 @@ const trimAndLowercase = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toLowerCase() : value;
 
 export class DictionaryTypeQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({
-    description: 'Frontend-compatible alias for page',
-    minimum: 1,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  pageNum?: number;
-
-  @ApiPropertyOptional({
-    description: 'Frontend-compatible alias for keyword',
-  })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(100)
-  keywords?: string;
-
   @ApiPropertyOptional({ enum: DictionaryStatus })
   @IsOptional()
   @Type(() => Number)
   @IsIn([DictionaryStatus.Disabled, DictionaryStatus.Enabled])
   status?: DictionaryStatus;
-
-  get requestedPage(): number {
-    return this.pageNum ?? this.page;
-  }
-
-  get searchKeyword(): string | undefined {
-    return this.keywords || this.keyword?.trim() || undefined;
-  }
 }
 
 export class DictionaryItemQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({
-    description: 'Frontend-compatible alias for page',
-    minimum: 1,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  pageNum?: number;
-
-  @ApiPropertyOptional({
-    description: 'Frontend-compatible alias for keyword',
-  })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(100)
-  keywords?: string;
-
   @ApiPropertyOptional({ enum: DictionaryStatus })
   @IsOptional()
   @Type(() => Number)
   @IsIn([DictionaryStatus.Disabled, DictionaryStatus.Enabled])
   status?: DictionaryStatus;
-
-  get requestedPage(): number {
-    return this.pageNum ?? this.page;
-  }
-
-  get searchKeyword(): string | undefined {
-    return this.keywords || this.keyword?.trim() || undefined;
-  }
 }
 
 export class DictionaryTypeInputDto {
@@ -217,7 +163,7 @@ export class DictionaryItemParamDto extends DictionaryCodeParamDto {
   id: string;
 }
 
-export interface DictionaryTypeResponse {
+export class DictionaryTypeResponse {
   id: string;
   name: string;
   dictCode: string;
@@ -225,7 +171,7 @@ export interface DictionaryTypeResponse {
   remark?: string;
 }
 
-export interface DictionaryItemResponse {
+export class DictionaryItemResponse {
   id: string;
   dictCode: string;
   label: string;
@@ -235,12 +181,12 @@ export interface DictionaryItemResponse {
   tagType: DictionaryTagType;
 }
 
-export interface DictionaryTypeOptionResponse {
+export class DictionaryTypeOptionResponse {
   value: string;
   label: string;
 }
 
-export interface DictionaryItemOptionResponse {
+export class DictionaryItemOptionResponse {
   value: string;
   label: string;
   tagType: DictionaryTagType;

@@ -6,6 +6,7 @@ import {
   TypeOrmHealthIndicator,
 } from '@nestjs/terminus';
 import { Public } from '../auth/decorators/public.decorator';
+import { SkipResponseWrap } from '../common/decorators/skip-response-wrap.decorator';
 
 @ApiTags('Health')
 @Controller('health')
@@ -17,6 +18,7 @@ export class HealthController {
 
   @Get()
   @Public()
+  @SkipResponseWrap()
   @HealthCheck()
   @ApiOperation({ summary: 'Check API and PostgreSQL health' })
   check() {

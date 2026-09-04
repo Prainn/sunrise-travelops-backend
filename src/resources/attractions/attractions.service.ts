@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import {
   actualKeyword,
@@ -85,11 +86,11 @@ export class AttractionsService {
       relations: { prices: true },
     });
     if (!entity)
-      throw new ApplicationError(
-        'ATTRACTION_NOT_FOUND',
-        'Attraction was not found',
-        404,
-      );
+      throw new BusinessException({
+        code: ErrorCode.ATTRACTION_NOT_FOUND,
+        message: 'Attraction was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     return this.toDetailResponse(entity, entity.prices);
   }
   async create(
@@ -123,7 +124,7 @@ export class AttractionsService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'ATTRACTION_NOT_FOUND',
+        ErrorCode.ATTRACTION_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -141,7 +142,7 @@ export class AttractionsService {
       const entities = await requireResources(
         repository,
         ids,
-        'ATTRACTION_NOT_FOUND',
+        ErrorCode.ATTRACTION_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       const prices = manager.getRepository(AttractionPriceEntity);
@@ -166,7 +167,7 @@ export class AttractionsService {
     await requireResource(
       this.attractions,
       attractionId,
-      'ATTRACTION_NOT_FOUND',
+      ErrorCode.ATTRACTION_NOT_FOUND,
     );
     return (
       await this.prices.find({
@@ -185,7 +186,7 @@ export class AttractionsService {
       await requireResource(
         manager.getRepository(AttractionEntity),
         attractionId,
-        'ATTRACTION_NOT_FOUND',
+        ErrorCode.ATTRACTION_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'attraction');
       const groundOperatorId = await this.validation.validateGroundOperator(
@@ -222,7 +223,7 @@ export class AttractionsService {
       await requireResource(
         manager.getRepository(AttractionEntity),
         attractionId,
-        'ATTRACTION_NOT_FOUND',
+        ErrorCode.ATTRACTION_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'attraction');
       const groundOperatorId = await this.validation.validateGroundOperator(
@@ -235,11 +236,11 @@ export class AttractionsService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!entity)
-        throw new ApplicationError(
-          'ATTRACTION_PRICE_NOT_FOUND',
-          'Price was not found for this attraction',
-          404,
-        );
+        throw new BusinessException({
+          code: ErrorCode.ATTRACTION_PRICE_NOT_FOUND,
+          message: 'Price was not found for this attraction',
+          status: HttpStatus.NOT_FOUND,
+        });
       assertVersion(entity.version, input.version);
       Object.assign(entity, input, this.amounts(input), {
         id: priceId,
@@ -261,7 +262,7 @@ export class AttractionsService {
       await requireResource(
         manager.getRepository(AttractionEntity),
         attractionId,
-        'ATTRACTION_NOT_FOUND',
+        ErrorCode.ATTRACTION_NOT_FOUND,
       );
       const uniqueIds = [...new Set(ids)];
       const repository = manager.getRepository(AttractionPriceEntity);
@@ -272,7 +273,7 @@ export class AttractionsService {
       assertAllFound(
         uniqueIds,
         entities.map((item) => item.id),
-        'ATTRACTION_PRICE_NOT_FOUND',
+        ErrorCode.ATTRACTION_PRICE_NOT_FOUND,
       );
       await repository
         .createQueryBuilder()
@@ -286,11 +287,11 @@ export class AttractionsService {
   }
   private validateDates(start?: string | null, end?: string | null): void {
     if (start && end && start > end)
-      throw new ApplicationError(
-        'ATTRACTION_PRICE_DATE_INVALID',
-        'Start date must not be after end date',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.ATTRACTION_PRICE_DATE_INVALID,
+        message: 'Start date must not be after end date',
+        status: HttpStatus.BAD_REQUEST,
+      });
   }
   private amounts(input: CreateAttractionPriceDto): {
     rackPrice: string;

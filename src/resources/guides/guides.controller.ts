@@ -13,15 +13,18 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
+import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import {
   CreateGuideDto,
@@ -32,26 +35,28 @@ import {
 import { GuidesService } from './guides.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('resources/guides')
 export class GuidesController {
   constructor(private readonly service: GuidesService) {}
   @Get()
   @Permissions('resource:guide:list')
   @ApiOperation({ summary: 'List guides' })
+  @ApiPaginatedResponse(GuideResponse)
   list(@Query() query: GuideQueryDto) {
     return this.service.list(query);
   }
   @Get(':id')
   @Permissions('resource:guide:list')
   @ApiOperation({ summary: 'Get a guide' })
-  @ApiOkResponse({ type: GuideResponse })
+  @ApiSuccessResponse({ type: GuideResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:guide:create')
   @ApiOperation({ summary: 'Create a guide' })
-  @ApiCreatedResponse({ type: GuideResponse })
+  @ApiSuccessResponse({ status: HttpStatus.CREATED, type: GuideResponse })
   create(
     @Body() input: CreateGuideDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -61,7 +66,7 @@ export class GuidesController {
   @Put(':id')
   @Permissions('resource:guide:update')
   @ApiOperation({ summary: 'Update a guide' })
-  @ApiOkResponse({ type: GuideResponse })
+  @ApiSuccessResponse({ type: GuideResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateGuideDto,

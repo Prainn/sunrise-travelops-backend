@@ -1,15 +1,13 @@
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
   IsEnum,
-  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
   MaxLength,
-  Min,
   MinLength,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
@@ -26,17 +24,6 @@ const moneyString = ({ value }: { value: unknown }): unknown =>
       : value;
 
 export class ResourceQueryDto extends PaginationQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  pageNum?: number;
-
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  keywords?: string;
-
   @IsOptional()
   @IsEnum(ResourceStatus)
   status?: ResourceStatus;
@@ -80,11 +67,11 @@ export function normalizeMoney(value: string | number): string {
 }
 
 export function actualPage(query: ResourceQueryDto): number {
-  return query.pageNum ?? query.page;
+  return query.page;
 }
 
 export function actualKeyword(query: ResourceQueryDto): string | undefined {
-  return (query.keywords ?? query.keyword)?.trim() || undefined;
+  return query.keyword?.trim() || undefined;
 }
 
 export interface ResourceAuditResponse {

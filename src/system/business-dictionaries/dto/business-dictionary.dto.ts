@@ -121,7 +121,7 @@ export class BusinessDictionaryItemInputDto {
 
 export class BusinessDictionaryBatchIdsQueryDto extends BatchIdsQueryDto {}
 
-export interface BusinessDictionaryItemResponse {
+export class BusinessDictionaryItemResponse {
   id: string;
   code: string;
   name: string;
@@ -131,7 +131,7 @@ export interface BusinessDictionaryItemResponse {
   remark: string;
 }
 
-export interface BusinessDictionaryTypeResponse {
+export class BusinessDictionaryTypeResponse {
   id: string;
   code: string;
   name: string;

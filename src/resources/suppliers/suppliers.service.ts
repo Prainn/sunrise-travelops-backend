@@ -2,7 +2,8 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PageResult } from '../../common/types/page-result';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { SupplierEntity } from './supplier.entity';
 import {
   CreateSupplierDto,
@@ -69,7 +70,7 @@ export class SuppliersService {
   }
   async get(id: string): Promise<SupplierResponse> {
     return this.toResponse(
-      await requireResource(this.suppliers, id, 'SUPPLIER_NOT_FOUND'),
+      await requireResource(this.suppliers, id, ErrorCode.SUPPLIER_NOT_FOUND),
     );
   }
   async create(
@@ -98,7 +99,7 @@ export class SuppliersService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'SUPPLIER_NOT_FOUND',
+        ErrorCode.SUPPLIER_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -112,7 +113,7 @@ export class SuppliersService {
       const entities = await requireResources(
         repository,
         ids,
-        'SUPPLIER_NOT_FOUND',
+        ErrorCode.SUPPLIER_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       const references = [
@@ -143,12 +144,12 @@ export class SuppliersService {
       ];
       const used = references.filter((reference) => reference.count > 0);
       if (used.length)
-        throw new ApplicationError(
-          'RESOURCE_IN_USE',
-          'Supplier is referenced by active resource data',
-          HttpStatus.CONFLICT,
-          { references: used },
-        );
+        throw new BusinessException({
+          code: ErrorCode.RESOURCE_IN_USE,
+          message: 'Supplier is referenced by active resource data',
+          status: HttpStatus.CONFLICT,
+          details: { references: used },
+        });
       await repository
         .createQueryBuilder()
         .update()

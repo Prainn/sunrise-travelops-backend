@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import {
   actualKeyword,
@@ -81,11 +82,11 @@ export class RestaurantsService {
       relations: { prices: true },
     });
     if (!entity)
-      throw new ApplicationError(
-        'RESTAURANT_NOT_FOUND',
-        'Restaurant was not found',
-        404,
-      );
+      throw new BusinessException({
+        code: ErrorCode.RESTAURANT_NOT_FOUND,
+        message: 'Restaurant was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     return this.toDetailResponse(entity, entity.prices);
   }
   async create(
@@ -119,7 +120,7 @@ export class RestaurantsService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'RESTAURANT_NOT_FOUND',
+        ErrorCode.RESTAURANT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -137,7 +138,7 @@ export class RestaurantsService {
       const entities = await requireResources(
         repository,
         ids,
-        'RESTAURANT_NOT_FOUND',
+        ErrorCode.RESTAURANT_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       const prices = manager.getRepository(RestaurantPriceEntity);
@@ -162,7 +163,7 @@ export class RestaurantsService {
     await requireResource(
       this.restaurants,
       restaurantId,
-      'RESTAURANT_NOT_FOUND',
+      ErrorCode.RESTAURANT_NOT_FOUND,
     );
     return (
       await this.prices.find({
@@ -180,7 +181,7 @@ export class RestaurantsService {
       await requireResource(
         manager.getRepository(RestaurantEntity),
         restaurantId,
-        'RESTAURANT_NOT_FOUND',
+        ErrorCode.RESTAURANT_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'restaurant');
       const groundOperatorId = await this.validation.validateGroundOperator(
@@ -214,7 +215,7 @@ export class RestaurantsService {
       await requireResource(
         manager.getRepository(RestaurantEntity),
         restaurantId,
-        'RESTAURANT_NOT_FOUND',
+        ErrorCode.RESTAURANT_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'restaurant');
       const groundOperatorId = await this.validation.validateGroundOperator(
@@ -227,11 +228,11 @@ export class RestaurantsService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!entity)
-        throw new ApplicationError(
-          'RESTAURANT_PRICE_NOT_FOUND',
-          'Price was not found for this restaurant',
-          404,
-        );
+        throw new BusinessException({
+          code: ErrorCode.RESTAURANT_PRICE_NOT_FOUND,
+          message: 'Price was not found for this restaurant',
+          status: HttpStatus.NOT_FOUND,
+        });
       assertVersion(entity.version, input.version);
       Object.assign(entity, input, {
         id: priceId,
@@ -253,7 +254,7 @@ export class RestaurantsService {
       await requireResource(
         manager.getRepository(RestaurantEntity),
         restaurantId,
-        'RESTAURANT_NOT_FOUND',
+        ErrorCode.RESTAURANT_NOT_FOUND,
       );
       const uniqueIds = [...new Set(ids)];
       const repository = manager.getRepository(RestaurantPriceEntity);
@@ -264,7 +265,7 @@ export class RestaurantsService {
       assertAllFound(
         uniqueIds,
         entities.map((item) => item.id),
-        'RESTAURANT_PRICE_NOT_FOUND',
+        ErrorCode.RESTAURANT_PRICE_NOT_FOUND,
       );
       await repository
         .createQueryBuilder()

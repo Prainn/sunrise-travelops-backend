@@ -13,9 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
@@ -23,17 +21,24 @@ import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
 import {
+  ApiCommonErrorResponses,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
+import {
   BusinessDictionaryBatchIdsQueryDto,
   BusinessDictionaryCodeParamDto,
   BusinessDictionaryItemInputDto,
   BusinessDictionaryItemParamDto,
   BusinessDictionaryItemQueryDto,
+  BusinessDictionaryItemResponse,
   BusinessDictionaryTypeInputDto,
+  BusinessDictionaryTypeResponse,
 } from './dto/business-dictionary.dto';
 import { SystemBusinessDictionariesService } from './system-business-dictionaries.service';
 
 @ApiTags('System')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('system/business-dictionaries')
 export class SystemBusinessDictionariesController {
   constructor(
@@ -43,7 +48,11 @@ export class SystemBusinessDictionariesController {
   @Get()
   @Permissions('sys:business-dictionary:list')
   @ApiOperation({ summary: 'List business dictionary types and their items' })
-  @ApiOkResponse({ description: 'Business dictionary types' })
+  @ApiSuccessResponse({
+    type: BusinessDictionaryTypeResponse,
+    isArray: true,
+    description: 'Business dictionary types',
+  })
   getDictionaryTypes() {
     return this.businessDictionaries.getDictionaryTypes();
   }
@@ -51,7 +60,11 @@ export class SystemBusinessDictionariesController {
   @Post()
   @Permissions('sys:business-dictionary:create')
   @ApiOperation({ summary: 'Create a business dictionary type' })
-  @ApiCreatedResponse({ description: 'Created business dictionary type' })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: BusinessDictionaryTypeResponse,
+    description: 'Created business dictionary type',
+  })
   createDictionaryType(
     @Body() input: BusinessDictionaryTypeInputDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -62,7 +75,10 @@ export class SystemBusinessDictionariesController {
   @Put(':id')
   @Permissions('sys:business-dictionary:update')
   @ApiOperation({ summary: 'Update a business dictionary type' })
-  @ApiOkResponse({ description: 'Updated business dictionary type' })
+  @ApiSuccessResponse({
+    type: BusinessDictionaryTypeResponse,
+    description: 'Updated business dictionary type',
+  })
   updateDictionaryType(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: BusinessDictionaryTypeInputDto,
@@ -86,7 +102,11 @@ export class SystemBusinessDictionariesController {
   @Get(':typeCode/items')
   @Permissions('sys:business-dictionary:list')
   @ApiOperation({ summary: 'List items in a business dictionary type' })
-  @ApiOkResponse({ description: 'Business dictionary items' })
+  @ApiSuccessResponse({
+    type: BusinessDictionaryItemResponse,
+    isArray: true,
+    description: 'Business dictionary items',
+  })
   getDictionaryItems(
     @Param() params: BusinessDictionaryCodeParamDto,
     @Query() query: BusinessDictionaryItemQueryDto,
@@ -97,7 +117,11 @@ export class SystemBusinessDictionariesController {
   @Post(':typeCode/items')
   @Permissions('sys:business-dictionary:create')
   @ApiOperation({ summary: 'Create a business dictionary item' })
-  @ApiCreatedResponse({ description: 'Created business dictionary item' })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: BusinessDictionaryItemResponse,
+    description: 'Created business dictionary item',
+  })
   createDictionaryItem(
     @Param() params: BusinessDictionaryCodeParamDto,
     @Body() input: BusinessDictionaryItemInputDto,
@@ -113,7 +137,10 @@ export class SystemBusinessDictionariesController {
   @Put(':typeCode/items/:id')
   @Permissions('sys:business-dictionary:update')
   @ApiOperation({ summary: 'Update a business dictionary item' })
-  @ApiOkResponse({ description: 'Updated business dictionary item' })
+  @ApiSuccessResponse({
+    type: BusinessDictionaryItemResponse,
+    description: 'Updated business dictionary item',
+  })
   updateDictionaryItem(
     @Param() params: BusinessDictionaryItemParamDto,
     @Body() input: BusinessDictionaryItemInputDto,

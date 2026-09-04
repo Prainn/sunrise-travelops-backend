@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { createValidationException } from './common/validation/validation-exception.factory';
 import { parseCorsOrigins } from './config/environment';
 
 async function bootstrap(): Promise<void> {
@@ -24,6 +25,7 @@ async function bootstrap(): Promise<void> {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      exceptionFactory: createValidationException,
     }),
   );
   app.useGlobalFilters(new ApiExceptionFilter());

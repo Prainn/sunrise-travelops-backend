@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import { TransportEntity } from './transport.entity';
 import {
@@ -62,7 +63,7 @@ export class TransportsService {
   }
   async get(id: string): Promise<TransportResponse> {
     return this.toResponse(
-      await requireResource(this.transports, id, 'TRANSPORT_NOT_FOUND'),
+      await requireResource(this.transports, id, ErrorCode.TRANSPORT_NOT_FOUND),
     );
   }
   async create(
@@ -94,7 +95,7 @@ export class TransportsService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'TRANSPORT_NOT_FOUND',
+        ErrorCode.TRANSPORT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -112,7 +113,7 @@ export class TransportsService {
       const entities = await requireResources(
         repository,
         ids,
-        'TRANSPORT_NOT_FOUND',
+        ErrorCode.TRANSPORT_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       await repository

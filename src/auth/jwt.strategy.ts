@@ -1,7 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { ErrorCode } from '../common/constants/error-code';
+import { BusinessException } from '../common/exceptions/business.exception';
 import { AuthenticatedUser, JwtPayload } from './auth.types';
 import { AuthService } from './auth.service';
 
@@ -20,7 +22,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     if (payload.type !== 'access') {
-      throw new UnauthorizedException();
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '访问令牌无效',
+        status: HttpStatus.UNAUTHORIZED,
+      });
     }
     return this.auth.getCurrentUser(payload.sub);
   }

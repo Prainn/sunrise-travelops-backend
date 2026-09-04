@@ -35,20 +35,6 @@ const toDateRange = ({ value }: { value: unknown }): unknown => {
 };
 
 export class UserQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ minimum: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  pageNum?: number;
-
-  @ApiPropertyOptional({ description: 'Alias for keyword' })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(100)
-  keywords?: string;
-
   @ApiPropertyOptional({ enum: [0, 1] })
   @IsOptional()
   @Type(() => Number)
@@ -78,14 +64,6 @@ export class UserQueryDto extends PaginationQueryDto {
   @ArrayMaxSize(2)
   @IsDateString({}, { each: true })
   createTime?: string[];
-
-  get requestedPage(): number {
-    return this.pageNum ?? this.page;
-  }
-
-  get searchKeyword(): string | undefined {
-    return this.keywords || this.keyword?.trim() || undefined;
-  }
 }
 
 class UserEditableFieldsDto {
@@ -198,7 +176,7 @@ export class UserBatchIdsQueryDto {
   ids: string[];
 }
 
-export interface UserItemResponse {
+export class UserItemResponse {
   id: string;
   username: string;
   nickname: string;
@@ -214,6 +192,6 @@ export interface UserItemResponse {
   createTime: string;
 }
 
-export interface CreatedUserResponse extends UserItemResponse {
+export class CreatedUserResponse extends UserItemResponse {
   temporaryPassword?: string;
 }

@@ -13,20 +13,24 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
+import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import { AgenciesService } from './agencies.service';
 import {
   AgencyContactResponse,
   AgencyDetailResponse,
+  AgencyListItemResponse,
   AgencyQueryDto,
   CreateAgencyContactDto,
   CreateAgencyDto,
@@ -36,27 +40,31 @@ import {
 
 @ApiTags('Resources')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('resources/agencies')
 export class AgenciesController {
   constructor(private readonly service: AgenciesService) {}
   @Get()
   @Permissions('resource:agency:list')
   @ApiOperation({ summary: 'List travel agencies' })
-  @ApiOkResponse({ description: 'Paginated travel agency list' })
+  @ApiPaginatedResponse(AgencyListItemResponse, 'Paginated travel agency list')
   list(@Query() query: AgencyQueryDto) {
     return this.service.list(query);
   }
   @Get(':agencyId/contacts')
   @Permissions('resource:agency:list')
   @ApiOperation({ summary: 'List agency contacts' })
-  @ApiOkResponse({ type: [AgencyContactResponse] })
+  @ApiSuccessResponse({ type: AgencyContactResponse, isArray: true })
   listContacts(@Param('agencyId', new ParseUUIDPipe()) agencyId: string) {
     return this.service.listContacts(agencyId);
   }
   @Post(':agencyId/contacts')
   @Permissions('resource:agency:create')
   @ApiOperation({ summary: 'Create an agency contact' })
-  @ApiCreatedResponse({ type: AgencyContactResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: AgencyContactResponse,
+  })
   createContact(
     @Param('agencyId', new ParseUUIDPipe()) agencyId: string,
     @Body() input: CreateAgencyContactDto,
@@ -67,7 +75,7 @@ export class AgenciesController {
   @Put(':agencyId/contacts/:contactId')
   @Permissions('resource:agency:update')
   @ApiOperation({ summary: 'Update an agency contact' })
-  @ApiOkResponse({ type: AgencyContactResponse })
+  @ApiSuccessResponse({ type: AgencyContactResponse })
   updateContact(
     @Param('agencyId', new ParseUUIDPipe()) agencyId: string,
     @Param('contactId', new ParseUUIDPipe())
@@ -92,14 +100,17 @@ export class AgenciesController {
   @Get(':id')
   @Permissions('resource:agency:list')
   @ApiOperation({ summary: 'Get a travel agency' })
-  @ApiOkResponse({ type: AgencyDetailResponse })
+  @ApiSuccessResponse({ type: AgencyDetailResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:agency:create')
   @ApiOperation({ summary: 'Create a travel agency' })
-  @ApiCreatedResponse({ type: AgencyDetailResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: AgencyDetailResponse,
+  })
   create(
     @Body() input: CreateAgencyDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -109,7 +120,7 @@ export class AgenciesController {
   @Put(':id')
   @Permissions('resource:agency:update')
   @ApiOperation({ summary: 'Update a travel agency' })
-  @ApiOkResponse({ type: AgencyDetailResponse })
+  @ApiSuccessResponse({ type: AgencyDetailResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateAgencyDto,

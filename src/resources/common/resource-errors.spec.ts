@@ -27,7 +27,7 @@ describe('resource errors', () => {
 
   it('rejects stale versions', () => {
     expect(captureError(() => assertVersion(3, 2))).toMatchObject({
-      code: 'VERSION_CONFLICT',
+      code: 'RESOURCE_VERSION_CONFLICT',
     });
   });
 

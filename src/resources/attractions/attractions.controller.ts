@@ -13,18 +13,22 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
+import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import {
   AttractionDetailResponse,
+  AttractionListItemResponse,
   AttractionPriceResponse,
   AttractionQueryDto,
   CreateAttractionDto,
@@ -35,19 +39,21 @@ import {
 import { AttractionsService } from './attractions.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('resources/attractions')
 export class AttractionsController {
   constructor(private readonly service: AttractionsService) {}
   @Get()
   @Permissions('resource:attraction:list')
   @ApiOperation({ summary: 'List attractions' })
+  @ApiPaginatedResponse(AttractionListItemResponse)
   list(@Query() query: AttractionQueryDto) {
     return this.service.list(query);
   }
   @Get(':attractionId/prices')
   @Permissions('resource:attraction:list')
   @ApiOperation({ summary: 'List attraction prices' })
-  @ApiOkResponse({ type: [AttractionPriceResponse] })
+  @ApiSuccessResponse({ type: AttractionPriceResponse, isArray: true })
   listPrices(
     @Param('attractionId', new ParseUUIDPipe())
     attractionId: string,
@@ -57,7 +63,10 @@ export class AttractionsController {
   @Post(':attractionId/prices')
   @Permissions('resource:attraction:create')
   @ApiOperation({ summary: 'Create an attraction price' })
-  @ApiCreatedResponse({ type: AttractionPriceResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: AttractionPriceResponse,
+  })
   createPrice(
     @Param('attractionId', new ParseUUIDPipe())
     attractionId: string,
@@ -69,7 +78,7 @@ export class AttractionsController {
   @Put(':attractionId/prices/:priceId')
   @Permissions('resource:attraction:update')
   @ApiOperation({ summary: 'Update an attraction price' })
-  @ApiOkResponse({ type: AttractionPriceResponse })
+  @ApiSuccessResponse({ type: AttractionPriceResponse })
   updatePrice(
     @Param('attractionId', new ParseUUIDPipe())
     attractionId: string,
@@ -95,14 +104,17 @@ export class AttractionsController {
   @Get(':id')
   @Permissions('resource:attraction:list')
   @ApiOperation({ summary: 'Get an attraction' })
-  @ApiOkResponse({ type: AttractionDetailResponse })
+  @ApiSuccessResponse({ type: AttractionDetailResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:attraction:create')
   @ApiOperation({ summary: 'Create an attraction' })
-  @ApiCreatedResponse({ type: AttractionDetailResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: AttractionDetailResponse,
+  })
   create(
     @Body() input: CreateAttractionDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -112,7 +124,7 @@ export class AttractionsController {
   @Put(':id')
   @Permissions('resource:attraction:update')
   @ApiOperation({ summary: 'Update an attraction' })
-  @ApiOkResponse({ type: AttractionDetailResponse })
+  @ApiSuccessResponse({ type: AttractionDetailResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateAttractionDto,

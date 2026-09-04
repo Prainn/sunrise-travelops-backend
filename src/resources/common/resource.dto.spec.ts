@@ -14,13 +14,11 @@ import {
 } from './resource.dto';
 
 describe('resource DTOs', () => {
-  it('uses pageNum and keywords as compatibility aliases', async () => {
+  it('uses the common page and keyword query parameters', async () => {
     const query = plainToInstance(ResourceQueryDto, {
-      page: 2,
-      pageNum: 4,
+      page: 4,
       pageSize: 30,
-      keyword: 'old',
-      keywords: '  current  ',
+      keyword: '  current  ',
     });
     expect(await validate(query)).toHaveLength(0);
     expect(actualPage(query)).toBe(4);

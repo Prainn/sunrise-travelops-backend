@@ -1,6 +1,12 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  HttpStatus,
+  Injectable,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { AuthenticatedUser } from '../auth.types';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 
@@ -24,11 +30,11 @@ export class PermissionsGuard implements CanActivate {
       !user ||
       !required.every((permission) => user.permissions.includes(permission))
     ) {
-      throw new ApplicationError(
-        'PERMISSION_DENIED',
-        'You do not have permission to perform this action',
-        403,
-      );
+      throw new BusinessException({
+        code: ErrorCode.AUTH_FORBIDDEN,
+        message: '没有权限执行此操作',
+        status: HttpStatus.FORBIDDEN,
+      });
     }
     return true;
   }

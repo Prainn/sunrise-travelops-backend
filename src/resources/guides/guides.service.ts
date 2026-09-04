@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import { GuideEntity } from './guide.entity';
 import {
@@ -70,7 +71,7 @@ export class GuidesService {
   }
   async get(id: string): Promise<GuideResponse> {
     return this.toResponse(
-      await requireResource(this.guides, id, 'GUIDE_NOT_FOUND'),
+      await requireResource(this.guides, id, ErrorCode.GUIDE_NOT_FOUND),
     );
   }
   async create(input: CreateGuideDto, actorId: string): Promise<GuideResponse> {
@@ -114,7 +115,7 @@ export class GuidesService {
       const entity = await requireResourceForUpdate(
         repository,
         id,
-        'GUIDE_NOT_FOUND',
+        ErrorCode.GUIDE_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
       await ensureCodeAvailable(repository, input.code, id);
@@ -134,7 +135,7 @@ export class GuidesService {
       const entities = await requireResources(
         repository,
         ids,
-        'GUIDE_NOT_FOUND',
+        ErrorCode.GUIDE_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
       await repository

@@ -13,20 +13,24 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiCreatedResponse,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
+import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+  ApiSuccessResponse,
+} from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import {
   CreateRestaurantDto,
   CreateRestaurantPriceDto,
   RestaurantDetailResponse,
+  RestaurantListItemResponse,
   RestaurantPriceResponse,
   RestaurantQueryDto,
   UpdateRestaurantDto,
@@ -35,19 +39,21 @@ import {
 import { RestaurantsService } from './restaurants.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
+@ApiCommonErrorResponses()
 @Controller('resources/restaurants')
 export class RestaurantsController {
   constructor(private readonly service: RestaurantsService) {}
   @Get()
   @Permissions('resource:restaurant:list')
   @ApiOperation({ summary: 'List restaurants' })
+  @ApiPaginatedResponse(RestaurantListItemResponse)
   list(@Query() query: RestaurantQueryDto) {
     return this.service.list(query);
   }
   @Get(':restaurantId/prices')
   @Permissions('resource:restaurant:list')
   @ApiOperation({ summary: 'List restaurant prices' })
-  @ApiOkResponse({ type: [RestaurantPriceResponse] })
+  @ApiSuccessResponse({ type: RestaurantPriceResponse, isArray: true })
   listPrices(
     @Param('restaurantId', new ParseUUIDPipe())
     restaurantId: string,
@@ -57,7 +63,10 @@ export class RestaurantsController {
   @Post(':restaurantId/prices')
   @Permissions('resource:restaurant:create')
   @ApiOperation({ summary: 'Create a restaurant price' })
-  @ApiCreatedResponse({ type: RestaurantPriceResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: RestaurantPriceResponse,
+  })
   createPrice(
     @Param('restaurantId', new ParseUUIDPipe())
     restaurantId: string,
@@ -69,7 +78,7 @@ export class RestaurantsController {
   @Put(':restaurantId/prices/:priceId')
   @Permissions('resource:restaurant:update')
   @ApiOperation({ summary: 'Update a restaurant price' })
-  @ApiOkResponse({ type: RestaurantPriceResponse })
+  @ApiSuccessResponse({ type: RestaurantPriceResponse })
   updatePrice(
     @Param('restaurantId', new ParseUUIDPipe())
     restaurantId: string,
@@ -95,14 +104,17 @@ export class RestaurantsController {
   @Get(':id')
   @Permissions('resource:restaurant:list')
   @ApiOperation({ summary: 'Get a restaurant' })
-  @ApiOkResponse({ type: RestaurantDetailResponse })
+  @ApiSuccessResponse({ type: RestaurantDetailResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:restaurant:create')
   @ApiOperation({ summary: 'Create a restaurant' })
-  @ApiCreatedResponse({ type: RestaurantDetailResponse })
+  @ApiSuccessResponse({
+    status: HttpStatus.CREATED,
+    type: RestaurantDetailResponse,
+  })
   create(
     @Body() input: CreateRestaurantDto,
     @CurrentUser() user: AuthenticatedUser,
@@ -112,7 +124,7 @@ export class RestaurantsController {
   @Put(':id')
   @Permissions('resource:restaurant:update')
   @ApiOperation({ summary: 'Update a restaurant' })
-  @ApiOkResponse({ type: RestaurantDetailResponse })
+  @ApiSuccessResponse({ type: RestaurantDetailResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateRestaurantDto,

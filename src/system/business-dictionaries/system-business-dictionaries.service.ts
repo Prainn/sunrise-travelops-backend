@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
-import { ApplicationError } from '../../common/errors/application-error';
+import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
+import { BusinessException } from '../../common/exceptions/business.exception';
 import { BusinessDictionaryItemEntity } from './business-dictionary-item.entity';
 import { BusinessDictionaryTypeEntity } from './business-dictionary-type.entity';
 import {
@@ -55,11 +56,11 @@ export class SystemBusinessDictionariesService {
     this.assertMatchingId(input.id, id);
     const entity = await this.requireTypeById(id);
     if (entity.builtIn && entity.code !== input.code) {
-      throw new ApplicationError(
-        'BUILT_IN_BUSINESS_DICTIONARY_CODE_IMMUTABLE',
-        'The code of a built-in business dictionary cannot be changed',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUILT_IN_BUSINESS_DICTIONARY_CODE_IMMUTABLE,
+        message: 'The code of a built-in business dictionary cannot be changed',
+        status: HttpStatus.CONFLICT,
+      });
     }
     await this.ensureTypeCodeAvailable(input.code, id);
     entity.code = input.code;
@@ -76,15 +77,15 @@ export class SystemBusinessDictionariesService {
     this.assertAllFound(
       uniqueIds,
       entities.map((entity) => entity.id),
-      'BUSINESS_DICTIONARY_TYPES_NOT_FOUND',
+      ErrorCode.BUSINESS_DICTIONARY_TYPES_NOT_FOUND,
       'One or more business dictionary types were not found',
     );
     if (entities.some((entity) => entity.builtIn)) {
-      throw new ApplicationError(
-        'BUILT_IN_BUSINESS_DICTIONARY_CANNOT_BE_DELETED',
-        'Built-in business dictionary types cannot be deleted',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUILT_IN_BUSINESS_DICTIONARY_CANNOT_BE_DELETED,
+        message: 'Built-in business dictionary types cannot be deleted',
+        status: HttpStatus.CONFLICT,
+      });
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -195,7 +196,7 @@ export class SystemBusinessDictionariesService {
     this.assertAllFound(
       uniqueIds,
       entities.map((entity) => entity.id),
-      'BUSINESS_DICTIONARY_ITEMS_NOT_FOUND',
+      ErrorCode.BUSINESS_DICTIONARY_ITEMS_NOT_FOUND,
       'One or more business dictionary items were not found in this type',
     );
     await this.dataSource.transaction(async (manager) => {
@@ -217,11 +218,12 @@ export class SystemBusinessDictionariesService {
 
   private validateResourceTypes(typeCode: string, resourceTypes: string[]) {
     if (typeCode === 'resource-unit' && resourceTypes.length === 0) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_RESOURCE_TYPES_REQUIRED',
-        'At least one applicable resource type is required for a resource unit',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_RESOURCE_TYPES_REQUIRED,
+        message:
+          'At least one applicable resource type is required for a resource unit',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
@@ -230,11 +232,11 @@ export class SystemBusinessDictionariesService {
   ): Promise<BusinessDictionaryTypeEntity> {
     const entity = await this.dictionaryTypes.findOneBy({ id });
     if (!entity) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_TYPE_NOT_FOUND',
-        'Business dictionary type was not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
+        message: 'Business dictionary type was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     }
     return entity;
   }
@@ -244,11 +246,11 @@ export class SystemBusinessDictionariesService {
   ): Promise<BusinessDictionaryTypeEntity> {
     const entity = await this.dictionaryTypes.findOneBy({ code });
     if (!entity) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_TYPE_NOT_FOUND',
-        'Business dictionary type was not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
+        message: 'Business dictionary type was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     }
     return entity;
   }
@@ -259,11 +261,11 @@ export class SystemBusinessDictionariesService {
   ): Promise<BusinessDictionaryItemEntity> {
     const entity = await this.dictionaryItems.findOneBy({ id, typeId });
     if (!entity) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_ITEM_NOT_FOUND',
-        'Business dictionary item was not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_ITEM_NOT_FOUND,
+        message: 'Business dictionary item was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     }
     return entity;
   }
@@ -274,11 +276,11 @@ export class SystemBusinessDictionariesService {
   ): Promise<void> {
     const where = excludedId ? { code, id: Not(excludedId) } : { code };
     if (await this.dictionaryTypes.findOne({ where, withDeleted: true })) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_TYPE_CODE_EXISTS',
-        'Business dictionary type code already exists',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_TYPE_CODE_EXISTS,
+        message: 'Business dictionary type code already exists',
+        status: HttpStatus.CONFLICT,
+      });
     }
   }
 
@@ -291,35 +293,40 @@ export class SystemBusinessDictionariesService {
       ? { typeId, code, id: Not(excludedId) }
       : { typeId, code };
     if (await this.dictionaryItems.findOne({ where, withDeleted: true })) {
-      throw new ApplicationError(
-        'BUSINESS_DICTIONARY_ITEM_CODE_EXISTS',
-        'Business dictionary item code already exists in this type',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_ITEM_CODE_EXISTS,
+        message: 'Business dictionary item code already exists in this type',
+        status: HttpStatus.CONFLICT,
+      });
     }
   }
 
   private assertMatchingId(bodyId: string | undefined, pathId: string): void {
     if (bodyId && bodyId !== pathId) {
-      throw new ApplicationError(
-        'RESOURCE_ID_MISMATCH',
-        'Body id does not match path id',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.RESOURCE_ID_MISMATCH,
+        message: 'Body id does not match path id',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
   private assertAllFound(
     requestedIds: string[],
     foundIds: string[],
-    code: string,
+    code: ErrorCodeValue,
     message: string,
   ): void {
     const found = new Set(foundIds);
     const missingIds = requestedIds.filter((id) => !found.has(id));
     if (missingIds.length) {
-      throw new ApplicationError(code, message, HttpStatus.NOT_FOUND, {
-        missingIds,
+      throw new BusinessException({
+        code,
+        message,
+        status: HttpStatus.NOT_FOUND,
+        details: {
+          missingIds,
+        },
       });
     }
   }

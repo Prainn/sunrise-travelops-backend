@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ApplicationError } from '../../common/errors/application-error';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ErrorCode } from '../../common/constants/error-code';
 import { BusinessDictionaryItemEntity } from '../../system/business-dictionaries/business-dictionary-item.entity';
 import { BusinessDictionaryStatus } from '../../system/business-dictionaries/business-dictionary-status';
 import { BusinessResourceType } from '../../system/business-dictionaries/business-dictionary-status';
@@ -35,12 +36,13 @@ export class ResourceValidationService {
       !item ||
       !item.resourceTypes.includes(resourceType as BusinessResourceType)
     ) {
-      throw new ApplicationError(
-        'RESOURCE_UNIT_INVALID',
-        'The resource unit does not exist, is disabled, or is not applicable',
-        HttpStatus.BAD_REQUEST,
-        { unit, resourceType },
-      );
+      throw new BusinessException({
+        code: ErrorCode.RESOURCE_UNIT_INVALID,
+        message:
+          'The resource unit does not exist, is disabled, or is not applicable',
+        status: HttpStatus.BAD_REQUEST,
+        details: { unit, resourceType },
+      });
     }
   }
 
@@ -50,23 +52,23 @@ export class ResourceValidationService {
   ): Promise<string | null> {
     if (!provided) return null;
     if (!groundOperatorId) {
-      throw new ApplicationError(
-        'GROUND_OPERATOR_REQUIRED',
-        'A ground operator is required',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.GROUND_OPERATOR_REQUIRED,
+        message: 'A ground operator is required',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
     const supplier = await this.suppliers.findOneBy({
       id: groundOperatorId,
       status: ResourceStatus.Enabled,
     });
     if (!supplier) {
-      throw new ApplicationError(
-        'GROUND_OPERATOR_NOT_FOUND_OR_DISABLED',
-        'Ground operator was not found or is disabled',
-        HttpStatus.BAD_REQUEST,
-        { groundOperatorId },
-      );
+      throw new BusinessException({
+        code: ErrorCode.GROUND_OPERATOR_NOT_FOUND_OR_DISABLED,
+        message: 'Ground operator was not found or is disabled',
+        status: HttpStatus.BAD_REQUEST,
+        details: { groundOperatorId },
+      });
     }
     return groundOperatorId;
   }

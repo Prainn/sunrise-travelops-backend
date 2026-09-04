@@ -1,10 +1,12 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
+import { ErrorCode } from '../common/constants/error-code';
+import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { AuthenticatedUser, AuthTokens, JwtPayload } from './auth.types';
 
@@ -20,7 +22,11 @@ export class AuthService {
   async login(username: string, password: string): Promise<AuthTokens> {
     const user = await this.findUser(username);
     if (!user || !(await argon2.verify(user.passwordHash, password))) {
-      throw new UnauthorizedException('Invalid username or password');
+      throw new BusinessException({
+        code: ErrorCode.AUTH_INVALID_CREDENTIALS,
+        message: '用户名或密码错误',
+        status: HttpStatus.UNAUTHORIZED,
+      });
     }
     return this.issueTokens(user);
   }
@@ -32,11 +38,11 @@ export class AuthService {
         secret: this.config.getOrThrow<string>('REFRESH_TOKEN_SECRET'),
       });
     } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw this.invalidRefreshToken();
     }
 
     if (payload.type !== 'refresh') {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw this.invalidRefreshToken();
     }
 
     const user = await this.users.findOne({
@@ -46,7 +52,7 @@ export class AuthService {
       !user?.refreshTokenHash ||
       !(await argon2.verify(user.refreshTokenHash, refreshToken))
     ) {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw this.invalidRefreshToken();
     }
     return this.issueTokens(user);
   }
@@ -61,7 +67,11 @@ export class AuthService {
       relations: { roles: { permissions: true } },
     });
     if (!user) {
-      throw new UnauthorizedException();
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '访问令牌无效',
+        status: HttpStatus.UNAUTHORIZED,
+      });
     }
     return this.toAuthenticatedUser(user);
   }
@@ -126,5 +136,13 @@ export class AuthService {
       username: user.username,
       permissions: [...permissions].sort(),
     };
+  }
+
+  private invalidRefreshToken(): BusinessException {
+    return new BusinessException({
+      code: ErrorCode.AUTH_REFRESH_TOKEN_INVALID,
+      message: '刷新令牌无效',
+      status: HttpStatus.UNAUTHORIZED,
+    });
   }
 }

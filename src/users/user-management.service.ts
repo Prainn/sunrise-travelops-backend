@@ -3,7 +3,8 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { DataSource, In, Repository } from 'typeorm';
-import { ApplicationError } from '../common/errors/application-error';
+import { BusinessException } from '../common/exceptions/business.exception';
+import { ErrorCode } from '../common/constants/error-code';
 import { PageResult } from '../common/types/page-result';
 import { RoleEntity } from '../roles/role.entity';
 import {
@@ -36,10 +37,11 @@ export class UserManagementService {
       .orderBy('user.createdAt', 'ASC')
       .addOrderBy('user.id', 'ASC');
 
-    if (query.searchKeyword) {
+    const keyword = query.keyword?.trim() || undefined;
+    if (keyword) {
       builder.andWhere(
         '(user.username ILIKE :keyword OR user.nickname ILIKE :keyword OR user.mobile ILIKE :keyword)',
-        { keyword: `%${query.searchKeyword}%` },
+        { keyword: `%${keyword}%` },
       );
     }
     if (query.status !== undefined) {
@@ -70,7 +72,7 @@ export class UserManagementService {
       });
     }
 
-    const page = query.requestedPage;
+    const page = query.page;
     const [entities, total] = await builder
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize)
@@ -139,18 +141,18 @@ export class UserManagementService {
     this.assertMatchingId(input.id, id);
     const entity = await this.requireUser(id);
     if (input.username && input.username !== entity.username) {
-      throw new ApplicationError(
-        'USERNAME_IMMUTABLE',
-        'Username cannot be changed',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.USERNAME_IMMUTABLE,
+        message: 'Username cannot be changed',
+        status: HttpStatus.CONFLICT,
+      });
     }
     if (id === actorId && input.status === 0) {
-      throw new ApplicationError(
-        'CURRENT_USER_CANNOT_BE_DISABLED',
-        'The current user cannot disable their own account',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.CURRENT_USER_CANNOT_BE_DISABLED,
+        message: 'The current user cannot disable their own account',
+        status: HttpStatus.CONFLICT,
+      });
     }
     this.requireDepartment(input.deptId);
     const assignableRoles = await this.requireAssignableRoles(input.roleIds);
@@ -173,11 +175,11 @@ export class UserManagementService {
   async delete(ids: string[], actorId: string): Promise<void> {
     const uniqueIds = [...new Set(ids)];
     if (uniqueIds.includes(actorId)) {
-      throw new ApplicationError(
-        'CURRENT_USER_CANNOT_BE_DELETED',
-        'The current user cannot delete their own account',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.CURRENT_USER_CANNOT_BE_DELETED,
+        message: 'The current user cannot delete their own account',
+        status: HttpStatus.CONFLICT,
+      });
     }
     const entities = await this.users.find({
       where: { id: In(uniqueIds) },
@@ -189,11 +191,11 @@ export class UserManagementService {
         entity.roles.some((role) => role.code === ROOT_ROLE_CODE),
       )
     ) {
-      throw new ApplicationError(
-        'ROOT_USER_CANNOT_BE_DELETED',
-        'A root user cannot be deleted',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.ROOT_USER_CANNOT_BE_DELETED,
+        message: 'A root user cannot be deleted',
+        status: HttpStatus.CONFLICT,
+      });
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -223,22 +225,22 @@ export class UserManagementService {
       relations: { roles: true },
     });
     if (!entity) {
-      throw new ApplicationError(
-        'USER_NOT_FOUND',
-        'User was not found',
-        HttpStatus.NOT_FOUND,
-      );
+      throw new BusinessException({
+        code: ErrorCode.USER_NOT_FOUND,
+        message: 'User was not found',
+        status: HttpStatus.NOT_FOUND,
+      });
     }
     return entity;
   }
 
   private async ensureUsernameAvailable(username: string): Promise<void> {
     if (await this.users.findOne({ where: { username }, withDeleted: true })) {
-      throw new ApplicationError(
-        'USERNAME_EXISTS',
-        'Username already exists',
-        HttpStatus.CONFLICT,
-      );
+      throw new BusinessException({
+        code: ErrorCode.USERNAME_ALREADY_EXISTS,
+        message: 'Username already exists',
+        status: HttpStatus.CONFLICT,
+      });
     }
   }
 
@@ -248,33 +250,34 @@ export class UserManagementService {
     const found = new Set(assignable.map((role) => role.id));
     const missingIds = ids.filter((id) => !found.has(id));
     if (missingIds.length) {
-      throw new ApplicationError(
-        'ROLES_NOT_FOUND_OR_NOT_ASSIGNABLE',
-        'One or more roles were not found, disabled, or cannot be assigned',
-        HttpStatus.BAD_REQUEST,
-        { missingIds },
-      );
+      throw new BusinessException({
+        code: ErrorCode.ROLES_NOT_FOUND_OR_NOT_ASSIGNABLE,
+        message:
+          'One or more roles were not found, disabled, or cannot be assigned',
+        status: HttpStatus.BAD_REQUEST,
+        details: { missingIds },
+      });
     }
     return assignable;
   }
 
   private requireDepartment(deptId: number): void {
     if (!DEPARTMENT_OPTIONS.some((option) => option.value === deptId)) {
-      throw new ApplicationError(
-        'DEPARTMENT_NOT_FOUND',
-        'Department was not found',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.DEPARTMENT_NOT_FOUND,
+        message: 'Department was not found',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
   private assertMatchingId(bodyId: string | undefined, pathId: string): void {
     if (bodyId && bodyId !== pathId) {
-      throw new ApplicationError(
-        'RESOURCE_ID_MISMATCH',
-        'Body id does not match path id',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.RESOURCE_ID_MISMATCH,
+        message: 'Body id does not match path id',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
@@ -282,12 +285,12 @@ export class UserManagementService {
     const found = new Set(entities.map((entity) => entity.id));
     const missingIds = ids.filter((id) => !found.has(id));
     if (missingIds.length) {
-      throw new ApplicationError(
-        'USERS_NOT_FOUND',
-        'One or more users were not found',
-        HttpStatus.NOT_FOUND,
-        { missingIds },
-      );
+      throw new BusinessException({
+        code: ErrorCode.USERS_NOT_FOUND,
+        message: 'One or more users were not found',
+        status: HttpStatus.NOT_FOUND,
+        details: { missingIds },
+      });
     }
   }
 

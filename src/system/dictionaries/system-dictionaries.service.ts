@@ -1,7 +1,8 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { ApplicationError } from '../../common/errors/application-error';
+import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
+import { BusinessException } from '../../common/exceptions/business.exception';
 import { PageResult } from '../../common/types/page-result';
 import { DictionaryItemEntity } from './dictionary-item.entity';
 import { DictionaryTypeEntity } from './dictionary-type.entity';
@@ -35,10 +36,11 @@ export class SystemDictionariesService {
       .orderBy('dictionaryType.createdAt', 'ASC')
       .addOrderBy('dictionaryType.id', 'ASC');
 
-    if (query.searchKeyword) {
+    const keyword = query.keyword?.trim() || undefined;
+    if (keyword) {
       builder.andWhere(
         '(dictionaryType.name ILIKE :keyword OR dictionaryType.dictCode ILIKE :keyword)',
-        { keyword: `%${query.searchKeyword}%` },
+        { keyword: `%${keyword}%` },
       );
     }
     if (query.status !== undefined) {
@@ -47,7 +49,7 @@ export class SystemDictionariesService {
       });
     }
 
-    const page = query.requestedPage;
+    const page = query.page;
     const [entities, total] = await builder
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize)
@@ -122,7 +124,7 @@ export class SystemDictionariesService {
     this.assertAllFound(
       uniqueIds,
       existing.map((entity) => entity.id),
-      'DICTIONARY_TYPES_NOT_FOUND',
+      ErrorCode.DICTIONARY_TYPES_NOT_FOUND,
       'One or more dictionary types were not found',
     );
 
@@ -167,10 +169,11 @@ export class SystemDictionariesService {
       .addOrderBy('dictionaryItem.createdAt', 'ASC')
       .addOrderBy('dictionaryItem.id', 'ASC');
 
-    if (query.searchKeyword) {
+    const keyword = query.keyword?.trim() || undefined;
+    if (keyword) {
       builder.andWhere(
         '(dictionaryItem.label ILIKE :keyword OR dictionaryItem.value ILIKE :keyword)',
-        { keyword: `%${query.searchKeyword}%` },
+        { keyword: `%${keyword}%` },
       );
     }
     if (query.status !== undefined) {
@@ -179,7 +182,7 @@ export class SystemDictionariesService {
       });
     }
 
-    const page = query.requestedPage;
+    const page = query.page;
     const [entities, total] = await builder
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize)
@@ -293,7 +296,7 @@ export class SystemDictionariesService {
     this.assertAllFound(
       uniqueIds,
       existing.map((entity) => entity.id),
-      'DICTIONARY_ITEMS_NOT_FOUND',
+      ErrorCode.DICTIONARY_ITEMS_NOT_FOUND,
       'One or more dictionary items were not found in this dictionary type',
     );
 
@@ -319,12 +322,12 @@ export class SystemDictionariesService {
   ): Promise<DictionaryTypeEntity> {
     const entity = await this.dictionaryTypes.findOneBy({ id });
     if (!entity) {
-      throw new ApplicationError(
-        'DICTIONARY_TYPE_NOT_FOUND',
-        'Dictionary type not found',
-        HttpStatus.NOT_FOUND,
-        { id },
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_TYPE_NOT_FOUND,
+        message: 'Dictionary type not found',
+        status: HttpStatus.NOT_FOUND,
+        details: { id },
+      });
     }
     return entity;
   }
@@ -334,12 +337,12 @@ export class SystemDictionariesService {
   ): Promise<DictionaryTypeEntity> {
     const entity = await this.dictionaryTypes.findOneBy({ dictCode });
     if (!entity) {
-      throw new ApplicationError(
-        'DICTIONARY_TYPE_NOT_FOUND',
-        'Dictionary type not found',
-        HttpStatus.NOT_FOUND,
-        { dictCode },
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_TYPE_NOT_FOUND,
+        message: 'Dictionary type not found',
+        status: HttpStatus.NOT_FOUND,
+        details: { dictCode },
+      });
     }
     return entity;
   }
@@ -350,12 +353,12 @@ export class SystemDictionariesService {
   ): Promise<DictionaryItemEntity> {
     const entity = await this.dictionaryItems.findOneBy({ id, typeId });
     if (!entity) {
-      throw new ApplicationError(
-        'DICTIONARY_ITEM_NOT_FOUND',
-        'Dictionary item not found',
-        HttpStatus.NOT_FOUND,
-        { id },
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_ITEM_NOT_FOUND,
+        message: 'Dictionary item not found',
+        status: HttpStatus.NOT_FOUND,
+        details: { id },
+      });
     }
     return entity;
   }
@@ -372,12 +375,12 @@ export class SystemDictionariesService {
       builder.andWhere('dictionaryType.id != :currentId', { currentId });
     }
     if (await builder.getExists()) {
-      throw new ApplicationError(
-        'DICTIONARY_CODE_EXISTS',
-        'Dictionary code already exists',
-        HttpStatus.CONFLICT,
-        { dictCode },
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_CODE_EXISTS,
+        message: 'Dictionary code already exists',
+        status: HttpStatus.CONFLICT,
+        details: { dictCode },
+      });
     }
   }
 
@@ -395,22 +398,22 @@ export class SystemDictionariesService {
       builder.andWhere('dictionaryItem.id != :currentId', { currentId });
     }
     if (await builder.getExists()) {
-      throw new ApplicationError(
-        'DICTIONARY_ITEM_VALUE_EXISTS',
-        'Dictionary item value already exists in this dictionary type',
-        HttpStatus.CONFLICT,
-        { value },
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_ITEM_VALUE_EXISTS,
+        message: 'Dictionary item value already exists in this dictionary type',
+        status: HttpStatus.CONFLICT,
+        details: { value },
+      });
     }
   }
 
   private assertMatchingId(inputId: string | undefined, pathId: string): void {
     if (inputId && inputId !== pathId) {
-      throw new ApplicationError(
-        'DICTIONARY_ID_MISMATCH',
-        'The body ID does not match the path ID',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_ID_MISMATCH,
+        message: 'The body ID does not match the path ID',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
@@ -419,25 +422,31 @@ export class SystemDictionariesService {
     pathCode: string,
   ): void {
     if (inputCode && inputCode !== pathCode) {
-      throw new ApplicationError(
-        'DICTIONARY_CODE_MISMATCH',
-        'The body dictionary code does not match the path dictionary code',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new BusinessException({
+        code: ErrorCode.DICTIONARY_CODE_MISMATCH,
+        message:
+          'The body dictionary code does not match the path dictionary code',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
   }
 
   private assertAllFound(
     requestedIds: string[],
     foundIds: string[],
-    code: string,
+    code: ErrorCodeValue,
     message: string,
   ): void {
     const found = new Set(foundIds);
     const missingIds = requestedIds.filter((id) => !found.has(id));
     if (missingIds.length > 0) {
-      throw new ApplicationError(code, message, HttpStatus.NOT_FOUND, {
-        missingIds,
+      throw new BusinessException({
+        code,
+        message,
+        status: HttpStatus.NOT_FOUND,
+        details: {
+          missingIds,
+        },
       });
     }
   }
