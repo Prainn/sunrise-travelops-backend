@@ -41,21 +41,21 @@ export class TransportsController {
   constructor(private readonly service: TransportsService) {}
   @Get()
   @Permissions('resource:transport:list')
-  @ApiOperation({ summary: 'List vehicle and driver resources' })
+  @ApiOperation({ summary: 'List vehicle model resources' })
   @ApiPaginatedResponse(TransportResponse)
   list(@Query() query: TransportQueryDto) {
     return this.service.list(query);
   }
   @Get(':id')
   @Permissions('resource:transport:list')
-  @ApiOperation({ summary: 'Get a vehicle and driver resource' })
+  @ApiOperation({ summary: 'Get a vehicle model resource' })
   @ApiSuccessResponse({ type: TransportResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:transport:create')
-  @ApiOperation({ summary: 'Create a vehicle and driver resource' })
+  @ApiOperation({ summary: 'Create a vehicle model resource' })
   @ApiSuccessResponse({ status: HttpStatus.CREATED, type: TransportResponse })
   create(
     @Body() input: CreateTransportDto,
@@ -65,7 +65,7 @@ export class TransportsController {
   }
   @Put(':id')
   @Permissions('resource:transport:update')
-  @ApiOperation({ summary: 'Update a vehicle and driver resource' })
+  @ApiOperation({ summary: 'Update a vehicle model resource' })
   @ApiSuccessResponse({ type: TransportResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -77,7 +77,7 @@ export class TransportsController {
   @Delete()
   @Permissions('resource:transport:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete vehicle and driver resources' })
+  @ApiOperation({ summary: 'Delete vehicle model resources' })
   @ApiNoContentResponse()
   delete(
     @Query() query: BatchIdsQueryDto,

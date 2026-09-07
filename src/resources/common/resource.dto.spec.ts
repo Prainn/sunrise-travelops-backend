@@ -36,7 +36,7 @@ describe('resource DTOs', () => {
       name: 'Hotel',
       province: 'Yunnan',
       city: 'Kunming',
-      rating: 'five',
+      rating: 'international_five_star',
       facilities: '',
       breakfast: '',
       address: '',
@@ -61,22 +61,65 @@ describe('resource DTOs', () => {
     );
   });
 
+  it('rejects an unsupported hotel rating', async () => {
+    const input = plainToInstance(CreateHotelDto, {
+      code: 'HTL001',
+      name: 'Hotel',
+      province: 'Yunnan',
+      city: 'Kunming',
+      rating: 'five_stars',
+      facilities: '',
+      breakfast: '',
+      address: '',
+      phone: '',
+      nearby: '',
+      basicRoomType: 'Twin',
+      individualPrice: 300,
+      groupPrice: null,
+      minimumGroupSize: null,
+      unit: 'roomNight',
+      status: ResourceStatus.Enabled,
+    });
+
+    expect((await validate(input)).map((error) => error.property)).toContain(
+      'rating',
+    );
+  });
+
   it('rejects non-positive transport seats', async () => {
     const input = plainToInstance(CreateTransportDto, {
       code: 'VEH001',
       name: 'Coach',
-      plateNumber: '',
+      serviceLevel: 'standard',
       seats: 0,
       dailyPrice: '100.00',
       unit: 'vehicleDay',
       city: '',
-      contact: '',
       phone: '',
       remark: '',
       status: ResourceStatus.Enabled,
     });
     expect((await validate(input)).map((error) => error.property)).toContain(
       'seats',
+    );
+  });
+
+  it('rejects an unsupported transport service level', async () => {
+    const input = plainToInstance(CreateTransportDto, {
+      code: 'VEH001',
+      name: 'Coach',
+      serviceLevel: 'luxury',
+      seats: 20,
+      dailyPrice: '100.00',
+      unit: 'vehicleDay',
+      city: '',
+      phone: '',
+      remark: '',
+      status: ResourceStatus.Enabled,
+    });
+
+    expect((await validate(input)).map((error) => error.property)).toContain(
+      'serviceLevel',
     );
   });
 

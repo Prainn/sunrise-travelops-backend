@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -20,12 +21,11 @@ export class TransportQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateTransportDto extends ResourceInputDto {
-  @optionalTrimmedString @IsString() @MaxLength(50) plateNumber: string;
+  @IsIn(['standard', 'vip']) serviceLevel: string;
   @Type(() => Number) @IsInt() @Min(1) seats: number;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) dailyPrice: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) contact: string;
   @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
   @optionalTrimmedString @IsString() remark: string;
 }
@@ -41,12 +41,11 @@ export class TransportResponse implements ResourceAuditResponse {
   updatedBy: string | null;
   code: string;
   name: string;
-  plateNumber: string;
+  serviceLevel: string;
   seats: number;
   dailyPrice: string;
   unit: string;
   city: string;
-  contact: string;
   phone: string;
   status: string;
   remark: string;

@@ -4,6 +4,10 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
 @Entity({ name: 'resource_hotels' })
 @Unique('UQ_resource_hotels_code', ['code'])
 @Check('CHK_resource_hotels_status', `"status" IN ('enabled', 'disabled')`)
+@Check(
+  'CHK_resource_hotels_rating',
+  `"rating" IN ('international_five_star', 'ctrip_preferred')`,
+)
 @Index('IDX_resource_hotels_status_city_unit', ['status', 'city', 'unit'], {
   where: '"deleted_at" IS NULL',
 })
@@ -23,7 +27,7 @@ export class HotelEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' })
   city: string;
 
-  @Column({ type: 'varchar', length: 50, default: '' })
+  @Column({ type: 'varchar', length: 50 })
   rating: string;
 
   @Column({ type: 'text', default: '' })

@@ -85,7 +85,7 @@ function input() {
     name: 'Test Hotel',
     province: 'Yunnan',
     city: 'Kunming',
-    rating: 'five',
+    rating: 'international_five_star',
     facilities: '',
     breakfast: '',
     address: '',

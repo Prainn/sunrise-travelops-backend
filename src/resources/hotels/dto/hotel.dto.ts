@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
@@ -22,7 +23,7 @@ export class HotelQueryDto extends ResourceQueryDto {
 export class CreateHotelDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) province: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @optionalTrimmedString @IsString() @MaxLength(50) rating: string;
+  @IsIn(['international_five_star', 'ctrip_preferred']) rating: string;
   @optionalTrimmedString @IsString() facilities: string;
   @optionalTrimmedString @IsString() breakfast: string;
   @optionalTrimmedString @IsString() @MaxLength(500) address: string;

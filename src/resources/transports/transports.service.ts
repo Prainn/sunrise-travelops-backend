@@ -44,7 +44,7 @@ export class TransportsService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(transport.code ILIKE :keyword OR transport.name ILIKE :keyword OR transport.plateNumber ILIKE :keyword OR transport.city ILIKE :keyword OR transport.contact ILIKE :keyword)',
+        '(transport.code ILIKE :keyword OR transport.name ILIKE :keyword OR transport.city ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -130,12 +130,11 @@ export class TransportsService {
       ...auditResponse(entity),
       code: entity.code,
       name: entity.name,
-      plateNumber: entity.plateNumber,
+      serviceLevel: entity.serviceLevel,
       seats: entity.seats,
       dailyPrice: normalizeMoney(entity.dailyPrice),
       unit: entity.unit,
       city: entity.city,
-      contact: entity.contact,
       phone: entity.phone,
       status: entity.status,
       remark: entity.remark,
