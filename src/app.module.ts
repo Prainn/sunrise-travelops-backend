@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { IncomingMessage } from 'node:http';
-import { Module } from '@nestjs/common';
+import { Module, RequestMethod } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -18,14 +18,62 @@ import { ResourcesModule } from './resources/resources.module';
 import { SystemModule } from './system/system.module';
 import { UsersModule } from './users/users.module';
 
+const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
+  'InstanceLoader',
+  'RoutesResolver',
+  'RouterExplorer',
+]);
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
     LoggerModule.forRoot({
+      forRoutes: [{ path: '{/*splat}', method: RequestMethod.ALL }],
       pinoHttp: {
         level: process.env.LOG_LEVEL ?? 'info',
+        transport:
+          process.env.NODE_ENV === 'development'
+            ? {
+                target: 'pino-pretty',
+                options: {
+                  colorize: true,
+                  ignore: 'pid,hostname,context,req,res,responseTime',
+                  messageFormat: '{if context}[{context}] {end}{msg}',
+                  singleLine: true,
+                  translateTime: 'SYS:HH:MM:ss.l',
+                },
+              }
+            : undefined,
+        hooks: {
+          logMethod(args, method) {
+            const bindings = args[0];
+            const context =
+              typeof bindings === 'object' &&
+              bindings !== null &&
+              'context' in bindings
+                ? bindings.context
+                : undefined;
+
+            if (
+              typeof context === 'string' &&
+              HIDDEN_NEST_STARTUP_LOG_CONTEXTS.has(context)
+            ) {
+              return;
+            }
+
+            method.apply(this, args);
+          },
+        },
         genReqId: (request: IncomingMessage) =>
           request.headers['x-request-id']?.toString() ?? randomUUID(),
+        customSuccessMessage: (request, response, responseTime) => {
+          const requestId =
+            typeof request.id === 'string' || typeof request.id === 'number'
+              ? request.id
+              : '-';
+
+          return `[HTTP] ${request.method ?? '-'} ${request.url ?? '-'} ${response.statusCode} ${responseTime}ms [requestId=${requestId}]`;
+        },
         redact: {
           paths: [
             'req.headers.authorization',
