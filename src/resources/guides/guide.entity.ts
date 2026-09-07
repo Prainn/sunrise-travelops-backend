@@ -20,7 +20,7 @@ import { GuideEmploymentType, GuideGender } from '../common/resource.constants';
   { where: '"deleted_at" IS NULL' },
 )
 @Index('IDX_resource_guides_supplier', ['groundOperatorId'], {
-  where: '"deleted_at" IS NULL AND "ground_operator_id" IS NOT NULL',
+  where: '"deleted_at" IS NULL',
 })
 @Check('CHK_resource_guides_gender', "\"gender\" IN ('male', 'female')")
 @Check(
@@ -28,14 +28,7 @@ import { GuideEmploymentType, GuideGender } from '../common/resource.constants';
   "\"employment_type\" IN ('full-time', 'part-time')",
 )
 @Check('CHK_resource_guides_age', '"age" > 0 AND "age" <= 130')
-@Check(
-  'CHK_resource_guides_daily_price',
-  '"daily_price" IS NULL OR "daily_price" >= 0',
-)
-@Check(
-  'CHK_resource_guides_supplier',
-  '("is_ground_operator_provided" = false AND "ground_operator_id" IS NULL) OR ("is_ground_operator_provided" = true AND "ground_operator_id" IS NOT NULL)',
-)
+@Check('CHK_resource_guides_daily_price', '"daily_price" >= 0')
 export class GuideEntity extends TopLevelResourceEntity {
   @Column({ name: 'certificate_no', type: 'varchar', length: 100 })
   certificateNo: string;
@@ -52,26 +45,20 @@ export class GuideEntity extends TopLevelResourceEntity {
     type: 'numeric',
     precision: 12,
     scale: 2,
-    nullable: true,
+    nullable: false,
   })
-  dailyPrice: string | null;
+  dailyPrice: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;
   @Column({ name: 'has_labor_contract', type: 'boolean', default: false })
   hasLaborContract: boolean;
-  @Column({
-    name: 'is_ground_operator_provided',
-    type: 'boolean',
-    default: false,
-  })
-  isGroundOperatorProvided: boolean;
-  @Column({ name: 'ground_operator_id', type: 'uuid', nullable: true })
-  groundOperatorId: string | null;
-  @ManyToOne(() => SupplierEntity, { onDelete: 'RESTRICT', nullable: true })
+  @Column({ name: 'ground_operator_id', type: 'uuid', nullable: false })
+  groundOperatorId: string;
+  @ManyToOne(() => SupplierEntity, { onDelete: 'RESTRICT', nullable: false })
   @JoinColumn({
     name: 'ground_operator_id',
     foreignKeyConstraintName: 'FK_resource_guides_supplier',
   })
-  groundOperator: SupplierEntity | null;
+  groundOperator: SupplierEntity;
   @Column({ name: 'license_photo_url', type: 'text', default: '' })
   licensePhotoUrl: string;
   @Column({ type: 'text', default: '' }) remark: string;

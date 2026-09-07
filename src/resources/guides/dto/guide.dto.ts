@@ -12,7 +12,6 @@ import {
   Max,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 import {
   GUIDE_EMPLOYMENT_TYPES,
@@ -53,16 +52,13 @@ export class CreateGuideDto extends ResourceInputDto {
   @IsIn(GUIDE_EMPLOYMENT_TYPES) employmentType: GuideEmploymentType;
   @optionalTrimmedString @IsString() @MaxLength(100) identityNumber: string;
   @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
-  @IsOptional()
   @moneyTransform
   @Matches(/^\d{1,10}(?:\.\d{1,2})?$/)
-  dailyPrice?: string | null;
+  dailyPrice: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
   @IsBoolean() hasLaborContract: boolean;
-  @IsBoolean() isGroundOperatorProvided: boolean;
-  @ValidateIf((input: CreateGuideDto) => input.isGroundOperatorProvided)
   @IsUUID('all')
-  groundOperatorId?: string | null;
+  groundOperatorId: string;
   @optionalTrimmedString @IsString() licensePhotoUrl: string;
   @optionalTrimmedString @IsString() remark: string;
 }
@@ -85,11 +81,10 @@ export class GuideResponse implements ResourceAuditResponse {
   employmentType: GuideEmploymentType;
   identityNumber: string;
   phone: string;
-  dailyPrice: string | null;
+  dailyPrice: string;
   unit: string;
   hasLaborContract: boolean;
-  isGroundOperatorProvided: boolean;
-  groundOperatorId: string | null;
+  groundOperatorId: string;
   licensePhotoUrl: string;
   remark: string;
   status: string;

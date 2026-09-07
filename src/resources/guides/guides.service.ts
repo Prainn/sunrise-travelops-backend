@@ -77,20 +77,17 @@ export class GuidesService {
   async create(input: CreateGuideDto, actorId: string): Promise<GuideResponse> {
     return this.dataSource.transaction(async (manager) => {
       await this.validation.validateUnit(input.unit, 'guide');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
+      const groundOperatorId = (await this.validation.validateGroundOperator(
+        true,
         input.groundOperatorId,
-      );
+      ))!;
       const repository = manager.getRepository(GuideEntity);
       await ensureCodeAvailable(repository, input.code);
       return this.toResponse(
         await repository.save(
           repository.create({
             ...input,
-            dailyPrice:
-              input.dailyPrice == null
-                ? null
-                : normalizeMoney(input.dailyPrice),
+            dailyPrice: normalizeMoney(input.dailyPrice),
             groundOperatorId,
             createdBy: actorId,
             updatedBy: actorId,
@@ -107,10 +104,10 @@ export class GuidesService {
     assertMatchingId(input.id, id);
     return this.dataSource.transaction(async (manager) => {
       await this.validation.validateUnit(input.unit, 'guide');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
+      const groundOperatorId = (await this.validation.validateGroundOperator(
+        true,
         input.groundOperatorId,
-      );
+      ))!;
       const repository = manager.getRepository(GuideEntity);
       const entity = await requireResourceForUpdate(
         repository,
@@ -121,8 +118,7 @@ export class GuidesService {
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,
-        dailyPrice:
-          input.dailyPrice == null ? null : normalizeMoney(input.dailyPrice),
+        dailyPrice: normalizeMoney(input.dailyPrice),
         groundOperatorId,
         updatedBy: actorId,
       });
@@ -159,11 +155,9 @@ export class GuidesService {
       employmentType: entity.employmentType,
       identityNumber: entity.identityNumber,
       phone: entity.phone,
-      dailyPrice:
-        entity.dailyPrice === null ? null : normalizeMoney(entity.dailyPrice),
+      dailyPrice: normalizeMoney(entity.dailyPrice),
       unit: entity.unit,
       hasLaborContract: entity.hasLaborContract,
-      isGroundOperatorProvided: entity.isGroundOperatorProvided,
       groundOperatorId: entity.groundOperatorId,
       licensePhotoUrl: entity.licensePhotoUrl,
       remark: entity.remark,

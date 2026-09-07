@@ -80,7 +80,7 @@ describe('resource DTOs', () => {
     );
   });
 
-  it('validates guide enums, languages, age and optional daily price', async () => {
+  it('validates guide enums, languages, age, daily price and supplier', async () => {
     const input = plainToInstance(CreateGuideDto, {
       code: 'GDE001',
       name: 'Guide',
@@ -94,7 +94,6 @@ describe('resource DTOs', () => {
       dailyPrice: -1,
       unit: 'guideDay',
       hasLaborContract: false,
-      isGroundOperatorProvided: false,
       groundOperatorId: 'not-a-uuid',
       licensePhotoUrl: '',
       remark: '',
@@ -108,9 +107,9 @@ describe('resource DTOs', () => {
         'languages',
         'employmentType',
         'dailyPrice',
+        'groundOperatorId',
       ]),
     );
-    expect(properties).not.toContain('groundOperatorId');
   });
 
   it('requires a supplier UUID only for supplier-provided attraction prices', async () => {
