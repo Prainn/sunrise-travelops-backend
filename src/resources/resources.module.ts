@@ -1,3 +1,5 @@
+import { SelectionController } from './selections/selection.controller';
+import { SelectionService } from './selections/selection.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BusinessDictionaryItemEntity } from '../system/business-dictionaries/business-dictionary-item.entity';
@@ -54,6 +56,7 @@ const entities = [
 @Module({
   imports: [TypeOrmModule.forFeature(entities)],
   controllers: [
+    SelectionController,
     CitiesController,
     AgenciesController,
     SuppliersController,
@@ -64,6 +67,7 @@ const entities = [
     GuidesController,
   ],
   providers: [
+    SelectionService,
     CitiesService,
     ResourceValidationService,
     AgenciesService,
