@@ -46,10 +46,11 @@ export abstract class ResourceInputDto {
   @IsUUID('all')
   id?: string;
 
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @Matches(/^[A-Za-z][A-Za-z0-9_-]{1,49}$/)
-  code: string;
+  code?: string;
 
   @Transform(trim)
   @IsString()

@@ -1,3 +1,4 @@
+import { nextBusinessCode } from '../../common/business-code';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -70,9 +71,12 @@ export class HotelsService {
   async create(input: CreateHotelDto, actorId: string): Promise<HotelResponse> {
     await this.validation.validateCity(input.city);
     await this.validation.validateUnit(input.unit, 'hotel');
-    await ensureCodeAvailable(this.hotels, input.code);
+    const code =
+      input.code ?? (await nextBusinessCode(this.hotels.manager, 'HTL'));
+    await ensureCodeAvailable(this.hotels, code);
     const entity = this.hotels.create({
       ...input,
+      code,
       individualPrice: normalizeMoney(input.individualPrice),
       groupPrice:
         input.groupPrice == null ? null : normalizeMoney(input.groupPrice),
@@ -98,6 +102,7 @@ export class HotelsService {
       );
       assertVersion(entity.version, input.version);
       await this.validation.validateCity(input.city, entity.city);
+      input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,

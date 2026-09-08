@@ -1,3 +1,4 @@
+import { nextBusinessCode } from '../../common/business-code';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -82,11 +83,14 @@ export class GuidesService {
         input.groundOperatorId,
       ))!;
       const repository = manager.getRepository(GuideEntity);
-      await ensureCodeAvailable(repository, input.code);
+      const code =
+        input.code ?? (await nextBusinessCode(repository.manager, 'GDE'));
+      await ensureCodeAvailable(repository, code);
       return this.toResponse(
         await repository.save(
           repository.create({
             ...input,
+            code,
             dailyPrice: normalizeMoney(input.dailyPrice),
             groundOperatorId,
             createdBy: actorId,
@@ -115,6 +119,7 @@ export class GuidesService {
         ErrorCode.GUIDE_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,

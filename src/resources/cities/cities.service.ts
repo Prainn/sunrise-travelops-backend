@@ -1,3 +1,4 @@
+import { nextBusinessCode } from '../../common/business-code';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -69,9 +70,12 @@ export class CitiesService {
     );
   }
   async create(input: CreateCityDto, actorId: string): Promise<CityResponse> {
-    await ensureCodeAvailable(this.cities, input.code);
+    const code =
+      input.code ?? (await nextBusinessCode(this.cities.manager, 'CITY'));
+    await ensureCodeAvailable(this.cities, code);
     const entity = this.cities.create({
       ...input,
+      code,
       createdBy: actorId,
       updatedBy: actorId,
     });
@@ -97,6 +101,7 @@ export class CitiesService {
           message: '城市名称创建后不可修改，请停用后新增城市',
           status: HttpStatus.CONFLICT,
         });
+      input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,

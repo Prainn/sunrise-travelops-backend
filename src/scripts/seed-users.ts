@@ -5,7 +5,6 @@ import { AppModule } from '../app.module';
 import {
   ADMIN_PERMISSIONS,
   INQUIRY_PERMISSIONS,
-  OPERATIONS_PERMISSIONS,
   PERMISSION_DEFINITIONS,
   RESOURCE_PERMISSIONS,
 } from '../auth/permissions';
@@ -41,11 +40,6 @@ const roleDefinitions = [
     code: 'INQUIRY_COORDINATOR',
     name: 'Inquiry Coordinator',
     permissionCodes: INQUIRY_PERMISSIONS,
-  },
-  {
-    code: 'OPERATIONS_COORDINATOR',
-    name: 'Operations Coordinator',
-    permissionCodes: OPERATIONS_PERMISSIONS,
   },
 ] as const;
 
@@ -92,7 +86,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T09:30:00+08:00',
-    roleCodes: ['OPERATIONS_COORDINATOR'],
+    roleCodes: ['INQUIRY_COORDINATOR'],
   },
   {
     username: 'inquiry_lina',
@@ -125,7 +119,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations.chenchen@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T10:00:00+08:00',
-    roleCodes: ['OPERATIONS_COORDINATOR'],
+    roleCodes: ['INQUIRY_COORDINATOR'],
   },
   {
     username: 'operations_zhaolei',
@@ -136,7 +130,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations.zhaolei@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T10:10:00+08:00',
-    roleCodes: ['OPERATIONS_COORDINATOR'],
+    roleCodes: ['INQUIRY_COORDINATOR'],
   },
 ];
 

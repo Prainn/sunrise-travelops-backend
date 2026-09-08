@@ -66,6 +66,7 @@ const entities = [
     TransportsController,
     GuidesController,
   ],
+  exports: [AgenciesService],
   providers: [
     SelectionService,
     CitiesService,

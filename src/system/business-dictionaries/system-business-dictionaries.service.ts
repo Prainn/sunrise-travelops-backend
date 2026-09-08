@@ -199,6 +199,21 @@ export class SystemBusinessDictionariesService {
       ErrorCode.BUSINESS_DICTIONARY_ITEMS_NOT_FOUND,
       'One or more business dictionary items were not found in this type',
     );
+    if (typeCode === 'transport-method' && entities.length) {
+      const used: { exists: boolean }[] = await this.dataSource.query(
+        `SELECT EXISTS (
+        SELECT 1 FROM itineraries i, jsonb_array_elements(i.data->'dailyPlans') d
+        WHERE string_to_array(d->>'transport', ',') && $1::text[]
+      ) AS exists`,
+        [entities.map((item) => item.code)],
+      );
+      if (used[0]?.exists)
+        throw new BusinessException({
+          code: ErrorCode.CONFLICT,
+          message: 'Transport method is referenced by an itinerary',
+          status: HttpStatus.CONFLICT,
+        });
+    }
     await this.dataSource.transaction(async (manager) => {
       await manager
         .getRepository(BusinessDictionaryItemEntity)

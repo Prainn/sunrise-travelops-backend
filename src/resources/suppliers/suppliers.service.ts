@@ -1,3 +1,4 @@
+import { nextBusinessCode } from '../../common/business-code';
 import { ResourceValidationService } from '../common/resource-validation.service';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -78,11 +79,14 @@ export class SuppliersService {
     actorId: string,
   ): Promise<SupplierResponse> {
     await this.validation.validateCity(input.city);
-    await ensureCodeAvailable(this.suppliers, input.code);
+    const code =
+      input.code ?? (await nextBusinessCode(this.suppliers.manager, 'SUP'));
+    await ensureCodeAvailable(this.suppliers, code);
     return this.toResponse(
       await this.suppliers.save(
         this.suppliers.create({
           ...input,
+          code,
           createdBy: actorId,
           updatedBy: actorId,
         }),
@@ -104,6 +108,7 @@ export class SuppliersService {
       );
       assertVersion(entity.version, input.version);
       await this.validation.validateCity(input.city, entity.city);
+      input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       return this.toResponse(await repository.save(entity));

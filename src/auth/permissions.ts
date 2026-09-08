@@ -21,16 +21,11 @@ export const INQUIRY_PERMISSIONS = [
   'inquiry:create',
   'inquiry:update',
   'itinerary:list',
-  'itinerary:price',
-] as const;
-
-export const OPERATIONS_PERMISSIONS = [
-  'inquiry:list',
-  'inquiry:update',
-  'itinerary:list',
   'itinerary:create',
   'itinerary:update',
+  'itinerary:price',
   'itinerary:pdf',
+  ...RESOURCE_TYPES.map((resource) => `resource:${resource}:list`),
 ] as const;
 
 export const ADMIN_PERMISSIONS = [

@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -10,11 +11,14 @@ import { createValidationException } from './common/validation/validation-except
 import { parseCorsOrigins } from './config/environment';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
   const config = app.get(ConfigService);
 
   app.useLogger(app.get(Logger));
   app.setGlobalPrefix('api');
+  app.useBodyParser('json', { limit: '2mb' });
   app.use(helmet());
   app.enableCors({
     origin: parseCorsOrigins(config.getOrThrow<string>('CORS_ORIGIN')),

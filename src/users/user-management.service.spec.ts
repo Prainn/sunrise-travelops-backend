@@ -61,8 +61,8 @@ describe('UserManagementService', () => {
     roles.findBy = jest.fn().mockResolvedValue([
       {
         id: roleId,
-        code: 'OPERATIONS_COORDINATOR',
-        name: 'Operations Coordinator',
+        code: 'INQUIRY_COORDINATOR',
+        name: 'Inquiry Coordinator',
         isEnabled: true,
       } as RoleEntity,
     ]);

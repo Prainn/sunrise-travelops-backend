@@ -1,3 +1,4 @@
+import { nextBusinessCode } from '../../common/business-code';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -97,10 +98,13 @@ export class RestaurantsService {
     await this.validation.validateUnit(input.unit, 'restaurant');
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(RestaurantEntity);
-      await ensureCodeAvailable(repository, input.code);
+      const code =
+        input.code ?? (await nextBusinessCode(repository.manager, 'RES'));
+      await ensureCodeAvailable(repository, code);
       const entity = await repository.save(
         repository.create({
           ...input,
+          code,
           prices: [],
           createdBy: actorId,
           updatedBy: actorId,
@@ -125,6 +129,7 @@ export class RestaurantsService {
       );
       assertVersion(entity.version, input.version);
       await this.validation.validateCity(input.city, entity.city);
+      input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       const saved = await repository.save(entity);
