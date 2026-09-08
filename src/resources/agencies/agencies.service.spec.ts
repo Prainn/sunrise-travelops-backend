@@ -1,3 +1,4 @@
+import { ResourceValidationService } from '../common/resource-validation.service';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { AgencyContactEntity, AgencyEntity } from './agency.entity';
 import { AgenciesService } from './agencies.service';
@@ -25,6 +26,7 @@ describe('AgenciesService contacts', () => {
       {} as Repository<AgencyEntity>,
       {} as Repository<AgencyContactEntity>,
       dataSource,
+      {} as ResourceValidationService,
     );
     await expect(
       service.createContact('agency', { name: 'ALICE', phone: '' }, 'actor'),
@@ -55,6 +57,7 @@ describe('AgenciesService contacts', () => {
       {} as Repository<AgencyEntity>,
       {} as Repository<AgencyContactEntity>,
       dataSource,
+      {} as ResourceValidationService,
     );
     await expect(
       service.updateContact(

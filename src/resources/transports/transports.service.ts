@@ -70,6 +70,7 @@ export class TransportsService {
     input: CreateTransportDto,
     actorId: string,
   ): Promise<TransportResponse> {
+    await this.validation.validateCity(input.city);
     await this.validation.validateUnit(input.unit, 'vehicle');
     await ensureCodeAvailable(this.transports, input.code);
     return this.toResponse(
@@ -98,6 +99,7 @@ export class TransportsService {
         ErrorCode.TRANSPORT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.city, entity.city);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,

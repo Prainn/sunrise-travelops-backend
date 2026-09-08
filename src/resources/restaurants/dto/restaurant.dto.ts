@@ -1,6 +1,5 @@
 import { Type } from 'class-transformer';
 import {
-  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -8,7 +7,6 @@ import {
   Matches,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 import {
   ResourceAuditResponse,
@@ -42,12 +40,6 @@ export class CreateRestaurantPriceDto {
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) dinerCount?: number | null;
   @optionalTrimmedString @IsString() remark: string;
-  @IsBoolean() isGroundOperatorProvided: boolean;
-  @ValidateIf(
-    (input: CreateRestaurantPriceDto) => input.isGroundOperatorProvided,
-  )
-  @IsUUID('all')
-  groundOperatorId?: string | null;
 }
 export class UpdateRestaurantPriceDto extends CreateRestaurantPriceDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
@@ -66,8 +58,6 @@ export class RestaurantPriceResponse implements ResourceAuditResponse {
   price: string;
   dinerCount: number | null;
   remark: string;
-  isGroundOperatorProvided: boolean;
-  groundOperatorId: string | null;
 }
 export class RestaurantListItemResponse implements ResourceAuditResponse {
   id: string;

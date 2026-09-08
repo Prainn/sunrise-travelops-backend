@@ -1,4 +1,5 @@
 import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
+import { CitiesController } from './cities/cities.controller';
 import { AgenciesController } from './agencies/agencies.controller';
 import { AttractionsController } from './attractions/attractions.controller';
 import { GuidesController } from './guides/guides.controller';
@@ -9,6 +10,7 @@ import { TransportsController } from './transports/transports.controller';
 
 describe('resource controller permissions', () => {
   it.each([
+    [CitiesController, 'resource:city'],
     [AgenciesController, 'resource:agency'],
     [SuppliersController, 'resource:supplier'],
     [HotelsController, 'resource:hotel'],

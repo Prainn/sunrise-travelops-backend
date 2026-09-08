@@ -10,7 +10,6 @@ import {
   Matches,
   MaxLength,
   Min,
-  ValidateIf,
 } from 'class-validator';
 import {
   ATTRACTION_CATEGORIES,
@@ -68,12 +67,6 @@ export class CreateAttractionPriceDto {
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
   @IsBoolean() isFree: boolean;
   @optionalTrimmedString @IsString() priceNote: string;
-  @IsBoolean() isGroundOperatorProvided: boolean;
-  @ValidateIf(
-    (input: CreateAttractionPriceDto) => input.isGroundOperatorProvided,
-  )
-  @IsUUID('all')
-  groundOperatorId?: string | null;
 }
 export class UpdateAttractionPriceDto extends CreateAttractionPriceDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
@@ -97,8 +90,6 @@ export class AttractionPriceResponse implements ResourceAuditResponse {
   unit: string;
   isFree: boolean;
   priceNote: string;
-  isGroundOperatorProvided: boolean;
-  groundOperatorId: string | null;
 }
 export class AttractionListItemResponse implements ResourceAuditResponse {
   id: string;

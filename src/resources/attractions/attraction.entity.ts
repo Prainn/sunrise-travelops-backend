@@ -8,7 +8,6 @@ import {
   OneToMany,
   Unique,
 } from 'typeorm';
-import { SupplierEntity } from '../suppliers/supplier.entity';
 import {
   TopLevelResourceEntity,
   VersionedResourceEntity,
@@ -50,9 +49,6 @@ export class AttractionEntity extends TopLevelResourceEntity {
 @Index('IDX_resource_attraction_prices_attraction', ['attractionId'], {
   where: '"deleted_at" IS NULL',
 })
-@Index('IDX_resource_attraction_prices_supplier', ['groundOperatorId'], {
-  where: '"deleted_at" IS NULL AND "ground_operator_id" IS NOT NULL',
-})
 @Check(
   'CHK_resource_attraction_prices_item_type',
   "\"item_type\" IN ('ticket', 'transport', 'guide', 'activity', 'package')",
@@ -68,10 +64,6 @@ export class AttractionEntity extends TopLevelResourceEntity {
 @Check(
   'CHK_resource_attraction_prices_free',
   '"is_free" = false OR ("rack_price" = 0 AND "settlement_price" = 0)',
-)
-@Check(
-  'CHK_resource_attraction_prices_supplier',
-  '("is_ground_operator_provided" = false AND "ground_operator_id" IS NULL) OR ("is_ground_operator_provided" = true AND "ground_operator_id" IS NOT NULL)',
 )
 export class AttractionPriceEntity extends VersionedResourceEntity {
   @Column({ name: 'attraction_id', type: 'uuid' }) attractionId: string;
@@ -105,18 +97,4 @@ export class AttractionPriceEntity extends VersionedResourceEntity {
   @Column({ type: 'varchar', length: 100 }) unit: string;
   @Column({ name: 'is_free', type: 'boolean', default: false }) isFree: boolean;
   @Column({ name: 'price_note', type: 'text', default: '' }) priceNote: string;
-  @Column({
-    name: 'is_ground_operator_provided',
-    type: 'boolean',
-    default: false,
-  })
-  isGroundOperatorProvided: boolean;
-  @Column({ name: 'ground_operator_id', type: 'uuid', nullable: true })
-  groundOperatorId: string | null;
-  @ManyToOne(() => SupplierEntity, { onDelete: 'RESTRICT', nullable: true })
-  @JoinColumn({
-    name: 'ground_operator_id',
-    foreignKeyConstraintName: 'FK_resource_attraction_prices_supplier',
-  })
-  groundOperator: SupplierEntity | null;
 }

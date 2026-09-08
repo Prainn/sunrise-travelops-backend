@@ -21,15 +21,17 @@ describe('HotelsService resource lifecycle', () => {
       save,
       findOneBy,
     } as unknown as Repository<HotelEntity>;
+    const validateCity = jest.fn().mockResolvedValue(undefined);
     const validateUnit = jest.fn().mockResolvedValue(undefined);
     const service = new HotelsService(
       repository,
-      { validateUnit } as unknown as ResourceValidationService,
+      { validateUnit, validateCity } as unknown as ResourceValidationService,
       {} as DataSource,
     );
 
     const created = await service.create(input(), actorId);
     expect(validateUnit).toHaveBeenCalledWith('roomNight', 'hotel');
+    expect(validateCity).toHaveBeenCalledWith('Kunming');
     expect(findOne).toHaveBeenCalledWith(
       expect.objectContaining({ withDeleted: true }),
     );
@@ -59,10 +61,11 @@ describe('HotelsService resource lifecycle', () => {
     const transaction = jest.fn(
       (callback: (manager: EntityManager) => unknown) => callback(manager),
     );
+    const validateCity = jest.fn().mockResolvedValue(undefined);
     const validateUnit = jest.fn().mockResolvedValue(undefined);
     const service = new HotelsService(
       {} as Repository<HotelEntity>,
-      { validateUnit } as unknown as ResourceValidationService,
+      { validateUnit, validateCity } as unknown as ResourceValidationService,
       { transaction } as unknown as DataSource,
     );
 
@@ -87,11 +90,11 @@ function input() {
     city: 'Kunming',
     rating: 'international_five_star',
     facilities: '',
+    breakfastIncluded: true,
     breakfast: '',
     address: '',
     phone: '',
     nearby: '',
-    basicRoomType: 'Twin',
     individualPrice: '120',
     groupPrice: null,
     minimumGroupSize: null,

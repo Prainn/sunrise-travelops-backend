@@ -31,7 +31,12 @@ import { TransportEntity } from './transports/transport.entity';
 import { TransportsController } from './transports/transports.controller';
 import { TransportsService } from './transports/transports.service';
 
+import { CityEntity } from './cities/city.entity';
+import { CitiesController } from './cities/cities.controller';
+import { CitiesService } from './cities/cities.service';
+
 const entities = [
+  CityEntity,
   AgencyEntity,
   AgencyContactEntity,
   SupplierEntity,
@@ -49,6 +54,7 @@ const entities = [
 @Module({
   imports: [TypeOrmModule.forFeature(entities)],
   controllers: [
+    CitiesController,
     AgenciesController,
     SuppliersController,
     HotelsController,
@@ -58,6 +64,7 @@ const entities = [
     GuidesController,
   ],
   providers: [
+    CitiesService,
     ResourceValidationService,
     AgenciesService,
     SuppliersService,

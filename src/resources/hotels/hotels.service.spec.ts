@@ -4,6 +4,41 @@ import { HotelEntity } from './hotel.entity';
 import { HotelsService } from './hotels.service';
 
 describe('HotelsService', () => {
+  it('applies keyword and city filters before pagination', async () => {
+    const builder = {
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    const repository = {
+      createQueryBuilder: jest.fn().mockReturnValue(builder),
+    } as unknown as Repository<HotelEntity>;
+    const service = new HotelsService(
+      repository,
+      {} as ResourceValidationService,
+      {} as DataSource,
+    );
+
+    await service.list({
+      page: 2,
+      pageSize: 10,
+      keyword: '翠湖',
+      city: '昆明',
+    });
+
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('hotel.address ILIKE :keyword'),
+      { keyword: '%翠湖%' },
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith('hotel.city = :city', {
+      city: '昆明',
+    });
+    expect(builder.skip).toHaveBeenCalledWith(10);
+  });
+
   it('does not partially soft-delete when any requested id is missing', async () => {
     const repository = {
       findBy: jest.fn().mockResolvedValue([{ id: 'found' }]),

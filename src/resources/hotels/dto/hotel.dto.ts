@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsInt,
   IsIn,
   IsOptional,
@@ -25,11 +26,11 @@ export class CreateHotelDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
   @IsIn(['international_five_star', 'ctrip_preferred']) rating: string;
   @optionalTrimmedString @IsString() facilities: string;
+  @IsBoolean() breakfastIncluded: boolean = true;
   @optionalTrimmedString @IsString() breakfast: string;
   @optionalTrimmedString @IsString() @MaxLength(500) address: string;
   @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
   @optionalTrimmedString @IsString() nearby: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) basicRoomType: string;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) individualPrice: string;
   @IsOptional()
   @moneyTransform
@@ -55,11 +56,11 @@ export class HotelResponse implements ResourceAuditResponse {
   city: string;
   rating: string;
   facilities: string;
+  breakfastIncluded: boolean;
   breakfast: string;
   address: string;
   phone: string;
   nearby: string;
-  basicRoomType: string;
   individualPrice: string;
   groupPrice: string | null;
   minimumGroupSize: number | null;

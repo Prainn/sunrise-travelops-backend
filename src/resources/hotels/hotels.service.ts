@@ -45,7 +45,7 @@ export class HotelsService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(hotel.code ILIKE :keyword OR hotel.name ILIKE :keyword OR hotel.province ILIKE :keyword OR hotel.city ILIKE :keyword OR hotel.basicRoomType ILIKE :keyword)',
+        '(hotel.code ILIKE :keyword OR hotel.name ILIKE :keyword OR hotel.province ILIKE :keyword OR hotel.city ILIKE :keyword OR hotel.address ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -68,6 +68,7 @@ export class HotelsService {
     );
   }
   async create(input: CreateHotelDto, actorId: string): Promise<HotelResponse> {
+    await this.validation.validateCity(input.city);
     await this.validation.validateUnit(input.unit, 'hotel');
     await ensureCodeAvailable(this.hotels, input.code);
     const entity = this.hotels.create({
@@ -96,6 +97,7 @@ export class HotelsService {
         ErrorCode.HOTEL_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.city, entity.city);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,
@@ -135,11 +137,11 @@ export class HotelsService {
       city: entity.city,
       rating: entity.rating,
       facilities: entity.facilities,
+      breakfastIncluded: entity.breakfastIncluded,
       breakfast: entity.breakfast,
       address: entity.address,
       phone: entity.phone,
       nearby: entity.nearby,
-      basicRoomType: entity.basicRoomType,
       individualPrice: normalizeMoney(entity.individualPrice),
       groupPrice:
         entity.groupPrice === null ? null : normalizeMoney(entity.groupPrice),

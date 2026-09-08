@@ -7,6 +7,7 @@ import { BusinessDictionaryItemEntity } from '../../system/business-dictionaries
 import { BusinessDictionaryStatus } from '../../system/business-dictionaries/business-dictionary-status';
 import { BusinessResourceType } from '../../system/business-dictionaries/business-dictionary-status';
 import { BusinessDictionaryTypeEntity } from '../../system/business-dictionaries/business-dictionary-type.entity';
+import { CityEntity } from '../cities/city.entity';
 import { SupplierEntity } from '../suppliers/supplier.entity';
 import { ResourceStatus } from './resource.constants';
 
@@ -19,7 +20,24 @@ export class ResourceValidationService {
     private readonly dictionaryItems: Repository<BusinessDictionaryItemEntity>,
     @InjectRepository(SupplierEntity)
     private readonly suppliers: Repository<SupplierEntity>,
+    @InjectRepository(CityEntity)
+    private readonly cities: Repository<CityEntity>,
   ) {}
+
+  async validateCity(city: string, previousCity?: string): Promise<void> {
+    if (!city || city === previousCity) return;
+    const record = await this.cities.findOneBy({
+      name: city,
+      status: ResourceStatus.Enabled,
+    });
+    if (!record)
+      throw new BusinessException({
+        code: ErrorCode.RESOURCE_CITY_INVALID,
+        message: '请选择城市库中已启用的城市',
+        status: HttpStatus.BAD_REQUEST,
+        details: { city },
+      });
+  }
 
   async validateUnit(unit: string, resourceType: string): Promise<void> {
     const type = await this.dictionaryTypes.findOneBy({

@@ -59,7 +59,7 @@ export class AttractionsService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(attraction.code ILIKE :keyword OR attraction.name ILIKE :keyword OR attraction.area ILIKE :keyword)',
+        '(attraction.code ILIKE :keyword OR attraction.name ILIKE :keyword OR attraction.area ILIKE :keyword OR attraction.remark ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -97,6 +97,7 @@ export class AttractionsService {
     input: CreateAttractionDto,
     actorId: string,
   ): Promise<AttractionDetailResponse> {
+    await this.validation.validateCity(input.area);
     await this.validation.validateUnit(input.unit, 'attraction');
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AttractionEntity);
@@ -127,6 +128,7 @@ export class AttractionsService {
         ErrorCode.ATTRACTION_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.area, entity.area);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       const saved = await repository.save(entity);
@@ -189,10 +191,6 @@ export class AttractionsService {
         ErrorCode.ATTRACTION_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'attraction');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
-        input.groundOperatorId,
-      );
       const repository = manager.getRepository(AttractionPriceEntity);
       const amounts = this.amounts(input);
       return this.toPriceResponse(
@@ -203,7 +201,6 @@ export class AttractionsService {
             attractionId,
             startDate: normalizeNullable(input.startDate),
             endDate: normalizeNullable(input.endDate),
-            groundOperatorId,
             createdBy: actorId,
             updatedBy: actorId,
           }),
@@ -226,10 +223,6 @@ export class AttractionsService {
         ErrorCode.ATTRACTION_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'attraction');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
-        input.groundOperatorId,
-      );
       const repository = manager.getRepository(AttractionPriceEntity);
       const entity = await repository.findOne({
         where: { id: priceId, attractionId },
@@ -247,7 +240,6 @@ export class AttractionsService {
         attractionId,
         startDate: normalizeNullable(input.startDate),
         endDate: normalizeNullable(input.endDate),
-        groundOperatorId,
         updatedBy: actorId,
       });
       return this.toPriceResponse(await repository.save(entity));
@@ -347,8 +339,6 @@ export class AttractionsService {
       unit: entity.unit,
       isFree: entity.isFree,
       priceNote: entity.priceNote,
-      isGroundOperatorProvided: entity.isGroundOperatorProvided,
-      groundOperatorId: entity.groundOperatorId,
     };
   }
 }

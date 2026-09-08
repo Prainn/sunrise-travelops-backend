@@ -38,11 +38,11 @@ describe('resource DTOs', () => {
       city: 'Kunming',
       rating: 'international_five_star',
       facilities: '',
+      breakfastIncluded: true,
       breakfast: '',
       address: '',
       phone: '',
       nearby: '',
-      basicRoomType: 'Twin',
       individualPrice: 300,
       groupPrice: null,
       minimumGroupSize: null,
@@ -69,11 +69,11 @@ describe('resource DTOs', () => {
       city: 'Kunming',
       rating: 'five_stars',
       facilities: '',
+      breakfastIncluded: true,
       breakfast: '',
       address: '',
       phone: '',
       nearby: '',
-      basicRoomType: 'Twin',
       individualPrice: 300,
       groupPrice: null,
       minimumGroupSize: null,
@@ -155,7 +155,7 @@ describe('resource DTOs', () => {
     );
   });
 
-  it('requires a supplier UUID only for supplier-provided attraction prices', async () => {
+  it('accepts attraction prices without a supplier', async () => {
     const input = plainToInstance(CreateAttractionPriceDto, {
       itemType: 'ticket',
       itemName: 'Adult',
@@ -168,11 +168,21 @@ describe('resource DTOs', () => {
       unit: 'personVisit',
       isFree: false,
       priceNote: '',
-      isGroundOperatorProvided: true,
-      groundOperatorId: null,
     });
-    expect((await validate(input)).map((error) => error.property)).toContain(
-      'groundOperatorId',
-    );
+    expect(await validate(input)).toEqual([]);
   });
+});
+
+it('defaults hotel breakfast to true and validates explicit boolean values', async () => {
+  expect(plainToInstance(CreateHotelDto, {}).breakfastIncluded).toBe(true);
+  expect(
+    plainToInstance(CreateHotelDto, { breakfastIncluded: false })
+      .breakfastIncluded,
+  ).toBe(false);
+  const errors = await validate(
+    plainToInstance(CreateHotelDto, { breakfastIncluded: 'false' }),
+  );
+  expect(errors.some((error) => error.property === 'breakfastIncluded')).toBe(
+    true,
+  );
 });

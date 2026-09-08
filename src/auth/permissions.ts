@@ -1,4 +1,5 @@
 const RESOURCE_TYPES = [
+  'city',
   'agency',
   'supplier',
   'hotel',

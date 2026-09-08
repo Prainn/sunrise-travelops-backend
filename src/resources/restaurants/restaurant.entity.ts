@@ -8,7 +8,6 @@ import {
   OneToMany,
   Unique,
 } from 'typeorm';
-import { SupplierEntity } from '../suppliers/supplier.entity';
 import {
   TopLevelResourceEntity,
   VersionedResourceEntity,
@@ -41,17 +40,10 @@ export class RestaurantEntity extends TopLevelResourceEntity {
 @Index('IDX_resource_restaurant_prices_restaurant', ['restaurantId'], {
   where: '"deleted_at" IS NULL',
 })
-@Index('IDX_resource_restaurant_prices_supplier', ['groundOperatorId'], {
-  where: '"deleted_at" IS NULL AND "ground_operator_id" IS NOT NULL',
-})
 @Check('CHK_resource_restaurant_prices_price', '"price" >= 0')
 @Check(
   'CHK_resource_restaurant_prices_diner_count',
   '"diner_count" IS NULL OR "diner_count" > 0',
-)
-@Check(
-  'CHK_resource_restaurant_prices_supplier',
-  '("is_ground_operator_provided" = false AND "ground_operator_id" IS NULL) OR ("is_ground_operator_provided" = true AND "ground_operator_id" IS NOT NULL)',
 )
 export class RestaurantPriceEntity extends VersionedResourceEntity {
   @Column({ name: 'restaurant_id', type: 'uuid' }) restaurantId: string;
@@ -71,18 +63,4 @@ export class RestaurantPriceEntity extends VersionedResourceEntity {
   @Column({ name: 'diner_count', type: 'integer', nullable: true }) dinerCount:
     number | null;
   @Column({ type: 'text', default: '' }) remark: string;
-  @Column({
-    name: 'is_ground_operator_provided',
-    type: 'boolean',
-    default: false,
-  })
-  isGroundOperatorProvided: boolean;
-  @Column({ name: 'ground_operator_id', type: 'uuid', nullable: true })
-  groundOperatorId: string | null;
-  @ManyToOne(() => SupplierEntity, { onDelete: 'RESTRICT', nullable: true })
-  @JoinColumn({
-    name: 'ground_operator_id',
-    foreignKeyConstraintName: 'FK_resource_restaurant_prices_supplier',
-  })
-  groundOperator: SupplierEntity | null;
 }

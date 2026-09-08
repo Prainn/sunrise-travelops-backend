@@ -1,3 +1,4 @@
+import { ResourceValidationService } from '../common/resource-validation.service';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
@@ -40,6 +41,7 @@ export class AgenciesService {
     @InjectRepository(AgencyContactEntity)
     private readonly contacts: Repository<AgencyContactEntity>,
     private readonly dataSource: DataSource,
+    private readonly validation: ResourceValidationService,
   ) {}
 
   async list(
@@ -92,6 +94,7 @@ export class AgenciesService {
     input: CreateAgencyDto,
     actorId: string,
   ): Promise<AgencyDetailResponse> {
+    await this.validation.validateCity(input.city);
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
       await ensureCodeAvailable(repository, input.code);
@@ -119,6 +122,7 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.city, entity.city);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       const saved = await repository.save(entity);

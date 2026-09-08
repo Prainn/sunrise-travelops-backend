@@ -93,6 +93,7 @@ export class RestaurantsService {
     input: CreateRestaurantDto,
     actorId: string,
   ): Promise<RestaurantDetailResponse> {
+    await this.validation.validateCity(input.city);
     await this.validation.validateUnit(input.unit, 'restaurant');
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(RestaurantEntity);
@@ -123,6 +124,7 @@ export class RestaurantsService {
         ErrorCode.RESTAURANT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.city, entity.city);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       const saved = await repository.save(entity);
@@ -184,10 +186,6 @@ export class RestaurantsService {
         ErrorCode.RESTAURANT_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'restaurant');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
-        input.groundOperatorId,
-      );
       const repository = manager.getRepository(RestaurantPriceEntity);
       return this.toPriceResponse(
         await repository.save(
@@ -196,7 +194,6 @@ export class RestaurantsService {
             restaurantId,
             price: normalizeMoney(input.price),
             dinerCount: normalizeNullable(input.dinerCount),
-            groundOperatorId,
             createdBy: actorId,
             updatedBy: actorId,
           }),
@@ -218,10 +215,6 @@ export class RestaurantsService {
         ErrorCode.RESTAURANT_NOT_FOUND,
       );
       await this.validation.validateUnit(input.unit, 'restaurant');
-      const groundOperatorId = await this.validation.validateGroundOperator(
-        input.isGroundOperatorProvided,
-        input.groundOperatorId,
-      );
       const repository = manager.getRepository(RestaurantPriceEntity);
       const entity = await repository.findOne({
         where: { id: priceId, restaurantId },
@@ -239,7 +232,6 @@ export class RestaurantsService {
         restaurantId,
         price: normalizeMoney(input.price),
         dinerCount: normalizeNullable(input.dinerCount),
-        groundOperatorId,
         updatedBy: actorId,
       });
       return this.toPriceResponse(await repository.save(entity));
@@ -317,8 +309,6 @@ export class RestaurantsService {
       price: normalizeMoney(entity.price),
       dinerCount: entity.dinerCount,
       remark: entity.remark,
-      isGroundOperatorProvided: entity.isGroundOperatorProvided,
-      groundOperatorId: entity.groundOperatorId,
     };
   }
 }

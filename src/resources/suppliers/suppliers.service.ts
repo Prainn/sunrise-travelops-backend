@@ -1,3 +1,4 @@
+import { ResourceValidationService } from '../common/resource-validation.service';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -12,8 +13,6 @@ import {
   SupplierResponse,
   UpdateSupplierDto,
 } from './dto/supplier.dto';
-import { RestaurantPriceEntity } from '../restaurants/restaurant.entity';
-import { AttractionPriceEntity } from '../attractions/attraction.entity';
 import { GuideEntity } from '../guides/guide.entity';
 import {
   actualKeyword,
@@ -35,6 +34,7 @@ export class SuppliersService {
     @InjectRepository(SupplierEntity)
     private readonly suppliers: Repository<SupplierEntity>,
     private readonly dataSource: DataSource,
+    private readonly validation: ResourceValidationService,
   ) {}
   async list(query: SupplierQueryDto): Promise<PageResult<SupplierResponse>> {
     const page = actualPage(query);
@@ -77,6 +77,7 @@ export class SuppliersService {
     input: CreateSupplierDto,
     actorId: string,
   ): Promise<SupplierResponse> {
+    await this.validation.validateCity(input.city);
     await ensureCodeAvailable(this.suppliers, input.code);
     return this.toResponse(
       await this.suppliers.save(
@@ -102,6 +103,7 @@ export class SuppliersService {
         ErrorCode.SUPPLIER_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      await this.validation.validateCity(input.city, entity.city);
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
       return this.toResponse(await repository.save(entity));
@@ -117,22 +119,6 @@ export class SuppliersService {
       );
       const uniqueIds = entities.map((item) => item.id);
       const references = [
-        {
-          type: 'restaurantPrice',
-          count: await manager
-            .getRepository(RestaurantPriceEntity)
-            .createQueryBuilder('price')
-            .where('price.groundOperatorId IN (:...ids)', { ids: uniqueIds })
-            .getCount(),
-        },
-        {
-          type: 'attractionPrice',
-          count: await manager
-            .getRepository(AttractionPriceEntity)
-            .createQueryBuilder('price')
-            .where('price.groundOperatorId IN (:...ids)', { ids: uniqueIds })
-            .getCount(),
-        },
         {
           type: 'guide',
           count: await manager

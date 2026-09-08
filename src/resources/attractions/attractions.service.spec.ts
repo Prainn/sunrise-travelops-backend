@@ -55,6 +55,39 @@ describe('AttractionsService', () => {
     );
   });
 
+  it('applies keyword, area, and category filters in the list query', async () => {
+    const builder = {
+      loadRelationCountAndMap: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+    };
+    attractions.createQueryBuilder = jest.fn().mockReturnValue(builder);
+
+    await service.list({
+      page: 1,
+      pageSize: 10,
+      keyword: '日落',
+      area: '大理',
+      category: 'scenic',
+    });
+
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      expect.stringContaining('attraction.remark ILIKE :keyword'),
+      { keyword: '%日落%' },
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith('attraction.area = :area', {
+      area: '大理',
+    });
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      'attraction.category = :category',
+      { category: 'scenic' },
+    );
+  });
+
   it('stores both amounts as 0.00 for a free price', async () => {
     const result = await service.createPrice(
       '00000000-0000-4000-8000-000000000001',
@@ -70,8 +103,6 @@ describe('AttractionsService', () => {
         unit: 'personVisit',
         isFree: true,
         priceNote: '',
-        isGroundOperatorProvided: false,
-        groundOperatorId: null,
       },
       'actor',
     );
@@ -100,7 +131,6 @@ describe('AttractionsService', () => {
           unit: 'personVisit',
           isFree: false,
           priceNote: '',
-          isGroundOperatorProvided: false,
         },
         'actor',
       ),

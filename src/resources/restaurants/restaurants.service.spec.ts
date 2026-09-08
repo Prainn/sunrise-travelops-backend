@@ -4,7 +4,7 @@ import { RestaurantEntity, RestaurantPriceEntity } from './restaurant.entity';
 import { RestaurantsService } from './restaurants.service';
 
 describe('RestaurantsService prices', () => {
-  it('validates the restaurant unit and supplier before saving a price', async () => {
+  it('saves a unified restaurant price without supplier validation', async () => {
     const parentRepository = {
       findOneBy: jest.fn().mockResolvedValue({ id: 'restaurant' }),
     } as unknown as Repository<RestaurantEntity>;
@@ -55,19 +55,14 @@ describe('RestaurantsService prices', () => {
         price: '88',
         dinerCount: null,
         remark: '',
-        isGroundOperatorProvided: true,
-        groundOperatorId: '00000000-0000-4000-8000-000000000002',
       },
       'actor',
     );
     expect(validateUnit).toHaveBeenCalledWith('personMeal', 'restaurant');
-    expect(validateGroundOperator).toHaveBeenCalledWith(
-      true,
-      '00000000-0000-4000-8000-000000000002',
-    );
+    expect(validateGroundOperator).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty('groundOperatorId');
     expect(result).toMatchObject({
       price: '88.00',
-      groundOperatorId: '00000000-0000-4000-8000-000000000002',
     });
   });
 });
