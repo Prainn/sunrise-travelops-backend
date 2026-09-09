@@ -8,7 +8,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { createValidationException } from './common/validation/validation-exception.factory';
-import { parseCorsOrigins } from './config/environment';
+import { parseCorsOrigins, parseTrustProxy } from './config/environment';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -17,6 +17,7 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService);
 
   app.useLogger(app.get(Logger));
+  app.set('trust proxy', parseTrustProxy(config.get<string>('TRUST_PROXY')));
   app.setGlobalPrefix('api');
   app.useBodyParser('json', { limit: '2mb' });
   app.use(helmet());

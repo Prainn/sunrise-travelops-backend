@@ -1,22 +1,125 @@
-name: CI
+name: Backend CI and deploy
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy main or roll back a verified release
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      release:
+        description: Rollback release ID, or previous
+        type: string
+        default: previous
+      migrations_compatible:
+        description: I reviewed pending migrations and confirmed compatibility with the previous application
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   verify:
+    if: inputs.operation != 'rollback'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: travelops_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d travelops_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_HOST: 127.0.0.1
+      DATABASE_PORT: '5432'
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: ci-only
+      DATABASE_NAME: travelops_ci
+      DATABASE_SSL: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24.20.0'
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           version: 11.22.0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
+          run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
-      - run: pnpm test
+      - run: pnpm exec jest --runInBand
+      - run: python3 -B -m unittest discover -s scripts -p test_deploy_dev.py
       - run: pnpm build
+      - name: Verify empty database migrations and repeat execution
+        run: |
+          node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
+          node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
+
+  deploy:
+    needs: verify
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (needs.verify.result == 'success' ||
+       (inputs.operation == 'rollback' && needs.verify.result == 'skipped'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Build immutable AMD64 image
+        if: inputs.operation != 'rollback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="sunrise-travelops-api:sha-${GITHUB_SHA}"
+          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=${GITHUB_SHA}" -t "$image" .
+          docker save "$image" | gzip > "$RUNNER_TEMP/backend-image.tar.gz"
+      - name: Publish or roll back and verify
+        env:
+          DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEV_DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS }}
+          OPERATION: ${{ inputs.operation || 'deploy' }}
+          ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
+          MIGRATIONS_COMPATIBLE: ${{ inputs.migrations_compatible && 'true' || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Missing DEV_DEPLOY_HOST}"
+          : "${DEPLOY_USER:?Missing DEV_DEPLOY_USER}"
+          : "${DEPLOY_KEY:?Missing DEV_DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?Missing DEV_DEPLOY_KNOWN_HOSTS}"
+          install -d -m 700 "$RUNNER_TEMP/backend-deploy"
+          trap 'rm -rf "$RUNNER_TEMP/backend-deploy" "$RUNNER_TEMP/backend-image.tar.gz"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/backend-deploy/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/backend-deploy/known_hosts"
+          chmod 600 "$RUNNER_TEMP/backend-deploy/key"
+          ssh_args=(-T -i "$RUNNER_TEMP/backend-deploy/key" -o IdentitiesOnly=yes -o BatchMode=yes
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/backend-deploy/known_hosts"
+            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          if [[ "$OPERATION" == rollback ]]; then
+            [[ "$ROLLBACK_RELEASE" =~ ^(previous|[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})$ ]]
+            ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "rollback $ROLLBACK_RELEASE"
+          else
+            release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "deploy $release_id $MIGRATIONS_COMPATIBLE" < "$RUNNER_TEMP/backend-image.tar.gz"
+          fi
+          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" status | tee -a "$GITHUB_STEP_SUMMARY"

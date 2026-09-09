@@ -24,7 +24,6 @@
     "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
     "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
-    "admin:create": "ts-node -r tsconfig-paths/register src/scripts/create-admin.ts",
     "users:seed": "ts-node -r tsconfig-paths/register src/scripts/seed-users.ts"
   },
   "dependencies": {

@@ -1,0 +1,5 @@
+# Only used while requesting the first HTTPS certificate.
+services:
+  nginx:
+    volumes:
+      - ./nginx/bootstrap.conf:/etc/nginx/conf.d/default.conf:ro

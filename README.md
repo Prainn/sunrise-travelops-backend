@@ -44,6 +44,8 @@ pnpm start:dev
 
 ## Docker Compose 启动
 
+以下为本地 Compose。ECS 开发环境使用 `compose.dev.yml`，部署与服务器管理员命令统一维护在 workspace 的 `docs/plans/ECS开发环境部署.md`。
+
 ```bash
 docker compose up --build
 ```

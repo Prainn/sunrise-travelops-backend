@@ -43,7 +43,15 @@ export function validateEnvironment(environment: Environment): Environment {
     throw new Error('JWT_SECRET and REFRESH_TOKEN_SECRET must be different');
   }
 
+  parseTrustProxy(environment.TRUST_PROXY);
+
   return environment;
+}
+
+export function parseTrustProxy(value: string | undefined): false | 1 {
+  if (value === undefined || value === 'false') return false;
+  if (value === '1') return 1;
+  throw new Error('TRUST_PROXY must be false or 1 (a single Nginx hop)');
 }
 
 export function parseCorsOrigins(value: string): string[] {
