@@ -4,14 +4,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
-import { GuideEntity } from './guide.entity';
+import { GuideEntity, guideName } from './guide.entity';
 import {
   CreateGuideDto,
   GuideQueryDto,
   GuideResponse,
   UpdateGuideDto,
 } from './dto/guide.dto';
-import { ResourceValidationService } from '../common/resource-validation.service';
 import {
   actualKeyword,
   actualPage,
@@ -31,7 +30,6 @@ export class GuidesService {
   constructor(
     @InjectRepository(GuideEntity)
     private readonly guides: Repository<GuideEntity>,
-    private readonly validation: ResourceValidationService,
     private readonly dataSource: DataSource,
   ) {}
   async list(query: GuideQueryDto): Promise<PageResult<GuideResponse>> {
@@ -45,23 +43,19 @@ export class GuidesService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(guide.code ILIKE :keyword OR guide.certificateNo ILIKE :keyword OR guide.name ILIKE :keyword OR guide.phone ILIKE :keyword OR guide.identityNumber ILIKE :keyword)',
+        '(guide.code ILIKE :keyword OR guide.name ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
       builder.andWhere('guide.status = :status', { status: query.status });
-    if (query.gender)
-      builder.andWhere('guide.gender = :gender', { gender: query.gender });
-    if (query.employmentType)
-      builder.andWhere('guide.employmentType = :employmentType', {
-        employmentType: query.employmentType,
+    if (query.secondLanguage)
+      builder.andWhere('guide.secondLanguage = :language', {
+        language: query.secondLanguage,
       });
-    if (query.language)
-      builder.andWhere(':language = ANY(guide.languages)', {
-        language: query.language,
+    if (query.shopping)
+      builder.andWhere('guide.shopping = :shopping', {
+        shopping: query.shopping === 'true',
       });
-    if (query.unit)
-      builder.andWhere('guide.unit = :unit', { unit: query.unit });
     const [entities, total] = await builder.getManyAndCount();
     return {
       list: entities.map((item) => this.toResponse(item)),
@@ -77,14 +71,8 @@ export class GuidesService {
   }
   async create(input: CreateGuideDto, actorId: string): Promise<GuideResponse> {
     return this.dataSource.transaction(async (manager) => {
-      await this.validation.validateUnit(input.unit, 'guide');
-      const groundOperatorId = (await this.validation.validateGroundOperator(
-        true,
-        input.groundOperatorId,
-      ))!;
       const repository = manager.getRepository(GuideEntity);
-      const code =
-        input.code ?? (await nextBusinessCode(repository.manager, 'GDE'));
+      const code = await nextBusinessCode(repository.manager, 'GDE');
       await ensureCodeAvailable(repository, code);
       return this.toResponse(
         await repository.save(
@@ -92,7 +80,7 @@ export class GuidesService {
             ...input,
             code,
             dailyPrice: normalizeMoney(input.dailyPrice),
-            groundOperatorId,
+            name: guideName(input.secondLanguage, input.shopping),
             createdBy: actorId,
             updatedBy: actorId,
           }),
@@ -107,11 +95,6 @@ export class GuidesService {
   ): Promise<GuideResponse> {
     assertMatchingId(input.id, id);
     return this.dataSource.transaction(async (manager) => {
-      await this.validation.validateUnit(input.unit, 'guide');
-      const groundOperatorId = (await this.validation.validateGroundOperator(
-        true,
-        input.groundOperatorId,
-      ))!;
       const repository = manager.getRepository(GuideEntity);
       const entity = await requireResourceForUpdate(
         repository,
@@ -119,12 +102,11 @@ export class GuidesService {
         ErrorCode.GUIDE_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      input.code ??= entity.code;
-      await ensureCodeAvailable(repository, input.code, id);
+
       Object.assign(entity, input, {
         id,
         dailyPrice: normalizeMoney(input.dailyPrice),
-        groundOperatorId,
+        name: guideName(input.secondLanguage, input.shopping),
         updatedBy: actorId,
       });
       return this.toResponse(await repository.save(entity));
@@ -152,20 +134,10 @@ export class GuidesService {
     return {
       ...auditResponse(entity),
       code: entity.code,
-      certificateNo: entity.certificateNo,
       name: entity.name,
-      gender: entity.gender,
-      age: entity.age,
-      languages: entity.languages,
-      employmentType: entity.employmentType,
-      identityNumber: entity.identityNumber,
-      phone: entity.phone,
       dailyPrice: normalizeMoney(entity.dailyPrice),
-      unit: entity.unit,
-      hasLaborContract: entity.hasLaborContract,
-      groundOperatorId: entity.groundOperatorId,
-      licensePhotoUrl: entity.licensePhotoUrl,
-      remark: entity.remark,
+      secondLanguage: entity.secondLanguage,
+      shopping: entity.shopping,
       status: entity.status,
     };
   }

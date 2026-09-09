@@ -33,9 +33,6 @@ export class HotelEntity extends TopLevelResourceEntity {
   @Column({ type: 'text', default: '' })
   facilities: string;
 
-  @Column({ name: 'breakfast_included', type: 'boolean', default: true })
-  breakfastIncluded: boolean;
-
   @Column({ type: 'text', default: '' })
   breakfast: string;
 

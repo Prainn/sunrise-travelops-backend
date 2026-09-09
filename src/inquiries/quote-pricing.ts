@@ -33,9 +33,7 @@ function getVehiclePlan(
 function calculateVehiclePlanCost(
   plan: ItineraryRecord['vehiclePlans'][number] | undefined,
 ) {
-  return plan?.vehicle
-    ? multiplyMoney(plan.vehicle.unitCost, plan.vehicle.serviceDays)
-    : 0;
+  return plan?.totalPrice ?? 0;
 }
 
 export const CHILD_RATE = 70;
@@ -60,6 +58,7 @@ export function createDefaultQuoteSettings(): ItineraryQuoteSettings {
     chineseTip: null,
     englishTip: null,
     transportFees: [],
+    otherExpenses: 0,
     customerNotes: '',
     holidayRestrictions: '',
     hotelReplacementTerms: '如所列酒店满房，将调整为同级酒店。',
@@ -67,10 +66,10 @@ export function createDefaultQuoteSettings(): ItineraryQuoteSettings {
 }
 
 export function calculateHotelRoomCount(
-  itinerary: Pick<ItineraryRecord, 'adults' | 'childrenCount'>,
+  itinerary: Pick<ItineraryRecord, 'adults' | 'childrenCount' | 'leaderCount'>,
 ) {
   const hotelGuestCount = itinerary.adults + itinerary.childrenCount;
-  return Math.ceil(hotelGuestCount / 2);
+  return Math.ceil(hotelGuestCount / 2) + itinerary.leaderCount;
 }
 
 export function calculateItineraryQuote(
@@ -78,6 +77,7 @@ export function calculateItineraryQuote(
     ItineraryRecord,
     | 'adults'
     | 'childrenCount'
+    | 'leaderCount'
     | 'hotelPlans'
     | 'vehiclePlans'
     | 'quote'
@@ -88,7 +88,7 @@ export function calculateItineraryQuote(
 ): ItineraryQuoteCalculation {
   const guideCost = sumMoney(
     itinerary.guidePlans.map((plan) =>
-      multiplyMoney(plan.dailyPrice, plan.dayIds.length),
+      multiplyMoney(plan.dailyPrice, plan.serviceDays),
     ),
   );
   const hotelGuestCount = itinerary.adults + itinerary.childrenCount;
@@ -118,7 +118,12 @@ function calculateQuoteOption(
   option: ItineraryQuoteOption,
   itinerary: Pick<
     ItineraryRecord,
-    'adults' | 'childrenCount' | 'hotelPlans' | 'vehiclePlans' | 'dailyPlans'
+    | 'adults'
+    | 'childrenCount'
+    | 'leaderCount'
+    | 'hotelPlans'
+    | 'vehiclePlans'
+    | 'dailyPlans'
   >,
   dailyResourceCost: number,
   hotelRoomCount: number,

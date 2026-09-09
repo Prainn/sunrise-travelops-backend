@@ -1,10 +1,9 @@
 import { nextBusinessCode } from '../../common/business-code';
 import { ResourceValidationService } from '../common/resource-validation.service';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PageResult } from '../../common/types/page-result';
-import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code';
 import { SupplierEntity } from './supplier.entity';
 import {
@@ -14,7 +13,6 @@ import {
   SupplierResponse,
   UpdateSupplierDto,
 } from './dto/supplier.dto';
-import { GuideEntity } from '../guides/guide.entity';
 import {
   actualKeyword,
   actualPage,
@@ -123,24 +121,6 @@ export class SuppliersService {
         ErrorCode.SUPPLIER_NOT_FOUND,
       );
       const uniqueIds = entities.map((item) => item.id);
-      const references = [
-        {
-          type: 'guide',
-          count: await manager
-            .getRepository(GuideEntity)
-            .createQueryBuilder('guide')
-            .where('guide.groundOperatorId IN (:...ids)', { ids: uniqueIds })
-            .getCount(),
-        },
-      ];
-      const used = references.filter((reference) => reference.count > 0);
-      if (used.length)
-        throw new BusinessException({
-          code: ErrorCode.RESOURCE_IN_USE,
-          message: 'Supplier is referenced by active resource data',
-          status: HttpStatus.CONFLICT,
-          details: { references: used },
-        });
       await repository
         .createQueryBuilder()
         .update()

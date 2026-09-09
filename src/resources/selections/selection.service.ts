@@ -79,7 +79,7 @@ export class SelectionService {
       qb.andWhere('resource.name ILIKE :keyword', {
         keyword: `%${query.keyword.trim()}%`,
       });
-    if (kind !== 'guides' && query.city?.trim())
+    if (['hotels', 'agencies'].includes(kind) && query.city?.trim())
       qb.andWhere('resource.city = :city', { city: query.city.trim() });
     if (kind === 'hotels' && query.rating)
       qb.andWhere('resource.rating = :rating', { rating: query.rating });
@@ -88,27 +88,32 @@ export class SelectionService {
         qb.andWhere('resource.serviceLevel = :level', {
           level: query.serviceLevel,
         });
-      if (query.guestCount)
-        qb.andWhere('resource.seats >= :count', { count: query.guestCount });
+    }
+    if (kind === 'guides') {
+      if (query.secondLanguage)
+        qb.andWhere('resource.secondLanguage = :language', {
+          language: query.secondLanguage,
+        });
+      if (query.shopping)
+        qb.andWhere('resource.shopping = :shopping', {
+          shopping: query.shopping === 'true',
+        });
     }
     if (kind === 'agencies' && query.code)
       qb.andWhere('resource.code = :code', { code: query.code });
     const total = await qb.getCount();
     qb.select('resource.id', 'id').addSelect('resource.name', 'name');
     if (kind === 'hotels') {
-      qb.addSelect('resource.breakfastIncluded', 'breakfastIncluded')
-        .addSelect(
-          'CASE WHEN resource.groupPrice > 0 AND resource.minimumGroupSize > 0 AND resource.minimumGroupSize <= :guests THEN resource.groupPrice ELSE resource.individualPrice END',
-          'unitCost',
-        )
-        .setParameter('guests', query.guestCount ?? 0);
+      qb.addSelect(
+        'CASE WHEN resource.groupPrice IS NOT NULL AND resource.minimumGroupSize IS NOT NULL AND resource.minimumGroupSize <= :guests THEN resource.groupPrice ELSE resource.individualPrice END',
+        'unitCost',
+      ).setParameter('guests', query.guestCount ?? 0);
     } else if (kind === 'agencies') qb.addSelect('resource.code', 'code');
-    else qb.addSelect('resource.dailyPrice', 'unitCost');
-    if (kind === 'transports')
-      qb.addSelect('resource.seats', 'seats').addSelect(
-        'resource.city',
-        'city',
-      );
+    else if (kind === 'guides')
+      qb.addSelect('resource.dailyPrice', 'unitCost')
+        .addSelect('resource.secondLanguage', 'secondLanguage')
+        .addSelect('resource.shopping', 'shopping');
+    if (kind === 'transports') qb.addSelect('resource.seats', 'seats');
     const list = await qb
       .orderBy('resource.name', 'ASC')
       .addOrderBy('resource.id', 'ASC')

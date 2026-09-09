@@ -12,7 +12,7 @@ async function main() {
     const actor = users.find(
       (u) =>
         u.status === UserStatus.Enabled &&
-        u.roles.some((r) => r.code === 'INQUIRY_COORDINATOR') &&
+        u.roles.some((r) => r.code === 'COORDINATOR') &&
         !u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
     )!;
     const resource = users.find(

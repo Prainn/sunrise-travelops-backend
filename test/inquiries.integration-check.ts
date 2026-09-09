@@ -1,3 +1,6 @@
+import { GuidesService } from '../src/resources/guides/guides.service';
+import { GuideEntity } from '../src/resources/guides/guide.entity';
+import { calculateItineraryQuote } from '../src/inquiries/quote-pricing';
 import { CitiesService } from '../src/resources/cities/cities.service';
 import { CityEntity } from '../src/resources/cities/city.entity';
 /** Run explicitly against the local migrated database. All business fixtures are rolled back. */
@@ -42,7 +45,7 @@ async function main() {
     const coordinators = users.filter(
       (u) =>
         u.status === UserStatus.Enabled &&
-        u.roles.some((r) => r.code === 'INQUIRY_COORDINATOR' && r.isEnabled) &&
+        u.roles.some((r) => r.code === 'COORDINATOR' && r.isEnabled) &&
         !u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
     );
     assert(coordinators.length >= 2, 'Need two local coordinator fixtures');
@@ -79,6 +82,38 @@ async function main() {
       req,
     );
     assert(!actor.admin && admin.admin);
+    const guidesService = new GuidesService(
+      runner.manager.getRepository(GuideEntity),
+      scoped,
+    );
+    const guide = await guidesService.create(
+      { secondLanguage: 'lo', shopping: true, dailyPrice: '600' },
+      actor.id,
+    );
+    assert.equal(guide.secondLanguage, 'lo');
+    assert.equal(guide.shopping, true);
+    assert.equal(
+      (
+        await guidesService.list(
+          Object.assign(
+            { page: 1, pageSize: 10 },
+            { secondLanguage: 'lo', shopping: 'true' },
+          ),
+        )
+      ).list[0].id,
+      guide.id,
+    );
+    await guidesService.update(
+      guide.id,
+      {
+        secondLanguage: 'lo',
+        shopping: true,
+        dailyPrice: '650',
+        version: guide.version,
+      },
+      actor.id,
+    );
+
     const citiesService = new CitiesService(
       runner.manager.getRepository(CityEntity),
       scoped,
@@ -170,6 +205,7 @@ async function main() {
       startDate: '2026-10-01',
       adults: 2,
       childrenCount: 1,
+      leaderCount: 0,
       destinations: [hotel.city],
       dailyPlans: [
         {
@@ -221,7 +257,7 @@ async function main() {
               hotelId: hotel.id,
               hotelName: 'spoofed',
               rating: hotel.rating,
-              breakfastIncluded: false,
+
               breakfast: '',
               unit: '',
               unitCost: 1,
@@ -232,15 +268,21 @@ async function main() {
       vehiclePlans: [
         {
           tier: vehicleTier,
-          vehicle: {
-            vehicleId: vehicle.id,
-            vehicleName: '',
-            seats: 1000,
-            serviceDays: 2,
-            unit: '',
-            referenceUnitCost: 1,
-            unitCost: 200,
-          },
+          totalPrice: 400,
+          arrangements: [
+            {
+              id: 'fleet-one',
+              dayIds: ['day-one', 'day-two'],
+              vehicles: [
+                {
+                  vehicleId: vehicle.id,
+                  vehicleName: '',
+                  seats: 1000,
+                  quantity: 1,
+                },
+              ],
+            },
+          ],
         },
       ],
       guidePlans: [],
@@ -257,6 +299,7 @@ async function main() {
         chineseTip: null,
         englishTip: null,
         transportFees: [],
+        otherExpenses: 0,
         customerNotes: '',
         holidayRestrictions: '',
         hotelReplacementTerms: '',
@@ -265,18 +308,34 @@ async function main() {
     let saved = await service.createItinerary(inquiry.id, plan, actor);
     assert.equal(saved.dailyPlans[0].items[0].unitCost, Number(meal.price));
     assert.equal(saved.hotelPlans[0].hotels[0].hotelName, hotel.name);
+    const pricingCase = structuredClone(saved);
+    pricingCase.adults = 19;
+    pricingCase.childrenCount = 0;
+    pricingCase.leaderCount = 1;
+    pricingCase.hotelPlans[0].hotels[0].unitCost = 100;
+    const priced = calculateItineraryQuote(pricingCase, 0);
+    assert.equal(priced.hotelRoomCount, 11);
+    assert.equal(priced.options[0].hotelCost, 1100);
+    pricingCase.adults = 60;
+    pricingCase.quote.otherExpenses = 500;
+    assert.equal(
+      calculateItineraryQuote(pricingCase, 0).options[0].totalPrice,
+      60000,
+    );
+
     await assert.rejects(service.itinerary(saved.id, other), {
       code: 'INQUIRY_NOT_FOUND',
     });
     const changed = structuredClone(saved);
     changed.dailyPlans[0].description = 'New arrival details';
     changed.dailyPlans[0].items[0].quantity = 4;
-    changed.vehiclePlans[0].vehicle!.unitCost = 250;
+    changed.vehiclePlans[0].totalPrice = 500;
     const {
       title,
       startDate,
       adults,
       childrenCount,
+      leaderCount,
       destinations,
       dailyPlans,
       hotelPlans,
@@ -291,6 +350,7 @@ async function main() {
         startDate,
         adults,
         childrenCount,
+        leaderCount,
         destinations,
         dailyPlans,
         hotelPlans,
@@ -310,7 +370,7 @@ async function main() {
     const edited = details.list.find((l) => l.action === 'itinerary_saved')!;
     assert(edited.changes.some((c) => c.path.endsWith('.description')));
     assert(edited.changes.some((c) => c.path.endsWith('.quantity')));
-    assert(edited.changes.some((c) => c.path.endsWith('.unitCost')));
+    assert(edited.changes.some((c) => c.path.endsWith('.totalPrice')));
     await assert.rejects(
       service.saveItinerary(
         saved.id,
@@ -319,6 +379,7 @@ async function main() {
           startDate,
           adults,
           childrenCount,
+          leaderCount,
           destinations,
           dailyPlans,
           hotelPlans,

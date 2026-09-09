@@ -178,7 +178,7 @@ export class InquiriesService {
       .where('u.status = :status', { status: UserStatus.Enabled });
     if (actor.admin)
       qb.andWhere(
-        "((r.code = 'INQUIRY_COORDINATOR' AND r.isEnabled = true) OR u.id = :id)",
+        "((r.code = 'COORDINATOR' AND r.isEnabled = true) OR u.id = :id)",
         { id: actor.id },
       );
     else qb.andWhere('u.id = :id', { id: actor.id });
@@ -198,9 +198,7 @@ export class InquiriesService {
     if (
       !user ||
       !user.roles.some(
-        (r) =>
-          r.isEnabled &&
-          ['INQUIRY_COORDINATOR', 'ROOT', 'ADMIN'].includes(r.code),
+        (r) => r.isEnabled && ['COORDINATOR', 'ROOT', 'ADMIN'].includes(r.code),
       )
     )
       fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
@@ -478,9 +476,12 @@ export class InquiriesService {
           i.id = randomUUID();
         });
       });
-      data.guidePlans.forEach((g) => {
-        g.dayIds = g.dayIds.map((id) => ids.get(id)!);
-      });
+      data.vehiclePlans.forEach((p) =>
+        p.arrangements.forEach((a) => {
+          a.id = randomUUID();
+          a.dayIds = a.dayIds.map((id) => ids.get(id)!);
+        }),
+      );
       data.quote.options.forEach((o) => {
         o.id = randomUUID();
       });

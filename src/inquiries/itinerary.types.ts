@@ -17,7 +17,6 @@ export interface ItineraryHotelSelection {
   hotelId: string;
   hotelName: string;
   rating: string;
-  breakfastIncluded: boolean;
   breakfast: string;
   unit: ItineraryPriceUnit;
   unitCost: number;
@@ -32,15 +31,17 @@ export interface ItineraryVehicleSelection {
   vehicleId: string;
   vehicleName: string;
   seats: number;
-  serviceDays: number;
-  unit: ItineraryPriceUnit;
-  referenceUnitCost: number;
-  unitCost: number;
+  quantity: number;
 }
-
+export interface ItineraryVehicleArrangement {
+  id: string;
+  dayIds: string[];
+  vehicles: ItineraryVehicleSelection[];
+}
 export interface ItineraryVehiclePlan {
   tier: ItineraryVehicleTier;
-  vehicle: ItineraryVehicleSelection | null;
+  arrangements: ItineraryVehicleArrangement[];
+  totalPrice: number | null;
 }
 
 export interface ItineraryQuoteOption {
@@ -56,6 +57,7 @@ export interface ItineraryQuoteSettings {
   chineseTip: number | null;
   englishTip: number | null;
   transportFees: ItineraryTransportFee[];
+  otherExpenses: number;
   customerNotes: string;
   holidayRestrictions: string;
   hotelReplacementTerms: string;
@@ -145,8 +147,10 @@ export interface ItineraryGuidePlan {
   destination: string;
   guideId: string;
   guideName: string;
+  secondLanguage: string;
+  shopping: boolean;
   dailyPrice: number;
-  dayIds: string[];
+  serviceDays: number;
 }
 
 export interface ItineraryRecord {
@@ -160,6 +164,7 @@ export interface ItineraryRecord {
   days: number;
   adults: number;
   childrenCount: number;
+  leaderCount: number;
   destinations: string[];
   hotelPlans: ItineraryHotelPlan[];
   vehiclePlans: ItineraryVehiclePlan[];

@@ -144,7 +144,6 @@ export class HotelsService {
       city: entity.city,
       rating: entity.rating,
       facilities: entity.facilities,
-      breakfastIncluded: entity.breakfastIncluded,
       breakfast: entity.breakfast,
       address: entity.address,
       phone: entity.phone,

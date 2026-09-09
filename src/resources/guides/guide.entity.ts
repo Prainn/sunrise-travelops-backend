@@ -1,65 +1,46 @@
-import {
-  Check,
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  Unique,
-} from 'typeorm';
-import { SupplierEntity } from '../suppliers/supplier.entity';
+import { Check, Column, Entity, Index, Unique } from 'typeorm';
 import { TopLevelResourceEntity } from '../common/resource.entity';
-import { GuideEmploymentType, GuideGender } from '../common/resource.constants';
-
+export const GUIDE_LANGUAGES = [
+  'none',
+  'en',
+  'th',
+  'vi',
+  'ms',
+  'id',
+  'my',
+  'km',
+  'lo',
+] as const;
+export const GUIDE_LANGUAGE_LABELS: Record<string, string> = {
+  none: '仅中文',
+  en: '中文+英文',
+  th: '中文+泰语',
+  vi: '中文+越南语',
+  ms: '中文+马来语',
+  id: '中文+印尼语',
+  my: '中文+缅甸语',
+  km: '中文+高棉语',
+  lo: '中文+老挝语',
+};
+export function guideName(language: string, shopping: boolean) {
+  return `${GUIDE_LANGUAGE_LABELS[language]} · ${shopping ? '进店' : '不进店'}`;
+}
 @Entity({ name: 'resource_guides' })
 @Unique('UQ_resource_guides_code', ['code'])
-@Check('CHK_resource_guides_status', `"status" IN ('enabled', 'disabled')`)
-@Index(
-  'IDX_resource_guides_filters',
-  ['status', 'gender', 'employmentType', 'unit'],
-  { where: '"deleted_at" IS NULL' },
-)
-@Index('IDX_resource_guides_supplier', ['groundOperatorId'], {
+@Index('UQ_resource_guides_service', ['secondLanguage', 'shopping'], {
+  unique: true,
   where: '"deleted_at" IS NULL',
 })
-@Check('CHK_resource_guides_gender', "\"gender\" IN ('male', 'female')")
-@Check(
-  'CHK_resource_guides_employment_type',
-  "\"employment_type\" IN ('full-time', 'part-time')",
-)
-@Check('CHK_resource_guides_age', '"age" > 0 AND "age" <= 130')
+@Check('CHK_resource_guides_status', `"status" IN ('enabled', 'disabled')`)
 @Check('CHK_resource_guides_daily_price', '"daily_price" >= 0')
+@Check(
+  'CHK_resource_guides_language',
+  `"second_language" IN ('none','en','th','vi','ms','id','my','km','lo')`,
+)
 export class GuideEntity extends TopLevelResourceEntity {
-  @Column({ name: 'certificate_no', type: 'varchar', length: 100 })
-  certificateNo: string;
-  @Column({ type: 'varchar', length: 10 }) gender: GuideGender;
-  @Column({ type: 'integer' }) age: number;
-  @Column({ type: 'text', array: true }) languages: string[];
-  @Column({ name: 'employment_type', type: 'varchar', length: 20 })
-  employmentType: GuideEmploymentType;
-  @Column({ name: 'identity_number', type: 'varchar', length: 100 })
-  identityNumber: string;
-  @Column({ type: 'varchar', length: 50 }) phone: string;
-  @Column({
-    name: 'daily_price',
-    type: 'numeric',
-    precision: 12,
-    scale: 2,
-    nullable: false,
-  })
+  @Column({ name: 'daily_price', type: 'numeric', precision: 12, scale: 2 })
   dailyPrice: string;
-  @Column({ type: 'varchar', length: 100 }) unit: string;
-  @Column({ name: 'has_labor_contract', type: 'boolean', default: false })
-  hasLaborContract: boolean;
-  @Column({ name: 'ground_operator_id', type: 'uuid', nullable: false })
-  groundOperatorId: string;
-  @ManyToOne(() => SupplierEntity, { onDelete: 'RESTRICT', nullable: false })
-  @JoinColumn({
-    name: 'ground_operator_id',
-    foreignKeyConstraintName: 'FK_resource_guides_supplier',
-  })
-  groundOperator: SupplierEntity;
-  @Column({ name: 'license_photo_url', type: 'text', default: '' })
-  licensePhotoUrl: string;
-  @Column({ type: 'text', default: '' }) remark: string;
+  @Column({ name: 'second_language', type: 'varchar', length: 20 })
+  secondLanguage: string;
+  @Column({ type: 'boolean' }) shopping: boolean;
 }

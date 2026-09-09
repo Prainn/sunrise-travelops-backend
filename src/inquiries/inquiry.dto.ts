@@ -149,7 +149,6 @@ class HotelInput {
   @IsUUID() hotelId: string;
   @IsString() @MaxLength(500) hotelName: string;
   @IsString() @MaxLength(100) rating: string;
-  @IsBoolean() breakfastIncluded: boolean;
   @IsString() @MaxLength(10000) breakfast: string;
   @IsString() @MaxLength(100) unit: string;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
@@ -167,28 +166,39 @@ class VehicleInput {
   @IsUUID() vehicleId: string;
   @IsString() @MaxLength(500) vehicleName: string;
   @IsInt() @Min(1) seats: number;
-  @IsInt() @Min(0) @Max(365) serviceDays: number;
-  @IsString() @MaxLength(100) unit: string;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) referenceUnitCost: number;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
+  @IsInt() @Min(1) @Max(10000) quantity: number;
 }
-class VehiclePlanInput {
-  @IsIn(['standard', 'vip']) tier: 'standard' | 'vip';
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => VehicleInput)
-  vehicle: VehicleInput | null;
-}
-class GuideInput {
-  @IsString() @MaxLength(100) destination: string;
-  @IsUUID() guideId: string;
-  @IsString() @MaxLength(500) guideName: string;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) dailyPrice: number;
+class VehicleArrangementInput {
+  @IsString() @MinLength(1) @MaxLength(100) id: string;
   @IsArray()
   @ArrayMaxSize(365)
   @ArrayUnique()
   @IsString({ each: true })
   dayIds: string[];
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => VehicleInput)
+  vehicles: VehicleInput[];
+}
+class VehiclePlanInput {
+  @IsIn(['standard', 'vip']) tier: 'standard' | 'vip';
+  @IsArray()
+  @ArrayMaxSize(365)
+  @ValidateNested({ each: true })
+  @Type(() => VehicleArrangementInput)
+  arrangements: VehicleArrangementInput[];
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) totalPrice:
+    number | null;
+}
+class GuideInput {
+  @IsString() @MaxLength(100) destination: string;
+  @IsUUID() guideId: string;
+  @IsString() @MaxLength(500) guideName: string;
+  @IsString() @MaxLength(20) secondLanguage: string;
+  @IsBoolean() shopping: boolean;
+  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) dailyPrice: number;
+  @IsInt() @Min(1) @Max(365) serviceDays: number;
 }
 class QuoteOptionInput {
   @Transform(({ value }: { value: unknown }) =>
@@ -226,6 +236,7 @@ class TransportFeeInput {
     number | null;
 }
 class QuoteInput {
+  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) otherExpenses: number;
   @IsArray()
   @ArrayMaxSize(4)
   @ValidateNested({ each: true })
@@ -255,6 +266,7 @@ export class ItineraryInput {
   @IsDateString({ strict: true }) @MaxLength(10) startDate: string;
   @IsInt() @Min(1) @Max(10000) adults: number;
   @IsInt() @Min(0) @Max(10000) childrenCount: number;
+  @IsInt() @Min(0) @Max(10000) leaderCount: number;
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(365)

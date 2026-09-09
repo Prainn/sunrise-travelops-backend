@@ -34,12 +34,12 @@ const roleDefinitions = [
   {
     code: 'RESOURCE_MANAGER',
     name: 'Resource Manager',
-    permissionCodes: RESOURCE_PERMISSIONS,
+    permissionCodes: [...RESOURCE_PERMISSIONS, 'sys:business-dictionary:list'],
   },
   {
-    code: 'INQUIRY_COORDINATOR',
-    name: 'Inquiry Coordinator',
-    permissionCodes: INQUIRY_PERMISSIONS,
+    code: 'COORDINATOR',
+    name: '计调',
+    permissionCodes: [...INQUIRY_PERMISSIONS, 'sys:business-dictionary:list'],
   },
 ] as const;
 
@@ -64,7 +64,7 @@ const seedUsers: SeedUser[] = [
     email: 'inquiry@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T09:10:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
   {
     username: 'resource',
@@ -86,7 +86,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T09:30:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
   {
     username: 'inquiry_lina',
@@ -97,7 +97,7 @@ const seedUsers: SeedUser[] = [
     email: 'inquiry.lina@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T09:40:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
   {
     username: 'inquiry_zhouyue',
@@ -108,7 +108,7 @@ const seedUsers: SeedUser[] = [
     email: 'inquiry.zhouyue@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T09:50:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
   {
     username: 'operations_chenchen',
@@ -119,7 +119,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations.chenchen@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T10:00:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
   {
     username: 'operations_zhaolei',
@@ -130,7 +130,7 @@ const seedUsers: SeedUser[] = [
     email: 'operations.zhaolei@sunrise.local',
     deptId: 3,
     createdAt: '2026-08-19T10:10:00+08:00',
-    roleCodes: ['INQUIRY_COORDINATOR'],
+    roleCodes: ['COORDINATOR'],
   },
 ];
 

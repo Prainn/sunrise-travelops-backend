@@ -16,6 +16,8 @@ export class SelectionQuery {
   @IsOptional() @IsString() city?: string;
   @IsOptional() @IsString() code?: string;
   @IsOptional() @IsString() rating?: string;
+  @IsOptional() @IsString() secondLanguage?: string;
+  @IsOptional() @IsString() shopping?: string;
   @IsOptional() @IsString() serviceLevel?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) guestCount?: number;
 }
@@ -34,7 +36,8 @@ export class ResourceOptionResponse {
   name: string;
   unitCost?: string;
   code?: string;
-  breakfastIncluded?: boolean;
+  secondLanguage?: string;
+  shopping?: boolean;
   seats?: number;
   city?: string;
 }

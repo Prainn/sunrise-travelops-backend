@@ -16,7 +16,6 @@ import {
   actualKeyword,
   actualPage,
   auditResponse,
-  normalizeMoney,
 } from '../common/resource.dto';
 import { assertMatchingId, assertVersion } from '../common/resource-errors';
 import {
@@ -45,13 +44,11 @@ export class TransportsService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(transport.code ILIKE :keyword OR transport.name ILIKE :keyword OR transport.city ILIKE :keyword)',
+        '(transport.code ILIKE :keyword OR transport.name ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
       builder.andWhere('transport.status = :status', { status: query.status });
-    if (query.city)
-      builder.andWhere('transport.city = :city', { city: query.city });
     if (query.serviceLevel)
       builder.andWhere('transport.serviceLevel = :serviceLevel', {
         serviceLevel: query.serviceLevel,
@@ -75,7 +72,6 @@ export class TransportsService {
     input: CreateTransportDto,
     actorId: string,
   ): Promise<TransportResponse> {
-    await this.validation.validateCity(input.city);
     await this.validation.validateUnit(input.unit, 'vehicle');
     const code =
       input.code ?? (await nextBusinessCode(this.transports.manager, 'VEH'));
@@ -85,7 +81,6 @@ export class TransportsService {
         this.transports.create({
           ...input,
           code,
-          dailyPrice: normalizeMoney(input.dailyPrice),
           createdBy: actorId,
           updatedBy: actorId,
         }),
@@ -107,12 +102,10 @@ export class TransportsService {
         ErrorCode.TRANSPORT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      await this.validation.validateCity(input.city, entity.city);
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,
-        dailyPrice: normalizeMoney(input.dailyPrice),
         updatedBy: actorId,
       });
       return this.toResponse(await repository.save(entity));
@@ -143,9 +136,7 @@ export class TransportsService {
       name: entity.name,
       serviceLevel: entity.serviceLevel,
       seats: entity.seats,
-      dailyPrice: normalizeMoney(entity.dailyPrice),
       unit: entity.unit,
-      city: entity.city,
       phone: entity.phone,
       status: entity.status,
       remark: entity.remark,

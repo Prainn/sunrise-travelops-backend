@@ -8,7 +8,6 @@ import { BusinessDictionaryStatus } from '../../system/business-dictionaries/bus
 import { BusinessResourceType } from '../../system/business-dictionaries/business-dictionary-status';
 import { BusinessDictionaryTypeEntity } from '../../system/business-dictionaries/business-dictionary-type.entity';
 import { CityEntity } from '../cities/city.entity';
-import { SupplierEntity } from '../suppliers/supplier.entity';
 import { ResourceStatus } from './resource.constants';
 
 @Injectable()
@@ -18,8 +17,6 @@ export class ResourceValidationService {
     private readonly dictionaryTypes: Repository<BusinessDictionaryTypeEntity>,
     @InjectRepository(BusinessDictionaryItemEntity)
     private readonly dictionaryItems: Repository<BusinessDictionaryItemEntity>,
-    @InjectRepository(SupplierEntity)
-    private readonly suppliers: Repository<SupplierEntity>,
     @InjectRepository(CityEntity)
     private readonly cities: Repository<CityEntity>,
   ) {}
@@ -62,32 +59,5 @@ export class ResourceValidationService {
         details: { unit, resourceType },
       });
     }
-  }
-
-  async validateGroundOperator(
-    provided: boolean,
-    groundOperatorId?: string | null,
-  ): Promise<string | null> {
-    if (!provided) return null;
-    if (!groundOperatorId) {
-      throw new BusinessException({
-        code: ErrorCode.GROUND_OPERATOR_REQUIRED,
-        message: 'A ground operator is required',
-        status: HttpStatus.BAD_REQUEST,
-      });
-    }
-    const supplier = await this.suppliers.findOneBy({
-      id: groundOperatorId,
-      status: ResourceStatus.Enabled,
-    });
-    if (!supplier) {
-      throw new BusinessException({
-        code: ErrorCode.GROUND_OPERATOR_NOT_FOUND_OR_DISABLED,
-        message: 'Ground operator was not found or is disabled',
-        status: HttpStatus.BAD_REQUEST,
-        details: { groundOperatorId },
-      });
-    }
-    return groundOperatorId;
   }
 }

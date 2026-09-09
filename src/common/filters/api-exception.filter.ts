@@ -126,6 +126,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
       driverError.code === '23505' &&
       typeof driverError.constraint === 'string'
     ) {
+      if (driverError.constraint === 'UQ_resource_guides_service')
+        return {
+          status: HttpStatus.CONFLICT,
+          code: 'GUIDE_SERVICE_EXISTS',
+          message: '该第二语种与进店组合的导游价格已存在',
+          details: {},
+        };
       if (/^UQ_resource_.+_code$/.test(driverError.constraint)) {
         return {
           status: HttpStatus.CONFLICT,

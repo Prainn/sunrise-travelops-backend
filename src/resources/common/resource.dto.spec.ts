@@ -146,36 +146,24 @@ describe('resource DTOs', () => {
     );
   });
 
-  it('validates guide enums, languages, age, daily price and supplier', async () => {
+  it('validates guide service language, shopping flag and daily price', async () => {
     const input = plainToInstance(CreateGuideDto, {
-      code: 'GDE001',
-      name: 'Guide',
-      certificateNo: 'C001',
-      gender: 'unknown',
-      age: 0,
-      languages: [],
-      employmentType: 'temporary',
-      identityNumber: 'ID001',
-      phone: '10086',
+      secondLanguage: 'unknown',
+      shopping: 'no',
       dailyPrice: -1,
-      unit: 'guideDay',
-      hasLaborContract: false,
-      groundOperatorId: 'not-a-uuid',
-      licensePhotoUrl: '',
-      remark: '',
-      status: ResourceStatus.Enabled,
     });
-    const properties = (await validate(input)).map((error) => error.property);
-    expect(properties).toEqual(
-      expect.arrayContaining([
-        'gender',
-        'age',
-        'languages',
-        'employmentType',
-        'dailyPrice',
-        'groundOperatorId',
-      ]),
+    expect((await validate(input)).map((e) => e.property)).toEqual(
+      expect.arrayContaining(['secondLanguage', 'shopping', 'dailyPrice']),
     );
+    expect(
+      await validate(
+        plainToInstance(CreateGuideDto, {
+          secondLanguage: 'en',
+          shopping: false,
+          dailyPrice: 600,
+        }),
+      ),
+    ).toEqual([]);
   });
 
   it('accepts attraction prices without a supplier', async () => {
@@ -194,18 +182,4 @@ describe('resource DTOs', () => {
     });
     expect(await validate(input)).toEqual([]);
   });
-});
-
-it('defaults hotel breakfast to true and validates explicit boolean values', async () => {
-  expect(plainToInstance(CreateHotelDto, {}).breakfastIncluded).toBe(true);
-  expect(
-    plainToInstance(CreateHotelDto, { breakfastIncluded: false })
-      .breakfastIncluded,
-  ).toBe(false);
-  const errors = await validate(
-    plainToInstance(CreateHotelDto, { breakfastIncluded: 'false' }),
-  );
-  expect(errors.some((error) => error.property === 'breakfastIncluded')).toBe(
-    true,
-  );
 });

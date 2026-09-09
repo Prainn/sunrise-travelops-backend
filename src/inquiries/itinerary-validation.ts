@@ -9,6 +9,7 @@ import { GuideEntity } from '../resources/guides/guide.entity';
 import { RestaurantPriceEntity } from '../resources/restaurants/restaurant.entity';
 import { AttractionPriceEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
+import { calculateItineraryQuote } from './quote-pricing';
 import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
 export function invalid(message: string): never {
@@ -48,9 +49,7 @@ export class ItineraryValidation {
       )
         invalid('Invalid destination');
     }
-    const guestCount = plan.adults + plan.childrenCount;
-    const guestsChanged =
-      previous && guestCount !== previous.adults + previous.childrenCount;
+    const guestCount = plan.adults + plan.childrenCount + plan.leaderCount;
     unique(
       plan.dailyPlans.flatMap((day) => [
         day.id,
@@ -150,7 +149,11 @@ export class ItineraryValidation {
               h.destination === selection.destination &&
               h.hotelId === selection.hotelId,
           );
-        if (old && !guestsChanged) Object.assign(selection, old);
+        if (old)
+          Object.assign(selection, {
+            ...old,
+            unitCost: roundMoney(selection.unitCost),
+          });
         else {
           const hotel = await manager.findOneBy(HotelEntity, {
             id: selection.hotelId,
@@ -169,85 +172,62 @@ export class ItineraryValidation {
           Object.assign(selection, {
             hotelName: hotel.name,
             rating: hotel.rating,
-            breakfastIncluded: hotel.breakfastIncluded,
             breakfast: hotel.breakfast,
             unit: hotel.unit,
-            unitCost: Number(
-              hotel.groupPrice !== null &&
-                hotel.minimumGroupSize !== null &&
-                guestCount >= hotel.minimumGroupSize
-                ? hotel.groupPrice
-                : hotel.individualPrice,
-            ),
+            unitCost: roundMoney(selection.unitCost),
           });
         }
       }
     }
+    const dayIds = new Set(plan.dailyPlans.map((day) => day.id));
     for (const group of plan.vehiclePlans) {
-      const vehicle = group.vehicle;
-      if (!vehicle) {
-        group.vehicle = null;
-        continue;
+      unique(group.arrangements.map((a) => a.id));
+      group.totalPrice ??= null;
+      const seatsByDay = new Map<string, number>();
+      for (const arrangement of group.arrangements) {
+        unique(arrangement.dayIds);
+        unique(arrangement.vehicles.map((v) => v.vehicleId));
+        for (const id of arrangement.dayIds)
+          if (!dayIds.has(id)) invalid('Invalid vehicle date');
+        for (const vehicle of arrangement.vehicles) {
+          const resource = await manager.findOneBy(TransportEntity, {
+            id: vehicle.vehicleId,
+          });
+          if (
+            !resource ||
+            resource.status !== ResourceStatus.Enabled ||
+            resource.serviceLevel !== group.tier
+          )
+            invalid('Invalid vehicle');
+          Object.assign(vehicle, {
+            vehicleName: resource.name,
+            seats: resource.seats,
+          });
+        }
+        const seats = arrangement.vehicles.reduce(
+          (sum, v) => sum + v.seats * v.quantity,
+          0,
+        );
+        for (const id of arrangement.dayIds)
+          seatsByDay.set(id, (seatsByDay.get(id) ?? 0) + seats);
       }
-      const old = previous?.vehiclePlans.find(
-        (p) => p.tier === group.tier,
-      )?.vehicle;
-      if (old?.vehicleId === vehicle.vehicleId)
-        Object.assign(vehicle, {
-          vehicleName: old.vehicleName,
-          seats: old.seats,
-          referenceUnitCost: old.referenceUnitCost,
-          unit: old.unit,
-        });
-      else {
-        const resource = await manager.findOneBy(TransportEntity, {
-          id: vehicle.vehicleId,
-        });
-        if (
-          !resource ||
-          resource.status !== ResourceStatus.Enabled ||
-          resource.serviceLevel !== group.tier
-        )
-          invalid('Invalid vehicle');
-        Object.assign(vehicle, {
-          vehicleName: resource.name,
-          seats: resource.seats,
-          referenceUnitCost: Number(resource.dailyPrice),
-          unit: resource.unit,
-        });
-      }
-      if (vehicle.seats < guestCount) invalid('Vehicle has insufficient seats');
-      vehicle.unitCost = roundMoney(vehicle.unitCost);
+      for (const seats of seatsByDay.values())
+        if (seats < guestCount) invalid('Vehicle has insufficient seats');
     }
-    const assigned = new Set<string>();
     for (const guide of plan.guidePlans) {
       if (!plan.destinations.includes(guide.destination))
         invalid('Invalid guide destination');
-      for (const id of guide.dayIds) {
-        if (assigned.has(id) || !plan.dailyPlans.some((d) => d.id === id))
-          invalid('Invalid or overlapping guide date');
-        assigned.add(id);
-      }
-      const old = previous?.guidePlans.find(
-        (g) =>
-          g.destination === guide.destination && g.guideId === guide.guideId,
-      );
-      if (old)
-        Object.assign(guide, {
-          guideName: old.guideName,
-          dailyPrice: old.dailyPrice,
-        });
-      else {
-        const resource = await manager.findOneBy(GuideEntity, {
-          id: guide.guideId,
-        });
-        if (!resource || resource.status !== ResourceStatus.Enabled)
-          invalid('Invalid guide');
-        Object.assign(guide, {
-          guideName: resource.name,
-          dailyPrice: Number(resource.dailyPrice),
-        });
-      }
+      const resource = await manager.findOneBy(GuideEntity, {
+        id: guide.guideId,
+      });
+      if (!resource || resource.status !== ResourceStatus.Enabled)
+        invalid('Invalid guide');
+      Object.assign(guide, {
+        guideName: resource.name,
+        secondLanguage: resource.secondLanguage,
+        shopping: resource.shopping,
+        dailyPrice: roundMoney(guide.dailyPrice),
+      });
     }
     plan.dailyPlans.forEach((day, index) => {
       const overnight = plan.dailyPlans[index - 1]?.overnightDestination;
@@ -255,7 +235,7 @@ export class ItineraryValidation {
         .filter((p) => p.hotels.length)
         .map((p) => p.hotels.find((h) => h.destination === overnight));
       day.meals.breakfast = Boolean(
-        overnight && hotels.length && hotels.every((h) => h?.breakfastIncluded),
+        overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
     });
     const options = plan.quote.options;
@@ -264,7 +244,7 @@ export class ItineraryValidation {
       .filter((p) => p.hotels.length)
       .flatMap((h) =>
         plan.vehiclePlans
-          .filter((p) => p.vehicle)
+          .filter((p) => p.arrangements.length)
           .map((v) => {
             const option = options.find(
               (o) => o.hotelTier === h.tier && o.vehicleTier === v.tier,
@@ -296,15 +276,32 @@ export class ItineraryValidation {
   }
   assertPdfReady(plan: ItineraryInput) {
     const issues: string[] = [];
+    const costs = plan.dailyPlans
+      .flatMap((d) => d.items)
+      .reduce((sum, item) => sum + item.totalCost, 0);
+    if (
+      calculateItineraryQuote(plan, costs).options.some(
+        (o) => plan.quote.otherExpenses > o.totalPrice,
+      )
+    )
+      issues.push('otherExpenses');
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
       !hotels.length ||
-      !plan.vehiclePlans.some((p) => p.vehicle && p.vehicle.serviceDays > 0) ||
+      !plan.vehiclePlans.some(
+        (p) => p.arrangements.length && p.totalPrice !== null,
+      ) ||
       !plan.quote.options.length
     )
       issues.push('hotelVehicleQuote');
     for (const vehicle of plan.vehiclePlans)
-      if (vehicle.vehicle && !vehicle.vehicle.serviceDays)
+      if (
+        vehicle.arrangements.length &&
+        (vehicle.totalPrice === null ||
+          vehicle.arrangements.some(
+            (a) => !a.dayIds.length || !a.vehicles.length,
+          ))
+      )
         issues.push('vehicleDays');
     for (const day of plan.dailyPlans) {
       if (!day.description?.trim() || day.overnightDestination === null)
@@ -325,7 +322,7 @@ export class ItineraryValidation {
           issues.push(`dailyPlans[${day.id}].${slot}`);
     }
     for (const g of plan.guidePlans)
-      if (!g.dayIds.length) issues.push(`guidePlans[${g.destination}]`);
+      if (!g.serviceDays) issues.push(`guidePlans[${g.destination}]`);
     for (const fee of plan.quote.transportFees)
       if (
         !fee.departureCity ||
