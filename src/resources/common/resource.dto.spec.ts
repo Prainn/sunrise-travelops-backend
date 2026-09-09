@@ -3,8 +3,11 @@ import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateAttractionPriceDto } from '../attractions/dto/attraction.dto';
 import { CreateGuideDto } from '../guides/dto/guide.dto';
-import { CreateHotelDto } from '../hotels/dto/hotel.dto';
-import { CreateTransportDto } from '../transports/dto/transport.dto';
+import { CreateHotelDto, HotelQueryDto } from '../hotels/dto/hotel.dto';
+import {
+  CreateTransportDto,
+  TransportQueryDto,
+} from '../transports/dto/transport.dto';
 import { ResourceStatus } from './resource.constants';
 import {
   ResourceQueryDto,
@@ -84,6 +87,26 @@ describe('resource DTOs', () => {
     expect((await validate(input)).map((error) => error.property)).toContain(
       'rating',
     );
+  });
+
+  it('validates hotel rating and transport service-level list filters', async () => {
+    const hotelQuery = plainToInstance(HotelQueryDto, {
+      page: 1,
+      pageSize: 20,
+      rating: 'three_stars',
+    });
+    const transportQuery = plainToInstance(TransportQueryDto, {
+      page: 1,
+      pageSize: 20,
+      serviceLevel: 'luxury',
+    });
+
+    expect(
+      (await validate(hotelQuery)).map((error) => error.property),
+    ).toContain('rating');
+    expect(
+      (await validate(transportQuery)).map((error) => error.property),
+    ).toContain('serviceLevel');
   });
 
   it('rejects non-positive transport seats', async () => {

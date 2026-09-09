@@ -18,6 +18,10 @@ import {
 
 export class TransportQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() city?: string;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsIn(['standard', 'vip'])
+  serviceLevel?: string;
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateTransportDto extends ResourceInputDto {

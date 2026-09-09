@@ -53,6 +53,8 @@ export class HotelsService {
       builder.andWhere('hotel.status = :status', { status: query.status });
     if (query.city)
       builder.andWhere('hotel.city = :city', { city: query.city });
+    if (query.rating)
+      builder.andWhere('hotel.rating = :rating', { rating: query.rating });
     if (query.unit)
       builder.andWhere('hotel.unit = :unit', { unit: query.unit });
     const [entities, total] = await builder.getManyAndCount();

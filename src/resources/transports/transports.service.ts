@@ -52,6 +52,10 @@ export class TransportsService {
       builder.andWhere('transport.status = :status', { status: query.status });
     if (query.city)
       builder.andWhere('transport.city = :city', { city: query.city });
+    if (query.serviceLevel)
+      builder.andWhere('transport.serviceLevel = :serviceLevel', {
+        serviceLevel: query.serviceLevel,
+      });
     if (query.unit)
       builder.andWhere('transport.unit = :unit', { unit: query.unit });
     const [entities, total] = await builder.getManyAndCount();

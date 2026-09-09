@@ -19,6 +19,10 @@ import {
 
 export class HotelQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() city?: string;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsIn(['international_five_star', 'ctrip_preferred'])
+  rating?: string;
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateHotelDto extends ResourceInputDto {

@@ -4,7 +4,7 @@ import { HotelEntity } from './hotel.entity';
 import { HotelsService } from './hotels.service';
 
 describe('HotelsService', () => {
-  it('applies keyword and city filters before pagination', async () => {
+  it('applies keyword, city and rating filters before pagination', async () => {
     const builder = {
       orderBy: jest.fn().mockReturnThis(),
       addOrderBy: jest.fn().mockReturnThis(),
@@ -27,6 +27,7 @@ describe('HotelsService', () => {
       pageSize: 10,
       keyword: '翠湖',
       city: '昆明',
+      rating: 'international_five_star',
     });
 
     expect(builder.andWhere).toHaveBeenCalledWith(
@@ -35,6 +36,9 @@ describe('HotelsService', () => {
     );
     expect(builder.andWhere).toHaveBeenCalledWith('hotel.city = :city', {
       city: '昆明',
+    });
+    expect(builder.andWhere).toHaveBeenCalledWith('hotel.rating = :rating', {
+      rating: 'international_five_star',
     });
     expect(builder.skip).toHaveBeenCalledWith(10);
   });
