@@ -272,7 +272,8 @@ async function main() {
           arrangements: [
             {
               id: 'fleet-one',
-              dayIds: ['day-one', 'day-two'],
+              startDate: '2026-10-01',
+              endDate: '2026-10-02',
               vehicles: [
                 {
                   vehicleId: vehicle.id,

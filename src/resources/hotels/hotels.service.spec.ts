@@ -30,6 +30,8 @@ describe('HotelsService', () => {
       rating: 'international_five_star',
     });
 
+    expect(builder.orderBy).toHaveBeenCalledWith('hotel.createdAt', 'ASC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('hotel.id', 'ASC');
     expect(builder.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('hotel.address ILIKE :keyword'),
       { keyword: '%翠湖%' },

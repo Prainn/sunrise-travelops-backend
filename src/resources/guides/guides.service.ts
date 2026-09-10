@@ -36,7 +36,7 @@ export class GuidesService {
     const page = actualPage(query);
     const builder = this.guides
       .createQueryBuilder('guide')
-      .orderBy('guide.createdAt', 'DESC')
+      .orderBy('guide.createdAt', 'ASC')
       .addOrderBy('guide.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

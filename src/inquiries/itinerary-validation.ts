@@ -10,7 +10,7 @@ import { RestaurantPriceEntity } from '../resources/restaurants/restaurant.entit
 import { AttractionPriceEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
 import { calculateItineraryQuote } from './quote-pricing';
-import { multiplyMoney, roundMoney } from './money';
+import { multiplyMoney, roundMoney, sumMoney } from './money';
 import { randomUUID } from 'node:crypto';
 export function invalid(message: string): never {
   throw new BusinessException({
@@ -23,6 +23,13 @@ function unique(values: string[]) {
   if (new Set(values).size !== values.length)
     invalid('Duplicate itinerary record');
 }
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
 export function dateAt(start: string, index: number) {
   const date = new Date(`${start}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + index);
@@ -34,6 +41,7 @@ export class ItineraryValidation {
     manager: EntityManager,
     input: ItineraryInput,
     previous?: ItineraryInput,
+    plannedDays = input.dailyPlans.length,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
     const newCities = plan.destinations.filter(
@@ -179,16 +187,42 @@ export class ItineraryValidation {
         }
       }
     }
-    const dayIds = new Set(plan.dailyPlans.map((day) => day.id));
+    const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
     for (const group of plan.vehiclePlans) {
       unique(group.arrangements.map((a) => a.id));
       group.totalPrice ??= null;
-      const seatsByDay = new Map<string, number>();
+      if (!group.arrangements.length) group.totalPrice = null;
+      if (group.totalPrice !== null)
+        group.totalPrice = roundMoney(group.totalPrice);
+      const assignedRanges: Array<{ startDate: string; endDate: string }> = [];
       for (const arrangement of group.arrangements) {
-        unique(arrangement.dayIds);
         unique(arrangement.vehicles.map((v) => v.vehicleId));
-        for (const id of arrangement.dayIds)
-          if (!dayIds.has(id)) invalid('Invalid vehicle date');
+        arrangement.totalPrice ??= null;
+        if (arrangement.totalPrice !== null)
+          arrangement.totalPrice = roundMoney(arrangement.totalPrice);
+        const hasStartDate = Boolean(arrangement.startDate);
+        const hasEndDate = Boolean(arrangement.endDate);
+        if (hasStartDate !== hasEndDate)
+          invalid('Incomplete vehicle date range');
+        if (hasStartDate) {
+          if (
+            !isCalendarDate(arrangement.startDate) ||
+            !isCalendarDate(arrangement.endDate) ||
+            arrangement.startDate < plan.startDate ||
+            arrangement.endDate > itineraryEndDate ||
+            arrangement.startDate > arrangement.endDate
+          )
+            invalid('Invalid vehicle date range');
+          if (
+            assignedRanges.some(
+              (range) =>
+                arrangement.startDate <= range.endDate &&
+                arrangement.endDate >= range.startDate,
+            )
+          )
+            invalid('Vehicle date ranges overlap');
+          assignedRanges.push(arrangement);
+        }
         for (const vehicle of arrangement.vehicles) {
           const resource = await manager.findOneBy(TransportEntity, {
             id: vehicle.vehicleId,
@@ -208,11 +242,19 @@ export class ItineraryValidation {
           (sum, v) => sum + v.seats * v.quantity,
           0,
         );
-        for (const id of arrangement.dayIds)
-          seatsByDay.set(id, (seatsByDay.get(id) ?? 0) + seats);
+        if (hasStartDate && seats < guestCount)
+          invalid('Vehicle has insufficient seats');
       }
-      for (const seats of seatsByDay.values())
-        if (seats < guestCount) invalid('Vehicle has insufficient seats');
+      if (
+        group.totalPrice === null &&
+        group.arrangements.length > 0 &&
+        group.arrangements.every(
+          (arrangement) => arrangement.totalPrice !== null,
+        )
+      )
+        group.totalPrice = sumMoney(
+          group.arrangements.map((arrangement) => arrangement.totalPrice!),
+        );
     }
     for (const guide of plan.guidePlans) {
       if (!plan.destinations.includes(guide.destination))
@@ -227,6 +269,7 @@ export class ItineraryValidation {
         secondLanguage: resource.secondLanguage,
         shopping: resource.shopping,
         dailyPrice: roundMoney(guide.dailyPrice),
+        serviceDays: plannedDays,
       });
     }
     plan.dailyPlans.forEach((day, index) => {
@@ -274,7 +317,7 @@ export class ItineraryValidation {
     plan.quote.englishTip ??= null;
     return plan;
   }
-  assertPdfReady(plan: ItineraryInput) {
+  assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {
     const issues: string[] = [];
     const costs = plan.dailyPlans
       .flatMap((d) => d.items)
@@ -299,10 +342,28 @@ export class ItineraryValidation {
         vehicle.arrangements.length &&
         (vehicle.totalPrice === null ||
           vehicle.arrangements.some(
-            (a) => !a.dayIds.length || !a.vehicles.length,
+            (a) => !a.startDate || !a.endDate || !a.vehicles.length,
           ))
       )
         issues.push('vehicleDays');
+    const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
+    for (const vehicle of plan.vehiclePlans) {
+      const sortedRanges = [...vehicle.arrangements].sort((a, b) =>
+        a.startDate.localeCompare(b.startDate),
+      );
+      if (
+        sortedRanges.some(
+          (range, index) =>
+            !isCalendarDate(range.startDate) ||
+            !isCalendarDate(range.endDate) ||
+            range.startDate < plan.startDate ||
+            range.endDate > itineraryEndDate ||
+            range.startDate > range.endDate ||
+            (index > 0 && range.startDate <= sortedRanges[index - 1].endDate),
+        )
+      )
+        issues.push('vehicleDays');
+    }
     for (const day of plan.dailyPlans) {
       if (!day.description?.trim() || day.overnightDestination === null)
         issues.push(`dailyPlans[${day.id}]`);

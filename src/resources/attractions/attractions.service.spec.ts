@@ -75,6 +75,8 @@ describe('AttractionsService', () => {
       category: 'scenic',
     });
 
+    expect(builder.orderBy).toHaveBeenCalledWith('attraction.createdAt', 'ASC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('attraction.id', 'ASC');
     expect(builder.andWhere).toHaveBeenCalledWith(
       expect.stringContaining('attraction.remark ILIKE :keyword'),
       { keyword: '%日落%' },

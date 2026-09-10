@@ -53,7 +53,7 @@ export class AttractionsService {
     const builder = this.attractions
       .createQueryBuilder('attraction')
       .loadRelationCountAndMap('attraction.priceCount', 'attraction.prices')
-      .orderBy('attraction.createdAt', 'DESC')
+      .orderBy('attraction.createdAt', 'ASC')
       .addOrderBy('attraction.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

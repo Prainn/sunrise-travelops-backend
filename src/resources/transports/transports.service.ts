@@ -37,7 +37,7 @@ export class TransportsService {
     const page = actualPage(query);
     const builder = this.transports
       .createQueryBuilder('transport')
-      .orderBy('transport.createdAt', 'DESC')
+      .orderBy('transport.createdAt', 'ASC')
       .addOrderBy('transport.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

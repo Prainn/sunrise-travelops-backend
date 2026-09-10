@@ -48,6 +48,50 @@ describe('itinerary input', () => {
     expect(validate({ ...valid, status: 'quoted' }).length).toBeGreaterThan(0);
     expect(validate({ ...valid, adults: 0 }).length).toBeGreaterThan(0);
   });
+  it('allows at most one whole-trip guide type', () => {
+    const guide = {
+      destination: '昆明',
+      guideId: '00000000-0000-4000-8000-000000000001',
+      guideName: '英文 · 不进店',
+      secondLanguage: 'en',
+      shopping: false,
+      dailyPrice: 600,
+      serviceDays: 7,
+    };
+    expect(validate({ ...valid, guidePlans: [guide] })).toHaveLength(0);
+    expect(
+      validate({ ...valid, guidePlans: [guide, guide] }).some(
+        (error) => error.property === 'guidePlans',
+      ),
+    ).toBe(true);
+  });
+  it('accepts optional vehicle range prices and validates them as money', () => {
+    const vehiclePlan = {
+      tier: 'standard',
+      totalPrice: '4000.00',
+      arrangements: [
+        {
+          id: 'vehicle-range-1',
+          startDate: '2026-09-08',
+          endDate: '2026-09-08',
+          vehicles: [],
+          totalPrice: '1000.00',
+        },
+      ],
+    };
+    expect(validate({ ...valid, vehiclePlans: [vehiclePlan] })).toHaveLength(0);
+    expect(
+      validate({
+        ...valid,
+        vehiclePlans: [
+          {
+            ...vehiclePlan,
+            arrangements: [{ ...vehiclePlan.arrangements[0], totalPrice: -1 }],
+          },
+        ],
+      }).length,
+    ).toBeGreaterThan(0);
+  });
   it('rejects invalid report dates and pagination', () => {
     expect(
       validateSync(

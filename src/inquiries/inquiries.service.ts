@@ -406,7 +406,12 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const inquiry = await this.inquiry(id, actor, manager, true);
       this.writable(inquiry);
-      const data = await this.validation.normalize(manager, input);
+      const data = await this.validation.normalize(
+        manager,
+        input,
+        undefined,
+        inquiry.data.plannedDays,
+      );
       const row = await manager.save(
         ItineraryEntity,
         manager.create(ItineraryEntity, {
@@ -445,6 +450,7 @@ export class InquiriesService {
         manager,
         body,
         itinerary.data,
+        inquiry.data.plannedDays,
       );
       const changes = contextualChanges(itinerary.data, data);
       if (!changes.length) return this.itineraryResponse(itinerary);
@@ -479,7 +485,6 @@ export class InquiriesService {
       data.vehiclePlans.forEach((p) =>
         p.arrangements.forEach((a) => {
           a.id = randomUUID();
-          a.dayIds = a.dayIds.map((id) => ids.get(id)!);
         }),
       );
       data.quote.options.forEach((o) => {
@@ -542,7 +547,7 @@ export class InquiriesService {
       });
       if (original) return original.snapshot;
       this.writable(inquiry);
-      this.validation.assertPdfReady(itinerary.data);
+      this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       return this.pdfSnapshot(inquiry, itinerary);
     });
   }
@@ -563,7 +568,7 @@ export class InquiriesService {
       this.checkVersion(inquiry.version, input.inquiryVersion);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
-      this.validation.assertPdfReady(itinerary.data);
+      this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       const snapshot = this.pdfSnapshot(inquiry, itinerary);
       await manager.save(
         ItineraryQuoteEntity,

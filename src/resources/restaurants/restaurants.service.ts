@@ -53,7 +53,7 @@ export class RestaurantsService {
     const builder = this.restaurants
       .createQueryBuilder('restaurant')
       .loadRelationCountAndMap('restaurant.priceCount', 'restaurant.prices')
-      .orderBy('restaurant.createdAt', 'DESC')
+      .orderBy('restaurant.createdAt', 'ASC')
       .addOrderBy('restaurant.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

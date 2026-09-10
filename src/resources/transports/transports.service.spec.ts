@@ -28,6 +28,8 @@ describe('TransportsService', () => {
       serviceLevel: 'vip',
     });
 
+    expect(builder.orderBy).toHaveBeenCalledWith('transport.createdAt', 'ASC');
+    expect(builder.addOrderBy).toHaveBeenCalledWith('transport.id', 'ASC');
     expect(builder.andWhere).toHaveBeenCalledWith(
       'transport.serviceLevel = :serviceLevel',
       { serviceLevel: 'vip' },

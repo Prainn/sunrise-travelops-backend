@@ -39,7 +39,7 @@ export class HotelsService {
     const page = actualPage(query);
     const builder = this.hotels
       .createQueryBuilder('hotel')
-      .orderBy('hotel.createdAt', 'DESC')
+      .orderBy('hotel.createdAt', 'ASC')
       .addOrderBy('hotel.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

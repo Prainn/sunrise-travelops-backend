@@ -37,7 +37,7 @@ export class CitiesService {
     const page = actualPage(query);
     const builder = this.cities
       .createQueryBuilder('city')
-      .orderBy('city.createdAt', 'DESC')
+      .orderBy('city.createdAt', 'ASC')
       .addOrderBy('city.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

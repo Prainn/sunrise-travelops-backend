@@ -68,7 +68,7 @@ describe('resource snapshot validation', () => {
       totalCost: 150,
     });
   });
-  it('preserves edited guide day price and day count while resolving service labels from the resource', async () => {
+  it('preserves guide day price and derives service days from the inquiry', async () => {
     const input = plan();
     input.guidePlans = [
       {
@@ -90,10 +90,10 @@ describe('resource snapshot validation', () => {
         dailyPrice: '600',
       }),
     } as unknown as EntityManager;
-    const saved = await validator.normalize(manager, input, input);
+    const saved = await validator.normalize(manager, input, input, 15);
     expect(saved.guidePlans[0]).toMatchObject({
       dailyPrice: 450,
-      serviceDays: 7,
+      serviceDays: 15,
       secondLanguage: 'en',
       shopping: false,
     });
@@ -109,7 +109,9 @@ describe('resource snapshot validation', () => {
         arrangements: [
           {
             id: 'fleet',
-            dayIds: ['a'],
+            startDate: '2026-09-08',
+            endDate: '2026-09-08',
+            totalPrice: null,
             vehicles: [39, 14, 7].map((seats) => ({
               vehicleId: String(seats),
               vehicleName: 'spoof',
@@ -139,6 +141,101 @@ describe('resource snapshot validation', () => {
     const saved = await validator.normalize(manager, input, input);
     expect(saved.vehiclePlans[0].arrangements[0].vehicles[0].seats).toBe(39);
     expect(saved.vehiclePlans[0].totalPrice).toBe(8000);
+  });
+  it('requires vehicle ranges within the inquiry duration without overlaps and sums optional range prices', async () => {
+    const input = plan();
+    input.dailyPlans.push(
+      { ...structuredClone(input.dailyPlans[0]), id: 'b', items: [] },
+      { ...structuredClone(input.dailyPlans[0]), id: 'c', items: [] },
+    );
+    input.vehiclePlans = [
+      {
+        tier: 'standard',
+        totalPrice: null,
+        arrangements: [
+          {
+            id: 'first',
+            startDate: '2026-09-08',
+            endDate: '2026-09-09',
+            totalPrice: 1000,
+            vehicles: [
+              { vehicleId: 'bus', vehicleName: '', seats: 7, quantity: 1 },
+            ],
+          },
+          {
+            id: 'second',
+            startDate: '2026-09-09',
+            endDate: '2026-09-10',
+            totalPrice: 3000,
+            vehicles: [
+              { vehicleId: 'bus', vehicleName: '', seats: 7, quantity: 1 },
+            ],
+          },
+        ],
+      },
+    ];
+    const manager = {
+      findOneBy: jest.fn().mockResolvedValue({
+        name: 'Bus',
+        seats: 7,
+        serviceLevel: 'standard',
+        status: 'enabled',
+      }),
+    } as unknown as EntityManager;
+
+    await expect(
+      validator.normalize(manager, input, input),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    input.vehiclePlans[0].arrangements[1].startDate = '2026-09-10';
+    const saved = await validator.normalize(manager, input, input);
+    expect(saved.vehiclePlans[0].totalPrice).toBe(4000);
+    input.vehiclePlans[0].totalPrice = 4500;
+    expect(
+      (await validator.normalize(manager, input, input)).vehiclePlans[0]
+        .totalPrice,
+    ).toBe(4500);
+
+    input.vehiclePlans[0].arrangements = [
+      {
+        ...input.vehiclePlans[0].arrangements[0],
+        endDate: '2026-09-11',
+      },
+    ];
+    await expect(
+      validator.normalize(manager, input, input),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+  });
+  it('rejects impossible calendar dates in saves and PDF readiness', async () => {
+    const input = plan();
+    input.startDate = '2026-02-01';
+    input.vehiclePlans = [
+      {
+        tier: 'standard',
+        totalPrice: 1000,
+        arrangements: [
+          {
+            id: 'invalid-date',
+            startDate: '2026-02-30',
+            endDate: '2026-02-30',
+            vehicles: [],
+          },
+        ],
+      },
+    ];
+    await expect(
+      validator.normalize({} as EntityManager, input, input, 40),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    try {
+      validator.assertPdfReady(input, 40);
+      throw new Error('Expected PDF_NOT_READY');
+    } catch (error) {
+      expect(
+        (error as { details: { issues: string[] } }).details.issues,
+      ).toContain('vehicleDays');
+      expect(error).toMatchObject({
+        code: 'PDF_NOT_READY',
+      });
+    }
   });
   it('preserves actual hotel price when selecting a hotel and when saving the same hotel', async () => {
     const input = plan();

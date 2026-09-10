@@ -52,7 +52,7 @@ export class AgenciesService {
     const builder = this.agencies
       .createQueryBuilder('agency')
       .loadRelationCountAndMap('agency.contactCount', 'agency.contacts')
-      .orderBy('agency.createdAt', 'DESC')
+      .orderBy('agency.createdAt', 'ASC')
       .addOrderBy('agency.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

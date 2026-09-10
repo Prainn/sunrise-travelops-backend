@@ -15,6 +15,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  ValidateIf,
   Min,
   MinLength,
   ValidateNested,
@@ -170,16 +171,23 @@ class VehicleInput {
 }
 class VehicleArrangementInput {
   @IsString() @MinLength(1) @MaxLength(100) id: string;
-  @IsArray()
-  @ArrayMaxSize(365)
-  @ArrayUnique()
-  @IsString({ each: true })
-  dayIds: string[];
+  @IsString()
+  @MaxLength(10)
+  @ValidateIf((_object, value: unknown) => value !== '')
+  @IsDateString({ strict: true })
+  startDate: string;
+  @IsString()
+  @MaxLength(10)
+  @ValidateIf((_object, value: unknown) => value !== '')
+  @IsDateString({ strict: true })
+  endDate: string;
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => VehicleInput)
   vehicles: VehicleInput[];
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) totalPrice?:
+    number | null;
 }
 class VehiclePlanInput {
   @IsIn(['standard', 'vip']) tier: 'standard' | 'vip';
@@ -290,7 +298,7 @@ export class ItineraryInput {
   @Type(() => VehiclePlanInput)
   vehiclePlans: VehiclePlanInput[];
   @IsArray()
-  @ArrayMaxSize(365)
+  @ArrayMaxSize(1)
   @ValidateNested({ each: true })
   @Type(() => GuideInput)
   guidePlans: GuideInput[];
