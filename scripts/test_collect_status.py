@@ -166,9 +166,9 @@ class StatusTests(unittest.TestCase):
 
     def test_collection_publishes_forced_results_with_separate_timestamps(self):
         public = self.base / 'public'
-        with patch.object(collector, 'PUBLIC', public), patch.object(collector, 'frontend', return_value={'status': 'up'}), patch.object(collector, 'backend', return_value={'status': 'up'}), patch.object(collector, 'database', return_value={'status': 'up'}), patch.object(collector, 'deployment', return_value={'status': 'running'}), patch.object(collector, 'notify', return_value='unconfigured'):
+        with patch.object(collector, 'PUBLIC', public), patch.object(collector, 'frontend', return_value={'status': 'up'}), patch.object(collector, 'backend', return_value={'status': 'up'}), patch.object(collector, 'database', return_value={'status': 'up'}), patch.object(collector, 'deployment', side_effect=lambda _service: {'status': 'running'}), patch.object(collector, 'notify', return_value='unconfigured'):
             first = collector.run_collection()
-            with patch.object(collector, 'deployment', return_value={'status': 'success'}):
+            with patch.object(collector, 'deployment', side_effect=lambda _service: {'status': 'success'}):
                 cached = collector.run_collection()
                 self.assertEqual(cached['deployments']['backend'], first['deployments']['backend'])
                 fresh = collector.run_collection(manual=True)
