@@ -7,6 +7,7 @@ const valid = {
   startDate: '2026-09-08',
   adults: 1,
   childrenCount: 0,
+  leaderCount: 0,
   destinations: ['昆明'],
   dailyPlans: [
     {
@@ -29,6 +30,7 @@ const valid = {
     chineseTip: null,
     englishTip: null,
     transportFees: [],
+    otherExpenses: 0,
     customerNotes: '',
     holidayRestrictions: '',
     hotelReplacementTerms: '',
