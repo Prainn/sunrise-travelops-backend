@@ -6,6 +6,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { createCorsOptions } from './config/cors';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { createValidationException } from './common/validation/validation-exception.factory';
 import { parseCorsOrigins, parseTrustProxy } from './config/environment';
@@ -21,10 +22,11 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api');
   app.useBodyParser('json', { limit: '2mb' });
   app.use(helmet());
-  app.enableCors({
-    origin: parseCorsOrigins(config.getOrThrow<string>('CORS_ORIGIN')),
-    credentials: true,
-  });
+  app.enableCors(
+    createCorsOptions(
+      parseCorsOrigins(config.getOrThrow<string>('CORS_ORIGIN')),
+    ),
+  );
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -14,6 +14,7 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { validateEnvironment } from './config/environment';
 import { createTypeOrmOptions } from './config/typeorm.config';
 import { HealthModule } from './health/health.module';
+import { LynxModule } from './lynx/lynx.module';
 import { RolesModule } from './roles/roles.module';
 import { ResourcesModule } from './resources/resources.module';
 import { SystemModule } from './system/system.module';
@@ -98,6 +99,7 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
     ResourcesModule,
     SystemModule,
     HealthModule,
+    LynxModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
