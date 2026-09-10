@@ -1,5 +1,5 @@
 import { QueryRunner } from 'typeorm';
-import { DeleteBrokenInquiry1789005600000 } from './1789005600000-DeleteBrokenInquiry';
+import { DeleteBrokenInquiry1789005600000 } from '../../src/migrations/1789005600000-DeleteBrokenInquiry';
 
 describe('DeleteBrokenInquiry1789005600000', () => {
   it('hard-deletes only the confirmed inquiry and its dependent records', async () => {

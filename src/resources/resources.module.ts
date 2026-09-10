@@ -26,9 +26,6 @@ import {
 } from './restaurants/restaurant.entity';
 import { RestaurantsController } from './restaurants/restaurants.controller';
 import { RestaurantsService } from './restaurants/restaurants.service';
-import { SupplierEntity } from './suppliers/supplier.entity';
-import { SuppliersController } from './suppliers/suppliers.controller';
-import { SuppliersService } from './suppliers/suppliers.service';
 import { TransportEntity } from './transports/transport.entity';
 import { TransportsController } from './transports/transports.controller';
 import { TransportsService } from './transports/transports.service';
@@ -41,7 +38,6 @@ const entities = [
   CityEntity,
   AgencyEntity,
   AgencyContactEntity,
-  SupplierEntity,
   HotelEntity,
   RestaurantEntity,
   RestaurantPriceEntity,
@@ -59,7 +55,6 @@ const entities = [
     SelectionController,
     CitiesController,
     AgenciesController,
-    SuppliersController,
     HotelsController,
     RestaurantsController,
     AttractionsController,
@@ -72,7 +67,6 @@ const entities = [
     CitiesService,
     ResourceValidationService,
     AgenciesService,
-    SuppliersService,
     HotelsService,
     RestaurantsService,
     AttractionsService,

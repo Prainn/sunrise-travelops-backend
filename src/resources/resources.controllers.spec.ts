@@ -5,14 +5,12 @@ import { AttractionsController } from './attractions/attractions.controller';
 import { GuidesController } from './guides/guides.controller';
 import { HotelsController } from './hotels/hotels.controller';
 import { RestaurantsController } from './restaurants/restaurants.controller';
-import { SuppliersController } from './suppliers/suppliers.controller';
 import { TransportsController } from './transports/transports.controller';
 
 describe('resource controller permissions', () => {
   it.each([
     [CitiesController, 'resource:city'],
     [AgenciesController, 'resource:agency'],
-    [SuppliersController, 'resource:supplier'],
     [HotelsController, 'resource:hotel'],
     [RestaurantsController, 'resource:restaurant'],
     [AttractionsController, 'resource:attraction'],
@@ -37,9 +35,6 @@ describe('resource controller permissions', () => {
     ]);
     expect(permission(AttractionsController, 'deletePrices')).toEqual([
       'resource:attraction:delete',
-    ]);
-    expect(permission(SuppliersController, 'options')).toEqual([
-      'resource:supplier:list',
     ]);
   });
 });
