@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import call, patch
@@ -9,6 +11,34 @@ spec.loader.exec_module(deploy)
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_destructive_migration_cannot_use_mistaken_compatibility_flag(self):
+        name = 'ReviseTravelPlanning1788912000000'
+        with self.assertRaisesRegex(ValueError, 'destructive migration'):
+            deploy.check_schema({'A': 'a'}, {'A': 'a', name: 'b'}, ['A', name], [name])
+        with self.assertRaisesRegex(ValueError, 'separate maintenance plan'):
+            deploy.check_schema({'A': 'a', name: 'b'}, {'A': 'a'}, ['A'], [], True)
+
+    def test_publish_records_time_only_after_verification(self):
+        for fails in [False, True]:
+            with self.subTest(fails=fails), tempfile.TemporaryDirectory() as directory:
+                state_dir = Path(directory)
+                (state_dir / 'releases').mkdir()
+                old = 'bootstrap-20260909000000'
+                new = 'bootstrap-20260910000000'
+                state = {'current': old, 'previous': None, 'migration_history': {'A': 'a'},
+                         'compatible_migrations': [], 'last_deployed_at': 'old-time'}
+                (state_dir / 'state.json').write_text(json.dumps(state))
+                (state_dir / 'releases' / (old + '.json')).write_text(json.dumps({'image': 'old-image'}))
+                with patch.object(deploy, 'STATE', state_dir), patch.object(deploy, 'migrations', return_value={'A': 'a'}), patch.object(deploy, 'applied', return_value=['A']), patch.object(deploy, 'run', return_value='backup'), patch.object(deploy, 'now', return_value='verified-time'), patch.object(deploy, 'activate_or_restore', side_effect=RuntimeError('failed') if fails else None):
+                    if fails:
+                        with self.assertRaises(RuntimeError):
+                            deploy.publish(new, 'new-image')
+                    else:
+                        deploy.publish(new, 'new-image')
+                after = json.loads((state_dir / 'state.json').read_text())
+                self.assertEqual(after['last_deployed_at'], 'old-time' if fails else 'verified-time')
+                self.assertEqual(after['current'], old if fails else new)
+
     def test_no_schema_change_can_publish(self):
         self.assertEqual(deploy.check_schema({'A': 'a'}, {'A': 'a'}, ['A'], []), [])
 

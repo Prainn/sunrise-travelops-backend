@@ -9,6 +9,7 @@
   },
   "packageManager": "pnpm@11.22.0",
   "scripts": {
+    "verify:release": "pnpm lint && pnpm exec jest --runInBand && python3 -B -m unittest discover -s scripts -p 'test_*.py' && node --test status/status.test.mjs && pnpm build",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

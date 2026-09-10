@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Root-owned deployment entry point, callable only through the restricted gateway."""
 import fcntl
+from datetime import datetime, timezone
 import gzip
 import json
 import os
@@ -17,6 +18,9 @@ BASE = Path('/opt/sunrise-travelops-dev')
 STATE = BASE / 'backend'
 COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.dev.yml']
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
+# This destructive schema was previously misregistered as backward compatible.
+# Never trust that historical flag for rollback or ordinary online migration.
+BREAKING_MIGRATIONS = {'ReviseTravelPlanning1788912000000'}
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
 const result = {};
@@ -49,6 +53,10 @@ def save(path, value):
     temporary.replace(path)
 
 
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
 def read_state():
     return json.loads((STATE / 'state.json').read_text())
 
@@ -75,10 +83,14 @@ def check_schema(target, current, database, compatible, allow_migrations=False):
         if name in target and name in current and target[name] != current[name]:
             raise ValueError('Previously executed migration changed: ' + name)
     missing = set(database) - target.keys()
+    if missing & BREAKING_MIGRATIONS:
+        raise ValueError('Rollback crosses a destructive migration; database recovery plan required')
     if missing - set(compatible):
         raise ValueError('Target does not support current database migrations: ' +
                          ', '.join(sorted(missing - set(compatible))))
     pending = target.keys() - set(database)
+    if pending & BREAKING_MIGRATIONS:
+        raise ValueError('Destructive migration requires a separate maintenance plan, not compatibility confirmation')
     if pending and not allow_migrations:
         raise ValueError('Pending migrations require manual backward-compatibility confirmation: ' +
                          ', '.join(sorted(pending)))
@@ -162,6 +174,7 @@ def publish(release_id, image, allow_migrations=False):
             raise RuntimeError('Unexpected migration history; application was not switched')
         state['compatible_migrations'] = sorted(set(state['compatible_migrations']) | set(pending))
         state['migration_history'].update(target)
+        state['last_migrated_at'] = now()
         save(STATE / 'state.json', state)
     record = {'release': release_id, 'image': image, 'migrations': target,
               'previous': state['current'], 'backup': backup, 'status': 'pending'}
@@ -173,9 +186,11 @@ def publish(release_id, image, allow_migrations=False):
         save(record_path, record)
         raise
     record['status'] = 'verified'
+    record['deployed_at'] = now()
     save(record_path, record)
     state['previous'] = state['current']
     state['current'] = release_id
+    state['last_deployed_at'] = record['deployed_at']
     state['migration_history'].update(target)
     save(STATE / 'state.json', state)
     return {'release': release_id, 'previous': state['previous'], 'verified': True}
@@ -199,6 +214,7 @@ def rollback(target_id):
     activate_or_restore(target['image'], current['image'])
     state['previous'] = state['current']
     state['current'] = target_id
+    state['last_deployed_at'] = now()
     save(STATE / 'state.json', state)
     return {'release': target_id, 'previous': state['previous'], 'verified': True, 'backup': backup}
 
