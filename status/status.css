@@ -44,6 +44,9 @@ dd:last-child { margin-bottom: 0; }
 .stage { color: var(--muted); overflow-wrap: anywhere; }
 .sha { font-family: inherit; }
 .deploy-row time { color: var(--muted); font-size: 13px; }
+.deploy-times { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.deploy-times time { display: block; }
+#refresh-result { margin-top: 10px; min-height: 23px; }
 .deploy-row a { justify-self: end; font-size: 13px; }
 footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding-top: 24px; font-size: 13px; }
 footer .muted { margin-right: 10px; }

@@ -1,10 +1,14 @@
 import importlib.util
+import fcntl
+import http.client
+from http.server import HTTPServer
 import json
 import os
 from pathlib import Path
 import smtplib
 import subprocess
 import tempfile
+from threading import Thread
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -75,6 +79,103 @@ class StatusTests(unittest.TestCase):
         with patch.object(collector, 'deployment', return_value={'status': 'unknown'}) as probe, patch.object(collector.time, 'time', return_value=1301):
             self.assertEqual(collector.cached_deployment('backend')['status'], 'unknown')
             probe.assert_called_once()
+
+    def test_manual_refresh_bypasses_cache_and_preserves_real_query_time(self):
+        with patch.object(collector, 'deployment', return_value={'status': 'running'}), patch.object(collector, 'utc_now', return_value='first'):
+            collector.cached_deployment('backend')
+        with patch.object(collector, 'deployment', return_value={'status': 'success'}) as probe, patch.object(collector, 'utc_now', return_value='second'):
+            self.assertEqual(collector.cached_deployment('backend')['checkedAt'], 'first')
+            probe.assert_not_called()
+            result = collector.cached_deployment('backend', force=True)
+            self.assertEqual(result, {'status': 'success', 'checkedAt': 'second'})
+            probe.assert_called_once()
+
+    def test_manual_cooldown_is_global_persisted_and_timer_does_not_force(self):
+        with patch.object(collector, 'collect', return_value={'checkedAt': 'new'}) as collect, patch.object(collector.time, 'time', return_value=1000):
+            self.assertEqual(collector.run_collection(manual=True), {'checkedAt': 'new'})
+            collect.assert_called_once_with(force=True)
+            with self.assertRaises(collector.RefreshRejected) as caught:
+                collector.run_collection(manual=True)
+            self.assertEqual((caught.exception.status, caught.exception.retry_after), (429, 60))
+            collector.run_collection()
+            collect.assert_called_with(force=False)
+        with patch.object(collector, 'collect') as collect, patch.object(collector.time, 'time', return_value=1061):
+            collector.run_collection(manual=True)
+            collect.assert_called_once_with(force=True)
+
+    def test_timer_and_manual_collection_cannot_write_concurrently(self):
+        with (self.base / 'collection.lock').open('a') as lock, patch.object(collector, 'collect') as collect:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaises(collector.RefreshRejected) as caught:
+                collector.run_collection(manual=True)
+            self.assertEqual(caught.exception.status, 409)
+            collect.assert_not_called()
+
+    def test_anonymous_budget_is_shared_by_automatic_and_forced_requests(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(collector.time, 'time', return_value=4000):
+            collector.save(self.base / 'github-budget.json', {'requests': [1000] * 48}, 0o600)
+            with patch.object(collector, 'fetch') as fetch:
+                with self.assertRaises(ValueError):
+                    collector.github('repo/actions')
+                fetch.assert_not_called()
+            with self.assertRaises(collector.RefreshRejected) as caught:
+                collector.run_collection(manual=True)
+            self.assertEqual((caught.exception.error, caught.exception.retry_after), ('github_budget_exhausted', 600))
+        with patch.dict(os.environ, {}, clear=True), patch.object(collector.time, 'time', return_value=4601), patch.object(collector, 'fetch', return_value=(200, b'{}')):
+            self.assertEqual(collector.github('repo/actions'), {})
+            self.assertEqual(len(collector.github_requests()), 1)
+
+    def test_service_probe_gets_its_own_completion_time(self):
+        with patch.object(collector, 'utc_now', return_value='completed'):
+            self.assertEqual(collector.probe_service(lambda: {'status': 'up'}), {'status': 'up', 'checkedAt': 'completed'})
+
+    def test_refresh_http_contract(self):
+        server = HTTPServer(('127.0.0.1', 0), collector.RefreshHandler)
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(server.shutdown)
+
+        def request(method='POST', path='/refresh', headers=None, body=None):
+            client = http.client.HTTPConnection(*server.server_address, timeout=3)
+            try:
+                client.request(method, path, body=body, headers=headers or {})
+                response = client.getresponse()
+                return response.status, dict(response.getheaders()), json.loads(response.read())
+            finally:
+                client.close()
+
+        headers = {'X-Status-Refresh': '1', 'Origin': 'https://status.sunrisevacation.cn'}
+        with patch.object(collector, 'run_collection', return_value={'checkedAt': 'fresh'}) as run:
+            self.assertEqual(request()[0], 403)
+            self.assertEqual(request(headers={**headers, 'Origin': 'https://evil.test'})[0], 403)
+            self.assertEqual(request(headers=headers, body='x')[0], 400)
+            self.assertEqual(request(path='/anything', headers=headers)[0], 404)
+            self.assertEqual(request(method='GET')[0], 405)
+            run.assert_not_called()
+            code, response_headers, payload = request(headers=headers)
+            self.assertEqual((code, payload), (200, {'checkedAt': 'fresh'}))
+            self.assertEqual(response_headers['Cache-Control'], 'no-store')
+            run.assert_called_once_with(manual=True)
+        with patch.object(collector, 'run_collection', side_effect=collector.RefreshRejected(429, 'refresh_cooldown', 42)):
+            code, response_headers, payload = request(headers=headers)
+            self.assertEqual((code, response_headers['Retry-After'], payload['error']), (429, '42', 'refresh_cooldown'))
+        with patch.object(collector, 'run_collection', side_effect=RuntimeError('private details')):
+            self.assertEqual(request(headers=headers)[2], {'error': 'collection_failed'})
+
+    def test_collection_publishes_forced_results_with_separate_timestamps(self):
+        public = self.base / 'public'
+        with patch.object(collector, 'PUBLIC', public), patch.object(collector, 'frontend', return_value={'status': 'up'}), patch.object(collector, 'backend', return_value={'status': 'up'}), patch.object(collector, 'database', return_value={'status': 'up'}), patch.object(collector, 'deployment', return_value={'status': 'running'}), patch.object(collector, 'notify', return_value='unconfigured'):
+            first = collector.run_collection()
+            with patch.object(collector, 'deployment', return_value={'status': 'success'}):
+                cached = collector.run_collection()
+                self.assertEqual(cached['deployments']['backend'], first['deployments']['backend'])
+                fresh = collector.run_collection(manual=True)
+            self.assertEqual(fresh['deployments']['backend']['status'], 'success')
+            self.assertNotEqual(fresh['deployments']['backend']['checkedAt'], first['deployments']['backend']['checkedAt'])
+            self.assertIn('checkedAt', fresh['services']['database'])
+            self.assertEqual(collector.read_json(public / 'status.json'), fresh)
 
     def test_notifications_require_configuration_and_retry_failed_delivery(self):
         snapshot = {'services': {'backend': {'status': 'down'}}, 'deployments': {}}

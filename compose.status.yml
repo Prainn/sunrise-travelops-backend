@@ -4,3 +4,4 @@ services:
     volumes:
       - ./status:/usr/share/nginx/status:ro
       - ./nginx/status-site.conf:/etc/nginx/conf.d/status.conf:ro
+      - /run/sunrise-status:/run/sunrise-status:ro

@@ -143,6 +143,50 @@ def activate_or_restore(candidate, previous):
         raise RuntimeError('Deployment failed; previous application restored: ' + str(failure)) from failure
 
 
+def cleanup_plan():
+    state = read_state()
+    records = {}
+    for path in (STATE / 'releases').glob('*.json'):
+        if path.is_symlink() or not ID.fullmatch(path.stem):
+            raise ValueError('Unsafe release record')
+        records[path.stem] = (json.loads(path.read_text()), path.stat().st_mtime)
+    protected = {state['current'], state['previous']} - {None}
+    if not protected <= records.keys():
+        raise ValueError('Missing protected release record')
+    recent = sorted((stamp, name) for name, (record, stamp) in records.items()
+                    if record.get('status') == 'verified')[-3:]
+    protected.update(name for _, name in recent)
+    ids = run(['docker', 'ps', '-aq']).split()
+    used = {item['Image'] for item in json.loads(run(['docker', 'inspect', *ids]))} if ids else set()
+    protected.update(name for name, (record, _) in records.items() if record['image'] in used)
+    protected_images = used | {records[name][0]['image'] for name in protected}
+    tags = run(['docker', 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}',
+                'sunrise-travelops-api']).splitlines()
+    tags = [tag for tag in tags if tag.startswith('sunrise-travelops-api:') and not tag.endswith(':<none>')]
+    images = json.loads(run(['docker', 'image', 'inspect', *tags])) if tags else []
+    removable_tags = sorted({tag for info in images if info['Id'] not in protected_images
+                             for tag in info.get('RepoTags') or [] if tag in tags})
+    return {'keep': sorted(protected), 'removeRecords': sorted(records.keys() - protected),
+            'removeImageTags': removable_tags, 'cacheUntil': '168h'}
+
+
+def cleanup():
+    plan = cleanup_plan()
+    for tag in plan['removeImageTags']:
+        run(['docker', 'image', 'rm', tag])  # No force: Docker also protects container references.
+    for name in plan['removeRecords']:
+        (STATE / 'releases' / (name + '.json')).unlink()
+    run(['docker', 'builder', 'prune', '--all', '--force', '--filter', 'until=168h'])
+    return plan
+
+
+def cleanup_after_success():
+    try:
+        print(json.dumps({'cleanup': cleanup()}), file=sys.stderr)
+    except Exception as error:
+        print('::warning::Backend release cleanup failed: ' + str(error), file=sys.stderr)
+
+
 def publish(release_id, image, allow_migrations=False):
     if not ID.fullmatch(release_id):
         raise ValueError('Invalid release ID')
@@ -193,6 +237,7 @@ def publish(release_id, image, allow_migrations=False):
     state['last_deployed_at'] = record['deployed_at']
     state['migration_history'].update(target)
     save(STATE / 'state.json', state)
+    cleanup_after_success()
     return {'release': release_id, 'previous': state['previous'], 'verified': True}
 
 
@@ -216,6 +261,7 @@ def rollback(target_id):
     state['current'] = target_id
     state['last_deployed_at'] = now()
     save(STATE / 'state.json', state)
+    cleanup_after_success()
     return {'release': target_id, 'previous': state['previous'], 'verified': True, 'backup': backup}
 
 
@@ -277,6 +323,12 @@ def main():
             result = {'current': state['current'], 'previous': state['previous'],
                       'releases': [{'release': p.stem, 'status': json.loads(p.read_text())['status']}
                                    for p in sorted((STATE / 'releases').glob('*.json'))]}
+        elif args in [['cleanup-plan'], ['cleanup']]:
+            info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-dev-api-1']))[0]
+            if (info['Image'] != release(read_state()['current'])['image']
+                    or info['State'].get('Health', {}).get('Status') != 'healthy'):
+                raise ValueError('Current API must be verified and healthy before cleanup')
+            result = cleanup_plan() if args == ['cleanup-plan'] else cleanup()
         elif len(args) == 3 and args[0] == 'deploy' and args[2] in ['true', 'false']:
             result = upload(args[1], args[2] == 'true')
         elif len(args) == 2 and args[0] == 'rollback':

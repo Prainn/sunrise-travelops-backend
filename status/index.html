@@ -17,34 +17,35 @@
     </header>
     <section class="overview" aria-labelledby="title">
       <p class="eyebrow">SYSTEM OBSERVABILITY</p>
-      <div class="title-row"><h1 id="title">服务状态</h1><button id="refresh" type="button">刷新 <span aria-hidden="true">↻</span></button></div>
+      <div class="title-row"><h1 id="title">服务状态</h1><button id="refresh" type="button">立即检测 <span aria-hidden="true">↻</span></button></div>
       <p id="summary" class="summary" role="status">正在连接状态采集器…</p>
       <p class="muted">运行状态与发布结果独立显示。新版本发布失败时，旧版本仍可能正常运行。</p>
+      <p id="refresh-result" class="muted" role="status" aria-live="polite"></p>
     </section>
     <section class="services" aria-label="服务运行状态">
       <article id="frontend" class="service" data-status="unknown">
         <div class="card-top"><span class="index">01 / WEB</span><span class="badge">● 未知</span></div>
         <h2>前端</h2><p class="endpoint">ops-dev.sunrisevacation.cn</p>
-        <dl><dt>当前发布</dt><dd class="version">—</dd><dt>最后成功部署</dt><dd class="time">尚无记录</dd></dl>
+        <dl><dt>当前发布</dt><dd class="version">—</dd><dt>最后成功部署</dt><dd class="time">尚无记录</dd><dt>服务检测时间</dt><dd class="probe-time">—</dd></dl>
       </article>
       <article id="backend" class="service" data-status="unknown">
         <div class="card-top"><span class="index">02 / API</span><span class="badge">● 未知</span></div>
         <h2>后端</h2><p class="endpoint">api-dev.sunrisevacation.cn</p>
-        <dl><dt>当前发布</dt><dd class="version">—</dd><dt>最后成功部署</dt><dd class="time">尚无记录</dd></dl>
+        <dl><dt>当前发布</dt><dd class="version">—</dd><dt>最后成功部署</dt><dd class="time">尚无记录</dd><dt>服务检测时间</dt><dd class="probe-time">—</dd></dl>
       </article>
       <article id="database" class="service" data-status="unknown">
         <div class="card-top"><span class="index">03 / POSTGRES</span><span class="badge">● 未知</span></div>
         <h2>数据库</h2><p class="endpoint">独立连接探测 / SELECT 1</p>
-        <dl><dt>最后迁移版本</dt><dd class="version">—</dd><dt>最后迁移执行</dt><dd class="time">尚无记录</dd></dl>
+        <dl><dt>最后迁移版本</dt><dd class="version">—</dd><dt>最后迁移执行</dt><dd class="time">尚无记录</dd><dt>服务检测时间</dt><dd class="probe-time">—</dd></dl>
       </article>
     </section>
     <section class="deployments" aria-labelledby="deploy-title">
       <div class="section-title"><h2 id="deploy-title">最近发布</h2><span class="muted">GITHUB ACTIONS · MAIN</span></div>
-      <div id="frontend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">前端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><time>—</time><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
-      <div id="backend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">后端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><time>—</time><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
+      <div id="frontend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">前端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><div class="deploy-times"><span>流水线更新 <time class="run-time">—</time></span><span>Actions 查询 <time class="query-time">—</time></span></div><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
+      <div id="backend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">后端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><div class="deploy-times"><span>流水线更新 <time class="run-time">—</time></span><span>Actions 查询 <time class="query-time">—</time></span></div><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
     </section>
-    <footer><div><span class="muted">LAST CHECK</span> <time id="checked">—</time><span id="freshness">等待数据</span></div><div id="notification">通知状态未知</div></footer>
-    <p class="footnote">服务探测 60 秒 · Actions 查询 5 分钟 · 页面刷新 30 秒 · 快照超过 180 秒标记过期 · 北京时间 UTC+8</p>
+    <footer><div><span class="muted">快照生成</span> <time id="checked">—</time><span id="freshness">等待数据</span></div><div id="notification">通知状态未知</div></footer>
+    <p class="footnote">自动：服务探测 60 秒 / Actions 查询 5 分钟 / 快照读取 30 秒 · 手动：即时检测，全站间隔至少 60 秒 · 北京时间 UTC+8</p>
     <noscript><p>请启用 JavaScript 查看实时状态，或访问 <a href="/status.json">原始状态数据</a>。</p></noscript>
   </main>
 </body>

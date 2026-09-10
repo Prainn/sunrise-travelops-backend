@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import io
+import os
 import tempfile
 from pathlib import Path
 import unittest
@@ -11,6 +13,44 @@ spec.loader.exec_module(deploy)
 
 
 class DeploymentTests(unittest.TestCase):
+    def test_cleanup_protects_current_previous_latest_and_all_container_images(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            (state_dir / 'releases').mkdir()
+            names = [f'bootstrap-2026090900000{i}' for i in range(7)]
+            for i, name in enumerate(names):
+                path = state_dir / 'releases' / (name + '.json')
+                path.write_text(json.dumps({'image': f'image-{i}', 'status': 'verified'}))
+                os.utime(path, (i + 1, i + 1))
+            (state_dir / 'state.json').write_text(json.dumps({'current': names[0], 'previous': names[1]}))
+            outputs = ['container', json.dumps([{'Image': 'image-2'}]),
+                       'sunrise-travelops-api:old\nsunrise-travelops-api:kept',
+                       json.dumps([{'Id': 'image-3', 'RepoTags': ['sunrise-travelops-api:old']},
+                                   {'Id': 'image-0', 'RepoTags': ['sunrise-travelops-api:kept']}])]
+            with patch.object(deploy, 'STATE', state_dir), patch.object(deploy, 'run', side_effect=outputs):
+                plan = deploy.cleanup_plan()
+            self.assertEqual(plan['removeRecords'], [names[3]])
+            self.assertEqual(plan['removeImageTags'], ['sunrise-travelops-api:old'])
+            self.assertIn(names[2], plan['keep'])
+
+    def test_cleanup_only_removes_planned_tags_records_and_old_build_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_dir = Path(directory)
+            (state_dir / 'releases').mkdir()
+            name = 'bootstrap-20260909000000'
+            record = state_dir / 'releases' / (name + '.json')
+            record.write_text('{}')
+            plan = {'removeRecords': [name], 'removeImageTags': ['sunrise-travelops-api:old']}
+            with patch.object(deploy, 'STATE', state_dir), patch.object(deploy, 'cleanup_plan', return_value=plan), patch.object(deploy, 'run') as run:
+                deploy.cleanup()
+            self.assertFalse(record.exists())
+            self.assertEqual(run.call_args_list, [call(['docker', 'image', 'rm', 'sunrise-travelops-api:old']),
+                call(['docker', 'builder', 'prune', '--all', '--force', '--filter', 'until=168h'])])
+
+    def test_cleanup_failure_warns_without_raising(self):
+        with patch.object(deploy, 'cleanup', side_effect=RuntimeError('denied')), patch('sys.stderr', new_callable=io.StringIO) as stderr:
+            deploy.cleanup_after_success()
+        self.assertIn('::warning::', stderr.getvalue())
     def test_destructive_migration_cannot_use_mistaken_compatibility_flag(self):
         name = 'ReviseTravelPlanning1788912000000'
         with self.assertRaisesRegex(ValueError, 'destructive migration'):
