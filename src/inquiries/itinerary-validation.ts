@@ -9,7 +9,6 @@ import { GuideEntity } from '../resources/guides/guide.entity';
 import { RestaurantPriceEntity } from '../resources/restaurants/restaurant.entity';
 import { AttractionPriceEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
-import { calculateItineraryQuote } from './quote-pricing';
 import { multiplyMoney, roundMoney, sumMoney } from './money';
 import { randomUUID } from 'node:crypto';
 export function invalid(message: string): never {
@@ -100,7 +99,23 @@ export class ItineraryValidation {
             v.resourceId === item.resourceId &&
             v.resourcePriceId === item.resourcePriceId,
         );
-      if (old)
+      const customRestaurant =
+        item.type === 'restaurant' &&
+        item.resourceId === null &&
+        item.resourcePriceId === null;
+      if (customRestaurant) {
+        item.resourceName = item.resourceName.trim();
+        if (
+          !item.resourceName ||
+          !['personMeal', 'table'].includes(item.unit) ||
+          !Number.isInteger(item.quantity) ||
+          item.quantity < 1 ||
+          !Number.isFinite(item.unitCost) ||
+          item.unitCost < 0
+        )
+          invalid('Invalid custom restaurant');
+        item.priceName = '';
+      } else if (old)
         Object.assign(item, {
           resourceName: old.resourceName,
           priceName: old.priceName,
@@ -109,7 +124,7 @@ export class ItineraryValidation {
         });
       else if (item.type === 'restaurant') {
         const price = await manager.findOne(RestaurantPriceEntity, {
-          where: { id: item.resourcePriceId, restaurantId: item.resourceId },
+          where: { id: item.resourcePriceId!, restaurantId: item.resourceId! },
           relations: { restaurant: true },
         });
         if (
@@ -126,7 +141,7 @@ export class ItineraryValidation {
         });
       } else {
         const price = await manager.findOne(AttractionPriceEntity, {
-          where: { id: item.resourcePriceId, attractionId: item.resourceId },
+          where: { id: item.resourcePriceId!, attractionId: item.resourceId! },
           relations: { attraction: true },
         });
         if (
@@ -320,15 +335,6 @@ export class ItineraryValidation {
   }
   assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {
     const issues: string[] = [];
-    const costs = plan.dailyPlans
-      .flatMap((d) => d.items)
-      .reduce((sum, item) => sum + item.totalCost, 0);
-    if (
-      calculateItineraryQuote(plan, costs).options.some(
-        (o) => (plan.quote.otherExpenses ?? 0) > o.totalPrice,
-      )
-    )
-      issues.push('otherExpenses');
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
       !hotels.length ||

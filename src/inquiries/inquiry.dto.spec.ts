@@ -116,3 +116,37 @@ describe('inquiry contact input', () => {
     ).toBeGreaterThan(0);
   });
 });
+
+it('accepts explicit custom meal IDs but rejects missing, partial and attraction IDs', () => {
+  const item = {
+    id: 'custom',
+    type: 'restaurant',
+    mealSlot: 'lunch',
+    resourceId: null,
+    resourcePriceId: null,
+    resourceName: 'Restaurant',
+    priceName: '',
+    unit: 'personMeal',
+    unitCost: 50,
+    quantity: 10,
+    totalCost: 500,
+    remark: '',
+  };
+  const withItem = (changes: object) => ({
+    ...valid,
+    dailyPlans: [
+      {
+        ...valid.dailyPlans[0],
+        meals: { breakfast: false, lunch: true, dinner: false },
+        items: [{ ...item, ...changes }],
+      },
+    ],
+  });
+  expect(validate(withItem({}))).toHaveLength(0);
+  for (const changes of [
+    { resourceId: undefined },
+    { resourcePriceId: '00000000-0000-4000-8000-000000000001' },
+    { type: 'attraction' },
+  ])
+    expect(validate(withItem(changes)).length).toBeGreaterThan(0);
+});

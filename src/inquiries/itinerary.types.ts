@@ -56,9 +56,12 @@ export interface ItineraryQuoteOption {
 
 export interface ItineraryQuoteSettings {
   options: ItineraryQuoteOption[];
+  /** Full-tour tips per guest, excluded from tour price and internal cost. */
   chineseTip: number | null;
+  /** Full-tour tips per guest, excluded from tour price and internal cost. */
   englishTip: number | null;
   transportFees: ItineraryTransportFee[];
+  /** Group extra charge, excluded from tour price and internal cost. */
   otherExpenses: number | null;
   customerNotes: string;
   holidayRestrictions: string;
@@ -119,8 +122,9 @@ export interface ItineraryQuoteCalculation {
 export interface ItineraryResourceItem {
   id: string;
   type: ItineraryItemType;
-  resourceId: string;
-  resourcePriceId: string;
+  /** Both IDs are null for an itinerary-only custom restaurant. */
+  resourceId: string | null;
+  resourcePriceId: string | null;
   resourceName: string;
   priceName: string;
   quantity: number;

@@ -3,6 +3,7 @@ import type { EntityManager } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { ItineraryInput } from './inquiry.dto';
 import { ItineraryValidation } from './itinerary-validation';
+import { calculateItineraryQuote } from './quote-pricing';
 function plan() {
   return plainToInstance(ItineraryInput, {
     title: 'Trip',
@@ -286,4 +287,142 @@ describe('resource snapshot validation', () => {
     ).toBeDefined();
     expect(() => validator.assertPdfReady(input)).toThrow();
   });
+});
+
+it('allows group extra fees above the tour total without changing pricing', () => {
+  const input = plainToInstance(ItineraryInput, {
+    ...plan(),
+    hotelPlans: [
+      {
+        tier: 'international_five_star',
+        hotels: [
+          {
+            destination: '昆明',
+            hotelId: 'h',
+            hotelName: 'Hotel',
+            unitCost: 100,
+          },
+        ],
+      },
+    ],
+    vehiclePlans: [
+      {
+        tier: 'standard',
+        totalPrice: 100,
+        arrangements: [
+          {
+            id: 'v',
+            startDate: '2026-09-08',
+            endDate: '2026-09-08',
+            vehicles: [
+              { vehicleId: 'v', vehicleName: 'Bus', seats: 10, quantity: 1 },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  input.dailyPlans[0].description = 'Sightseeing';
+  input.quote.options = [
+    {
+      id: 'q',
+      hotelTier: 'international_five_star',
+      vehicleTier: 'standard',
+      adultUnitPrice: 1000,
+      leaderFocEnabled: false,
+    },
+  ];
+  const before = calculateItineraryQuote(input, 100);
+  input.quote.otherExpenses = 100000;
+  input.quote.chineseTip = 5000;
+  input.quote.englishTip = 6000;
+  input.quote.transportFees = [
+    {
+      id: 'f',
+      type: 'flight',
+      departureCity: 'A',
+      arrivalCity: 'B',
+      cabin: 'economy',
+      unitPrice: 2000,
+    },
+    {
+      id: 't',
+      type: 'train',
+      departureCity: 'B',
+      arrivalCity: 'C',
+      cabin: 'first',
+      unitPrice: 500,
+    },
+  ];
+  expect(calculateItineraryQuote(input, 100)).toEqual(before);
+  expect(before.options[0].totalPrice).toBe(2000);
+  expect(() => new ItineraryValidation().assertPdfReady(input)).not.toThrow();
+});
+
+it('saves and edits itinerary-only meals without accessing restaurant resources', async () => {
+  const input = plan();
+  Object.assign(input.dailyPlans[0].items[0], {
+    resourceId: null,
+    resourcePriceId: null,
+    resourceName: ' Custom restaurant ',
+    unit: 'personMeal',
+    unitCost: 12.34,
+    quantity: 3,
+    totalCost: 1,
+  });
+  const findOne = jest.fn();
+  const manager = {
+    findOne,
+    find: jest.fn().mockResolvedValue([{ name: '昆明', status: 'enabled' }]),
+  } as unknown as EntityManager;
+  const validator = new ItineraryValidation();
+  const saved = await validator.normalize(manager, input);
+  expect(saved.dailyPlans[0].items[0]).toMatchObject({
+    resourceId: null,
+    resourcePriceId: null,
+    resourceName: 'Custom restaurant',
+    unitCost: 12.34,
+    totalCost: 37.02,
+  });
+  const reopened = plainToInstance(
+    ItineraryInput,
+    JSON.parse(JSON.stringify(saved)),
+  );
+  Object.assign(reopened.dailyPlans[0].items[0], {
+    resourceName: 'Updated restaurant',
+    unitCost: 50,
+    quantity: 2,
+  });
+  const updated = await validator.normalize(manager, reopened, saved);
+  expect(updated.dailyPlans[0].items[0]).toMatchObject({
+    resourceName: 'Updated restaurant',
+    unitCost: 50,
+    totalCost: 100,
+  });
+  expect(findOne).not.toHaveBeenCalled();
+});
+it.each([
+  { resourceName: ' ' },
+  { unit: 'vehicleDay' },
+  { quantity: 1.5 },
+  { unitCost: -1 },
+])('rejects invalid custom meal %j', async (changes) => {
+  const input = plan();
+  Object.assign(input.dailyPlans[0].items[0], {
+    resourceId: null,
+    resourcePriceId: null,
+    resourceName: 'Restaurant',
+    unit: 'personMeal',
+    ...changes,
+  });
+  await expect(
+    new ItineraryValidation().normalize(
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue([{ name: '昆明', status: 'enabled' }]),
+      } as unknown as EntityManager,
+      input,
+    ),
+  ).rejects.toThrow('Invalid custom restaurant');
 });

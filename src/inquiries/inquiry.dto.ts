@@ -101,8 +101,26 @@ class ItemInput {
   @MaxLength(100)
   id: string;
   @IsIn(['restaurant', 'attraction']) type: 'restaurant' | 'attraction';
-  @IsUUID() resourceId: string;
-  @IsUUID() resourcePriceId: string;
+  @ValidateIf(
+    (item: ItemInput) =>
+      !(
+        item.type === 'restaurant' &&
+        item.resourceId === null &&
+        item.resourcePriceId === null
+      ),
+  )
+  @IsUUID()
+  resourceId: string | null;
+  @ValidateIf(
+    (item: ItemInput) =>
+      !(
+        item.type === 'restaurant' &&
+        item.resourceId === null &&
+        item.resourcePriceId === null
+      ),
+  )
+  @IsUUID()
+  resourcePriceId: string | null;
   @IsString() @MaxLength(500) resourceName: string;
   @IsString() @MaxLength(500) priceName: string;
   @IsNumber() @Min(0) @Max(100000) quantity: number;
