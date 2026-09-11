@@ -17,6 +17,24 @@ import {
 } from './resource.dto';
 
 describe('resource DTOs', () => {
+  it.each(['HTL-20260908-01', 'HTL-000', 'HTL-01', 'HTL-0001'])(
+    'rejects noncanonical resource code %s',
+    async (code) => {
+      const input = plainToInstance(CreateHotelDto, { code });
+      expect((await validate(input)).map((error) => error.property)).toContain(
+        'code',
+      );
+    },
+  );
+  it.each(['HTL-001', 'HTL-999', 'HTL-1000', undefined])(
+    'accepts canonical or generated resource code %s',
+    async (code) => {
+      const input = plainToInstance(CreateHotelDto, { code });
+      expect(
+        (await validate(input)).map((error) => error.property),
+      ).not.toContain('code');
+    },
+  );
   it('uses the common page and keyword query parameters', async () => {
     const query = plainToInstance(ResourceQueryDto, {
       page: 4,
@@ -35,7 +53,7 @@ describe('resource DTOs', () => {
 
   it('accepts nullable hotel group fields and rejects invalid amounts', async () => {
     const valid = plainToInstance(CreateHotelDto, {
-      code: 'HTL001',
+      code: 'HTL-001',
       name: 'Hotel',
       province: 'Yunnan',
       city: 'Kunming',
@@ -66,7 +84,7 @@ describe('resource DTOs', () => {
 
   it('rejects an unsupported hotel rating', async () => {
     const input = plainToInstance(CreateHotelDto, {
-      code: 'HTL001',
+      code: 'HTL-001',
       name: 'Hotel',
       province: 'Yunnan',
       city: 'Kunming',
@@ -111,7 +129,7 @@ describe('resource DTOs', () => {
 
   it('rejects non-positive transport seats', async () => {
     const input = plainToInstance(CreateTransportDto, {
-      code: 'VEH001',
+      code: 'VEH-001',
       name: 'Coach',
       serviceLevel: 'standard',
       seats: 0,
@@ -129,7 +147,7 @@ describe('resource DTOs', () => {
 
   it('rejects an unsupported transport service level', async () => {
     const input = plainToInstance(CreateTransportDto, {
-      code: 'VEH001',
+      code: 'VEH-001',
       name: 'Coach',
       serviceLevel: 'luxury',
       seats: 20,

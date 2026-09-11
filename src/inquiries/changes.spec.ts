@@ -68,3 +68,51 @@ describe('persisted field changes', () => {
     });
   });
 });
+
+it('ignores JSONB object key order inside vehicle arrays but detects real changes', () => {
+  const before = {
+    vehiclePlans: [
+      {
+        tier: 'standard',
+        arrangements: [
+          {
+            id: 'segment',
+            vehicles: [
+              {
+                seats: 19,
+                quantity: 1,
+                vehicleId: 'bus',
+                vehicleName: 'Coach',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const after = {
+    vehiclePlans: [
+      {
+        tier: 'standard',
+        arrangements: [
+          {
+            id: 'segment',
+            vehicles: [
+              {
+                vehicleId: 'bus',
+                vehicleName: 'Coach',
+                seats: 19,
+                quantity: 1,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  expect(diffChanges(before, after)).toEqual([]);
+  after.vehiclePlans[0].arrangements[0].vehicles[0].quantity = 2;
+  expect(diffChanges(before, after)).toHaveLength(1);
+  after.vehiclePlans[0].arrangements[0].vehicles = [];
+  expect(diffChanges(before, after)).toHaveLength(1);
+});

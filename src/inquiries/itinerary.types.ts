@@ -59,7 +59,7 @@ export interface ItineraryQuoteSettings {
   chineseTip: number | null;
   englishTip: number | null;
   transportFees: ItineraryTransportFee[];
-  otherExpenses: number;
+  otherExpenses: number | null;
   customerNotes: string;
   holidayRestrictions: string;
   hotelReplacementTerms: string;

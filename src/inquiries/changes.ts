@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type { FieldChange } from './inquiry.entity';
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -13,7 +14,7 @@ export function diffChanges(
   after: unknown,
   path = '',
 ): FieldChange[] {
-  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  if (isDeepStrictEqual(before, after)) return [];
   if (before === undefined || after === undefined)
     return [
       {

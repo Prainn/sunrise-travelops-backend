@@ -49,7 +49,10 @@ export abstract class ResourceInputDto {
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @Matches(/^[A-Za-z][A-Za-z0-9_-]{1,49}$/)
+  @Matches(
+    /^(AGY|HTL|VEH|GDE|RES|ATT|CITY)-(00[1-9]|0[1-9][0-9]|[1-9][0-9]{2,})$/,
+  )
+  @MaxLength(50)
   code?: string;
 
   @Transform(trim)

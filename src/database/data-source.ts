@@ -1,8 +1,9 @@
 import 'reflect-metadata';
 import { config as loadEnvironment } from 'dotenv';
 import { DataSource } from 'typeorm';
+import { databaseSsl } from '../config/database-ssl';
 
-loadEnvironment();
+loadEnvironment({ path: process.env.ENV_FILE ?? '.env' });
 
 function required(name: string): string {
   const value = process.env[name];
@@ -19,8 +20,7 @@ export default new DataSource({
   database: required('DATABASE_NAME'),
   username: required('DATABASE_USER'),
   password: required('DATABASE_PASSWORD'),
-  ssl:
-    process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : false,
+  ssl: databaseSsl(process.env.DATABASE_SSL, process.env.DATABASE_SSL_CA),
   entities: [`${__dirname}/../**/*.entity.{ts,js}`],
   migrations: [`${__dirname}/../migrations/*.{ts,js}`],
   synchronize: false,

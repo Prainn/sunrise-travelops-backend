@@ -45,7 +45,7 @@ function plan() {
     guidePlans: [],
     quote: {
       options: [],
-      otherExpenses: 0,
+      otherExpenses: null,
       transportFees: [],
       chineseTip: null,
       englishTip: null,

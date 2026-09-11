@@ -28,7 +28,11 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, validate: validateEnvironment }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: process.env.ENV_FILE ?? '.env',
+      validate: validateEnvironment,
+    }),
     LoggerModule.forRoot({
       forRoutes: [{ path: '{/*splat}', method: RequestMethod.ALL }],
       pinoHttp: {

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { databaseSsl } from './database-ssl';
 
 export function createTypeOrmOptions(
   config: ConfigService,
@@ -11,10 +12,10 @@ export function createTypeOrmOptions(
     database: config.getOrThrow<string>('DATABASE_NAME'),
     username: config.getOrThrow<string>('DATABASE_USER'),
     password: config.getOrThrow<string>('DATABASE_PASSWORD'),
-    ssl:
-      config.get<string>('DATABASE_SSL') === 'true'
-        ? { rejectUnauthorized: true }
-        : false,
+    ssl: databaseSsl(
+      config.get<string>('DATABASE_SSL'),
+      config.get<string>('DATABASE_SSL_CA'),
+    ),
     autoLoadEntities: true,
     synchronize: false,
     migrationsRun: false,

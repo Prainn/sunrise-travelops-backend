@@ -30,7 +30,7 @@ const valid = {
     chineseTip: null,
     englishTip: null,
     transportFees: [],
-    otherExpenses: 0,
+    otherExpenses: null,
     customerNotes: '',
     holidayRestrictions: '',
     hotelReplacementTerms: '',

@@ -244,7 +244,12 @@ class TransportFeeInput {
     number | null;
 }
 class QuoteInput {
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) otherExpenses: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  otherExpenses: number | null;
   @IsArray()
   @ArrayMaxSize(4)
   @ValidateNested({ each: true })

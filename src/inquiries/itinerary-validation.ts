@@ -313,6 +313,7 @@ export class ItineraryValidation {
         invalid('Invalid transport cabin');
       fee.unitPrice ??= null;
     }
+    plan.quote.otherExpenses ??= null;
     plan.quote.chineseTip ??= null;
     plan.quote.englishTip ??= null;
     return plan;
@@ -324,7 +325,7 @@ export class ItineraryValidation {
       .reduce((sum, item) => sum + item.totalCost, 0);
     if (
       calculateItineraryQuote(plan, costs).options.some(
-        (o) => plan.quote.otherExpenses > o.totalPrice,
+        (o) => (plan.quote.otherExpenses ?? 0) > o.totalPrice,
       )
     )
       issues.push('otherExpenses');
