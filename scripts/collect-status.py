@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 """Root-owned, read-only probes; publish only an explicit public status projection."""
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 import fcntl
+from html import escape
 from http.server import BaseHTTPRequestHandler
 import json
 import math
@@ -153,13 +154,23 @@ def github(path):
 
 
 def deployment(service):
-    result = {'status': 'unknown', 'sha': None, 'updatedAt': None, 'url': None, 'failedStage': None}
+    result = {'status': 'unknown', 'sha': None, 'updatedAt': None, 'url': None, 'failedStage': None, 'latestPush': None}
     repo, workflow = WORKFLOWS[service]
     try:
         runs = github(repo + '/actions/workflows/' + workflow + '/runs?branch=main&per_page=100')['workflow_runs']
         runs = [run for run in runs if run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch')]
         if not runs:
             return result
+        pushes = [run for run in runs if run['event'] == 'push']
+        if pushes:
+            push = max(pushes, key=lambda run: run['run_number'])
+            commit = push.get('head_commit') or {}
+            message = (commit.get('message') or '').splitlines()
+            result['latestPush'] = {
+                'sha': push['head_sha'], 'message': message[0] if message else None,
+                'author': (commit.get('author') or {}).get('name'),
+                'url': f'https://github.com/{repo}/commit/{push["head_sha"]}',
+            }
         latest = max(runs, key=lambda run: (run['run_number'], run['run_attempt']))
         status = 'running'
         if latest['status'] == 'completed':
@@ -191,6 +202,89 @@ def cached_deployment(service, force=False):
     return result
 
 
+NAMES = {'frontend': '前端', 'backend': '后端', 'database': '数据库'}
+STATUS_LABELS = {'up': '正常', 'down': '异常', 'unknown': '未知',
+                 'success': '成功', 'failure': '失败', 'cancelled': '已取消', 'running': '进行中'}
+
+
+def mail_time(value):
+    if not value:
+        return '尚无记录'
+    try:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(
+            timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+    except (ValueError, TypeError):
+        return '尚无记录'
+
+
+def notification_content(snapshot, incidents):
+    title = '状态异常 / 发布需处理' if incidents else '服务与发布状态已恢复'
+    issues = []
+    for key in incidents:
+        name = key.removesuffix('-deploy')
+        if key.endswith('-deploy'):
+            item = snapshot['deployments'].get(name, {})
+            state = item.get('status', 'unknown')
+            label = '重试中，等待恢复确认' if state == 'running' else STATUS_LABELS.get(state, '未知')
+            issues.append(NAMES.get(name, name) + '发布：' + label)
+        else:
+            issues.append(NAMES.get(name, name) + '服务：' + STATUS_LABELS.get(incidents[key], '未知'))
+    summary = '；'.join(issues) if issues else '当前服务正常，发布告警已解除。'
+    checked = mail_time(snapshot.get('checkedAt'))
+    plain = [title, summary, '检测时间：' + checked + '（北京时间）', '', '服务状态']
+    rows = []
+    for name, item in snapshot['services'].items():
+        label = NAMES.get(name, name)
+        status = STATUS_LABELS.get(item.get('status'), '未知')
+        version = item.get('version') or '尚无记录'
+        time_label = '迁移时间' if name == 'database' else '部署时间'
+        stamp = mail_time(item.get('lastMigratedAt' if name == 'database' else 'lastDeployedAt'))
+        plain.append(f'{label}：{status} | 版本：{version} | {time_label}：{stamp}')
+        color = '#15803d' if item.get('status') == 'up' else '#b91c1c'
+        rows.append(f'<tr><td style="padding:12px;border-bottom:1px solid #e2e8f0">{escape(label)}</td>'
+                    f'<td style="padding:12px;color:{color};font-weight:bold">{escape(status)}</td>'
+                    f'<td style="padding:12px;font-size:12px;word-break:break-all">{escape(version)}'
+                    f'<br><span style="color:#64748b">{time_label}：{stamp}</span></td></tr>')
+    cards = []
+    for name, item in snapshot['deployments'].items():
+        label = NAMES.get(name, name)
+        status = STATUS_LABELS.get(item.get('status'), '未知')
+        push = item.get('latestPush') or {}
+        fields = [('最新流水线', status), ('流水线提交', (item.get('sha') or '尚无记录')[:12]),
+                  ('流水线更新时间', mail_time(item.get('updatedAt'))),
+                  ('发布信息查询时间', mail_time(item.get('checkedAt')))]
+        if item.get('failedStage'):
+            fields.append(('失败阶段', item['failedStage']))
+        fields += [('最近 main push', push.get('message') or '尚无记录'),
+                   ('提交作者', push.get('author') or '尚无记录'),
+                   ('提交 SHA', (push.get('sha') or '尚无记录')[:12])]
+        plain += ['', label + '发布'] + [f'{key}：{value}' for key, value in fields]
+        details = ''.join(f'<tr><td style="padding:5px 0;width:140px;color:#64748b;vertical-align:top">{escape(key)}</td>'
+                          f'<td style="padding:5px 0;word-break:break-word">{escape(str(value))}</td></tr>' for key, value in fields)
+        links = []
+        for caption, url in [('查看流水线', item.get('url')), ('查看提交', push.get('url'))]:
+            if url and url.startswith('https://github.com/'):
+                plain.append(caption + '：' + url)
+                links.append(f'<a href="{escape(url, quote=True)}" style="color:#2563eb">{caption}</a>')
+        cards.append(f'<h2 style="font-size:17px;margin:24px 0 10px">{escape(label)}发布</h2>'
+                     f'<table role="presentation" width="100%" style="font-size:14px">{details}</table>'
+                     f'<p>{" &nbsp; · &nbsp; ".join(links)}</p>')
+    url = 'https://status.sunrisevacation.cn/'
+    plain += ['', '查看完整状态：' + url, '所有时间均为北京时间（UTC+8）。']
+    color = '#b91c1c' if incidents else '#15803d'
+    html = f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="margin:0;background:#f1f5f9;font-family:Arial,'Microsoft YaHei',sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="680" cellpadding="0" cellspacing="0" style="width:100%;max-width:680px;background:white;border:1px solid #e2e8f0"><tr><td style="padding:28px">
+<p style="font-size:12px;letter-spacing:2px;color:#64748b;margin:0">SUNRISE · DEV 开发环境</p>
+<h1 style="font-size:24px;color:{color};margin:14px 0">{title}</h1><p style="line-height:1.7">{escape(summary)}</p>
+<p style="font-size:12px;color:#64748b">检测时间：{checked} · 北京时间</p>
+<h2 style="font-size:17px;margin-top:28px">服务状态</h2><table role="presentation" width="100%" cellspacing="0" style="font-size:14px">{''.join(rows)}</table>
+{''.join(cards)}<p style="margin-top:28px"><a href="{url}" style="background:#2563eb;color:white;padding:12px 20px;display:inline-block;text-decoration:none">查看完整状态</a></p>
+<p style="font-size:12px;color:#64748b">所有时间均为北京时间（UTC+8）。最近 push 与当前在线版本分别展示。</p>
+</td></tr></table></td></tr></table></body></html>'''
+    return '\n'.join(plain), html
+
+
 def notify(snapshot):
     required = ('STATUS_SMTP_HOST', 'STATUS_SMTP_FROM', 'STATUS_SMTP_TO')
     if not all(os.environ.get(key) for key in required):
@@ -208,7 +302,9 @@ def notify(snapshot):
     message['From'] = os.environ['STATUS_SMTP_FROM']
     message['To'] = os.environ['STATUS_SMTP_TO']
     message['Subject'] = '[Sunrise DEV] ' + ('状态异常 / 发布需处理' if incidents else '服务与发布状态已恢复')
-    message.set_content('https://status.sunrisevacation.cn/\n\n' + json.dumps(snapshot, ensure_ascii=False, indent=2))
+    plain, html = notification_content(snapshot, incidents)
+    message.set_content(plain)
+    message.add_alternative(html, subtype='html')
     try:
         with smtplib.SMTP_SSL(os.environ['STATUS_SMTP_HOST'], int(os.environ.get('STATUS_SMTP_PORT', '465')),
                               timeout=10, context=ssl.create_default_context()) as client:

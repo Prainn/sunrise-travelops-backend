@@ -67,6 +67,54 @@ class StatusTests(unittest.TestCase):
         with patch.object(collector, 'github', side_effect=[{'workflow_runs': runs}, OSError('unavailable')]):
             self.assertEqual(collector.deployment('backend')['status'], 'failure')
 
+    def test_latest_push_metadata_is_not_manual_run_or_actor(self):
+        runs = [dict(id=n, head_branch='main', event=event, run_number=n, run_attempt=1,
+                     status='completed', conclusion='success', head_sha=str(n) * 40,
+                     updated_at='2026-09-10T00:00:00Z', actor={'login': 'operator'},
+                     head_commit={'message': '修复邮件 <布局>\n\n正文', 'author': {'name': 'Joe', 'email': 'private@example.test'}})
+                for n, event in [(1, 'push'), (2, 'push'), (3, 'workflow_dispatch')]]
+        with patch.object(collector, 'github', return_value={'workflow_runs': runs}) as github:
+            result = collector.deployment('backend')
+        self.assertEqual(result['sha'], '3' * 40)
+        self.assertEqual(result['latestPush'], {
+            'sha': '2' * 40, 'message': '修复邮件 <布局>', 'author': 'Joe',
+            'url': 'https://github.com/Prainn/sunrise-travelops-backend/commit/' + '2' * 40})
+        github.assert_called_once()
+        with patch.object(collector, 'github', return_value={'workflow_runs': runs[2:]}):
+            self.assertIsNone(collector.deployment('backend')['latestPush'])
+
+    def test_email_has_readable_multipart_summary_and_escaped_commit(self):
+        snapshot = {
+            'checkedAt': '2026-09-10T10:46:12Z',
+            'services': {'frontend': {'status': 'up', 'version': 'online-release'},
+                         'backend': {'status': 'up'}, 'database': {'status': 'up'}},
+            'deployments': {'backend': {'status': 'failure', 'sha': 'b' * 40,
+                'updatedAt': '2026-09-10T10:45:08Z', 'failedStage': 'verify <build>',
+                'url': 'https://github.com/Prainn/sunrise-travelops-backend/actions/runs/1',
+                'latestPush': {'sha': 'b' * 40, 'message': '<script>alert(1)</script>',
+                               'author': 'Joe & Co', 'url': 'https://github.com/Prainn/sunrise-travelops-backend/commit/' + 'b' * 40}}}}
+        config = {'STATUS_SMTP_HOST': 'smtp.example.test', 'STATUS_SMTP_FROM': 'status@example.test', 'STATUS_SMTP_TO': 'owner@example.test'}
+        with patch.dict(os.environ, config, clear=True), patch.object(smtplib, 'SMTP_SSL') as smtp:
+            self.assertEqual(collector.notify(snapshot), 'sent')
+        message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+        self.assertEqual(message.get_content_type(), 'multipart/alternative')
+        plain = message.get_body(preferencelist=('plain',)).get_content()
+        html = message.get_body(preferencelist=('html',)).get_content()
+        for text in ['后端发布：失败', '失败阶段', '2026-09-10 18:46:12', '提交作者', '尚无记录']:
+            self.assertIn(text, plain)
+            self.assertIn(text, html)
+        self.assertNotIn('<script>', html)
+        self.assertIn('&lt;script&gt;', html)
+        self.assertIn('Joe &amp; Co', html)
+        self.assertNotIn('"services":', plain)
+        snapshot['deployments']['backend']['status'] = 'running'
+        plain, _ = collector.notification_content(snapshot, {'backend-deploy': 'failure'})
+        self.assertIn('重试中，等待恢复确认', plain)
+        snapshot['deployments']['backend']['status'] = 'success'
+        plain, html = collector.notification_content(snapshot, {})
+        self.assertIn('服务与发布状态已恢复', plain)
+        self.assertIn('发布告警已解除', html)
+
     def test_github_auth_failure_is_unknown(self):
         with patch.object(collector, 'github', side_effect=ValueError('403')):
             self.assertEqual(collector.deployment('backend')['status'], 'unknown')

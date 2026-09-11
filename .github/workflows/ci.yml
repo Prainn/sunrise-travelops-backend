@@ -31,6 +31,8 @@ jobs:
     if: inputs.operation != 'rollback'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      deploy_application: ${{ steps.scope.outputs.deploy_application }}
     services:
       postgres:
         image: postgres:16-alpine
@@ -53,6 +55,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Determine application deployment scope
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deploy_application=true
+          if [[ "$EVENT_NAME" == push && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
+            changed=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
+            if printf '%s\n' "$changed" | grep -qx 'scripts/collect-status.py' && ! printf '%s\n' "$changed" | grep -qvE '^(scripts/collect-status\.py|scripts/test_collect_status\.py|\.github/workflows/ci\.yml)$'; then
+              deploy_application=false
+            fi
+          fi
+          echo "deploy_application=$deploy_application" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24.20.0'
@@ -72,7 +91,7 @@ jobs:
     if: >-
       always() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      (needs.verify.result == 'success' ||
+      ((needs.verify.result == 'success' && needs.verify.outputs.deploy_application == 'true') ||
        (inputs.operation == 'rollback' && needs.verify.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
