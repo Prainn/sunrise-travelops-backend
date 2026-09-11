@@ -152,6 +152,27 @@ export class ItinerariesController {
     const actor = await this.service.actor(user, req);
     return moneyResponse(await this.service.saveItinerary(id, input, actor));
   }
+  @Get(':id/quote-calculation')
+  @Permissions('itinerary:list')
+  async quoteCalculation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    const actor = await this.service.actor(user, req);
+    return moneyResponse(await this.service.quoteCalculation(id, actor));
+  }
+  @Post(':id/quote-calculation')
+  @Permissions('itinerary:update')
+  async previewQuote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ItineraryInput,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    const actor = await this.service.actor(user, req);
+    return moneyResponse(await this.service.previewQuote(id, input, actor));
+  }
   @Post(':id/copy')
   @Permissions('itinerary:create')
   async copy(

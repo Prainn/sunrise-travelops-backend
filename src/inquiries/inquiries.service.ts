@@ -391,6 +391,42 @@ export class InquiriesService {
     const { itinerary } = await this.pair(id, actor);
     return this.itineraryResponse(itinerary);
   }
+  private calculateQuote(data: ItineraryInput) {
+    return calculateItineraryQuote(
+      data,
+      sumMoney(
+        data.dailyPlans.flatMap((day) =>
+          day.items.map((item) => item.totalCost),
+        ),
+      ),
+    );
+  }
+  async quoteCalculation(id: string, actor: Actor) {
+    const { itinerary } = await this.pair(id, actor);
+    if (itinerary.status === 'quoted') {
+      const quote = await this.db.manager.findOneByOrFail(
+        ItineraryQuoteEntity,
+        {
+          itineraryId: id,
+        },
+      );
+      return quote.snapshot.calculation;
+    }
+    return this.calculateQuote(itinerary.data);
+  }
+  async previewQuote(id: string, input: ItineraryInput, actor: Actor) {
+    const { inquiry, itinerary } = await this.pair(id, actor);
+    this.writable(inquiry);
+    if (itinerary.status !== 'draft')
+      fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
+    const data = await this.validation.normalize(
+      this.db.manager,
+      input,
+      itinerary.data,
+      inquiry.data.plannedDays,
+    );
+    return this.calculateQuote(data);
+  }
   private async planning(
     manager: EntityManager,
     inquiry: InquiryEntity,
@@ -531,12 +567,7 @@ export class InquiriesService {
       generatedAt,
       quoteCode: `${row.code}-V1`,
       quoteVersion: 1,
-      calculation: calculateItineraryQuote(
-        row.data,
-        sumMoney(
-          row.data.dailyPlans.flatMap((d) => d.items.map((i) => i.totalCost)),
-        ),
-      ),
+      calculation: this.calculateQuote(row.data),
     };
   }
   async pdfData(id: string, actor: Actor) {
