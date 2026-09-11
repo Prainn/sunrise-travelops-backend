@@ -1,4 +1,4 @@
-import { diffChanges, moneyResponse } from './changes';
+import { contextualChanges, diffChanges, moneyResponse } from './changes';
 describe('persisted field changes', () => {
   it('identifies added/deleted days separately from reordered days and item price changes', () => {
     const before = {
@@ -115,4 +115,70 @@ it('ignores JSONB object key order inside vehicle arrays but detects real change
   expect(diffChanges(before, after)).toHaveLength(1);
   after.vehiclePlans[0].arrangements[0].vehicles = [];
   expect(diffChanges(before, after)).toHaveLength(1);
+});
+
+describe('meal arrangement edits', () => {
+  const custom = {
+    id: 'meal',
+    type: 'restaurant',
+    mealSlot: 'dinner',
+    resourceId: null,
+    resourcePriceId: null,
+    resourceName: '大理餐厅',
+    priceName: '',
+    unit: 'personMeal',
+    unitCost: 50,
+    quantity: 10,
+    totalCost: 500,
+  };
+  const library = {
+    ...custom,
+    resourceId: 'restaurant',
+    resourcePriceId: 'price',
+    priceName: '团餐',
+  };
+  const snapshot = (item: typeof custom | typeof library) => ({
+    dailyPlans: [{ id: 'day-3', dayNumber: 3, items: [item] }],
+  });
+  it.each([
+    [
+      custom,
+      {
+        ...custom,
+        resourceName: '大理餐厅2',
+        unit: 'table',
+        unitCost: 600,
+        quantity: 1,
+        totalCost: 600,
+      },
+    ],
+    [library, custom],
+    [custom, library],
+    [
+      library,
+      { ...library, resourceId: 'restaurant-2', resourcePriceId: 'price-2' },
+    ],
+  ])('records same-ID meal edits as field changes', (before, after) => {
+    const changes = contextualChanges(snapshot(before), snapshot(after));
+    expect(changes.length).toBeGreaterThan(0);
+    expect(changes.every((change) => change.kind === 'changed')).toBe(true);
+    expect(
+      changes.every((change) =>
+        change.path.startsWith('dailyPlans[day-3].items[meal].'),
+      ),
+    ).toBe(true);
+    expect(changes.every((change) => change.context?.dayNumber === 3)).toBe(
+      true,
+    );
+    expect(contextualChanges(snapshot(after), snapshot({ ...after }))).toEqual(
+      [],
+    );
+  });
+  it('keeps an explicit deletion and re-addition distinct', () => {
+    const changes = contextualChanges(
+      snapshot(custom),
+      snapshot({ ...custom, id: 'new-meal' }),
+    );
+    expect(changes.map((change) => change.kind)).toEqual(['removed', 'added']);
+  });
 });
