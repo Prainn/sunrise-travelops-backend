@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import type { Request } from 'express';
+import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiNoContentResponse,
@@ -17,6 +18,7 @@ import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
+  ProfileSecurityResponse,
   AuthenticatedUserResponse,
   AuthTokensResponse,
 } from './dto/auth-response.dto';
@@ -33,8 +35,11 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Log in with username and password' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
-  login(@Body() input: LoginDto) {
-    return this.auth.login(input.username, input.password);
+  login(@Body() input: LoginDto, @Req() request: Request) {
+    return this.auth.login(input.username, input.password, {
+      ip: request.ip ?? '',
+      userAgent: request.get('user-agent') ?? '',
+    });
   }
 
   @Public()
@@ -53,6 +58,17 @@ export class AuthController {
   @ApiNoContentResponse()
   logout(@CurrentUser() user: AuthenticatedUser) {
     return this.auth.logout(user.id);
+  }
+
+  @Get('me/security')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary:
+      'Get own enabled roles, effective permissions and recent successful logins',
+  })
+  @ApiSuccessResponse({ type: ProfileSecurityResponse })
+  getProfileSecurity(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.getProfileSecurity(user.id);
   }
 
   @Get('me')

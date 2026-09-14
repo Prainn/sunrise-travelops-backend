@@ -1,3 +1,5 @@
+import { UserLoginRecordEntity } from './user-login-record.entity';
+import { ProfileSecurityResponse } from './dto/auth-response.dto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -17,9 +19,15 @@ export class AuthService {
     private readonly users: Repository<UserEntity>,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    @InjectRepository(UserLoginRecordEntity)
+    private readonly loginRecords: Repository<UserLoginRecordEntity>,
   ) {}
 
-  async login(username: string, password: string): Promise<AuthTokens> {
+  async login(
+    username: string,
+    password: string,
+    client: { ip: string; userAgent: string },
+  ): Promise<AuthTokens> {
     const user = await this.findUser(username);
     if (!user || !(await argon2.verify(user.passwordHash, password))) {
       throw new BusinessException({
@@ -28,7 +36,15 @@ export class AuthService {
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    return this.issueTokens(user);
+    const tokens = await this.issueTokens(user);
+    await this.loginRecords.save(
+      this.loginRecords.create({
+        userId: user.id,
+        ip: client.ip.slice(0, 64),
+        userAgent: client.userAgent.slice(0, 512),
+      }),
+    );
+    return tokens;
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
@@ -74,6 +90,51 @@ export class AuthService {
       });
     }
     return this.toAuthenticatedUser(user);
+  }
+
+  async getProfileSecurity(userId: string): Promise<ProfileSecurityResponse> {
+    const user = await this.users.findOne({
+      where: { id: userId, status: UserStatus.Enabled },
+      relations: { roles: { permissions: true } },
+    });
+    if (!user) {
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '访问令牌无效',
+        status: HttpStatus.UNAUTHORIZED,
+      });
+    }
+    const roles = user.roles
+      .filter((role) => role.isEnabled)
+      .sort((a, b) => a.code.localeCompare(b.code));
+    const permissions = new Map(
+      roles.flatMap((role) =>
+        role.permissions.map(
+          (permission) =>
+            [
+              permission.code,
+              { code: permission.code, name: permission.name },
+            ] as const,
+        ),
+      ),
+    );
+    const records = await this.loginRecords.find({
+      where: { userId },
+      order: { time: 'DESC', id: 'DESC' },
+      take: 3,
+    });
+    return {
+      roles: roles.map(({ code, name }) => ({ code, name })),
+      permissions: [...permissions.values()].sort((a, b) =>
+        a.code.localeCompare(b.code),
+      ),
+      recentLogins: records.map(({ id, time, ip, userAgent }) => ({
+        id,
+        time: time.toISOString(),
+        ip,
+        userAgent,
+      })),
+    };
   }
 
   private async findUser(username: string): Promise<UserEntity | null> {

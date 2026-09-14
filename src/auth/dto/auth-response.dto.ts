@@ -10,3 +10,21 @@ export class AuthenticatedUserResponse {
   username: string;
   permissions: string[];
 }
+
+export class ProfileRoleResponse {
+  code: string;
+  name: string;
+}
+
+export class ProfileLoginResponse {
+  id: string;
+  time: string;
+  ip: string;
+  userAgent: string;
+}
+
+export class ProfileSecurityResponse {
+  roles: ProfileRoleResponse[];
+  permissions: ProfileRoleResponse[];
+  recentLogins: ProfileLoginResponse[];
+}
