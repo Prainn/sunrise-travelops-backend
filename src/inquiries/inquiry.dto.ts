@@ -50,7 +50,7 @@ export class InquiryInput {
   )
   @IsString()
   @MinLength(1)
-  @MaxLength(20000)
+  @MaxLength(200000)
   originalMessage: string;
   @IsString() @MaxLength(20000) internalRemark = '';
   @IsInt() @Min(1) @Max(365) plannedDays: number;

@@ -51,7 +51,8 @@
     "pino-http": "^11.0.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "typeorm": "^0.3.0"
+    "typeorm": "^0.3.0",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
@@ -64,6 +65,7 @@
     "@types/node": "^24.0.0",
     "@types/passport-jwt": "^4.0.0",
     "@types/supertest": "^6.0.0",
+    "@types/word-extractor": "^1.0.6",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-prettier": "^5.0.0",

@@ -1,7 +1,12 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { ContactInput, ItineraryInput, LogQuery } from './inquiry.dto';
+import {
+  ContactInput,
+  InquiryInput,
+  ItineraryInput,
+  LogQuery,
+} from './inquiry.dto';
 const valid = {
   title: 'Test',
   startDate: '2026-09-08',
@@ -149,4 +154,27 @@ it('accepts explicit custom meal IDs but rejects missing, partial and attraction
     { type: 'attraction' },
   ])
     expect(validate(withItem(changes)).length).toBeGreaterThan(0);
+});
+
+describe('inquiry original message length', () => {
+  const input = {
+    agencyId: '00000000-0000-4000-8000-000000000001',
+    contactId: '00000000-0000-4000-8000-000000000002',
+    sourceChannel: 'Email',
+    plannedDays: 15,
+  };
+  it('accepts long documents with internal blank lines and rejects over 200,000 characters', () => {
+    const originalMessage = '昆明\n\n' + '文'.repeat(199996);
+    const dto = plainToInstance(InquiryInput, { ...input, originalMessage });
+    expect(validateSync(dto)).toHaveLength(0);
+    expect(dto.originalMessage).toBe(originalMessage);
+    expect(
+      validateSync(
+        plainToInstance(InquiryInput, {
+          ...input,
+          originalMessage: '文'.repeat(200001),
+        }),
+      ).some((error) => error.property === 'originalMessage'),
+    ).toBe(true);
+  });
 });

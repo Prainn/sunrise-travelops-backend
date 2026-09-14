@@ -8,7 +8,14 @@ import {
   Put,
   Query,
   Req,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  parseInquiryDocument,
+  type InquiryDocumentFile,
+} from './parse-inquiry-document';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -59,6 +66,16 @@ export class InquiriesController {
   ) {
     const actor = await this.service.actor(user, req);
     return moneyResponse(await this.service.create(input, actor));
+  }
+  @Post('parse-document')
+  @Permissions('inquiry:create')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 0 },
+    }),
+  )
+  parseDocument(@UploadedFile() file?: InquiryDocumentFile) {
+    return parseInquiryDocument(file);
   }
   @Post('contacts/:id')
   @Permissions('inquiry:create')
