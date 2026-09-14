@@ -28,3 +28,15 @@ export class ProfileSecurityResponse {
   permissions: ProfileRoleResponse[];
   recentLogins: ProfileLoginResponse[];
 }
+
+export class UserProfileResponse {
+  id: string;
+  username: string;
+  nickname: string;
+  avatar: string;
+  gender: number;
+  mobile: string;
+  email: string;
+  deptName: string;
+  createTime: string;
+}

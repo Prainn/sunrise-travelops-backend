@@ -1,3 +1,4 @@
+import { ChangePasswordDto } from './dto/change-password.dto';
 import type { Request } from 'express';
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import {
@@ -18,6 +19,7 @@ import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
+  UserProfileResponse,
   ProfileSecurityResponse,
   AuthenticatedUserResponse,
   AuthTokensResponse,
@@ -58,6 +60,33 @@ export class AuthController {
   @ApiNoContentResponse()
   logout(@CurrentUser() user: AuthenticatedUser) {
     return this.auth.logout(user.id);
+  }
+
+  @Post('me/password')
+  @HttpCode(204)
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Change own password after verifying the current password',
+  })
+  @ApiNoContentResponse()
+  changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: ChangePasswordDto,
+  ) {
+    return this.auth.changePassword(
+      user.id,
+      input.oldPassword,
+      input.newPassword,
+    );
+  }
+
+  @Get('me/profile')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get own personal profile' })
+  @ApiSuccessResponse({ type: UserProfileResponse })
+  getProfile(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.getProfile(user.id);
   }
 
   @Get('me/security')

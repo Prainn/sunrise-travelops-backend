@@ -84,6 +84,8 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
           paths: [
             'req.headers.authorization',
             'req.body.password',
+            'req.body.oldPassword',
+            'req.body.newPassword',
             'req.body.refreshToken',
             'res.headers["set-cookie"]',
           ],

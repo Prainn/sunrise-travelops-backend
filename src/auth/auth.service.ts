@@ -1,5 +1,9 @@
 import { UserLoginRecordEntity } from './user-login-record.entity';
-import { ProfileSecurityResponse } from './dto/auth-response.dto';
+import { DEPARTMENT_OPTIONS } from '../users/user-management.constants';
+import {
+  UserProfileResponse,
+  ProfileSecurityResponse,
+} from './dto/auth-response.dto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
@@ -90,6 +94,70 @@ export class AuthService {
       });
     }
     return this.toAuthenticatedUser(user);
+  }
+
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const user = await this.users.findOne({
+      where: { id: userId, status: UserStatus.Enabled },
+    });
+    if (!user) {
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '访问令牌无效',
+        status: HttpStatus.UNAUTHORIZED,
+      });
+    }
+    const incorrectPassword = () =>
+      new BusinessException({
+        code: ErrorCode.AUTH_PASSWORD_INCORRECT,
+        message: '原密码不正确，请重新输入',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    if (!(await argon2.verify(user.passwordHash, oldPassword)))
+      throw incorrectPassword();
+    const result = await this.users.update(
+      {
+        id: userId,
+        status: UserStatus.Enabled,
+        passwordHash: user.passwordHash,
+      },
+      {
+        passwordHash: await argon2.hash(newPassword),
+        refreshTokenHash: null,
+        updatedBy: userId,
+      },
+    );
+    if (!result.affected) throw incorrectPassword();
+  }
+
+  async getProfile(userId: string): Promise<UserProfileResponse> {
+    const user = await this.users.findOne({
+      where: { id: userId, status: UserStatus.Enabled },
+    });
+    if (!user) {
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '访问令牌无效',
+        status: HttpStatus.UNAUTHORIZED,
+      });
+    }
+    return {
+      id: user.id,
+      username: user.username,
+      nickname: user.nickname,
+      avatar: user.avatar,
+      gender: user.gender,
+      mobile: user.mobile,
+      email: user.email,
+      deptName:
+        DEPARTMENT_OPTIONS.find((option) => option.value === user.deptId)
+          ?.label ?? '',
+      createTime: user.createdAt.toISOString(),
+    };
   }
 
   async getProfileSecurity(userId: string): Promise<ProfileSecurityResponse> {
