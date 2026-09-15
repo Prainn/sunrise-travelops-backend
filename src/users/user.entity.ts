@@ -1,12 +1,11 @@
 import { AuditedEntity } from '../common/entities/audited.entity';
-import { RoleEntity } from '../roles/role.entity';
+import { UserIdentityEntity } from './user-identity.entity';
 import {
   Column,
   DeleteDateColumn,
   Entity,
   Index,
-  JoinTable,
-  ManyToMany,
+  OneToMany,
   VersionColumn,
 } from 'typeorm';
 
@@ -18,7 +17,9 @@ export enum UserStatus {
 @Entity({ name: 'users' })
 @Index('IDX_users_status', ['status'], { where: '"deleted_at" IS NULL' })
 export class UserEntity extends AuditedEntity {
-  @Column({ type: 'varchar', length: 80, unique: true })
+  @Column({ name: 'is_superuser', type: 'boolean', default: false })
+  isSuperuser: boolean;
+  @Column({ type: 'varchar', length: 80 })
   username: string;
 
   @Column({ name: 'password_hash', type: 'varchar', length: 255 })
@@ -39,19 +40,8 @@ export class UserEntity extends AuditedEntity {
   @Column({ type: 'varchar', length: 254, default: '' })
   email: string;
 
-  @Column({ name: 'dept_id', type: 'integer', nullable: true })
-  deptId: number | null;
-
   @Column({ type: 'enum', enum: UserStatus, default: UserStatus.Enabled })
   status: UserStatus;
-
-  @Column({
-    name: 'refresh_token_hash',
-    type: 'varchar',
-    length: 255,
-    nullable: true,
-  })
-  refreshTokenHash: string | null;
 
   @VersionColumn({ type: 'integer', default: 1 })
   version: number;
@@ -59,11 +49,6 @@ export class UserEntity extends AuditedEntity {
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz' })
   deletedAt: Date | null;
 
-  @ManyToMany(() => RoleEntity, (role) => role.users)
-  @JoinTable({
-    name: 'user_roles',
-    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'role_id', referencedColumnName: 'id' },
-  })
-  roles: RoleEntity[];
+  @OneToMany(() => UserIdentityEntity, (identity) => identity.user)
+  identities: UserIdentityEntity[];
 }

@@ -21,10 +21,15 @@ export class ResourceValidationService {
     private readonly cities: Repository<CityEntity>,
   ) {}
 
-  async validateCity(city: string, previousCity?: string): Promise<void> {
+  async validateCity(
+    city: string,
+    previousCity?: string,
+    library?: 'shengxu' | 'shared',
+  ): Promise<void> {
     if (!city || city === previousCity) return;
     const record = await this.cities.findOneBy({
       name: city,
+      library,
       status: ResourceStatus.Enabled,
     });
     if (!record)

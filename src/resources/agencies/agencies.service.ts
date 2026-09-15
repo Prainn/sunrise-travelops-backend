@@ -1,3 +1,8 @@
+import {
+  assertResourceLibrary,
+  resourceLibrary,
+  scopeResources,
+} from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { ResourceValidationService } from '../common/resource-validation.service';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -56,6 +61,7 @@ export class AgenciesService {
       .addOrderBy('agency.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
+    scopeResources(builder, 'agency');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -84,6 +90,7 @@ export class AgenciesService {
         message: 'Agency was not found',
         status: HttpStatus.NOT_FOUND,
       });
+    assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity),
       contactCount: entity.contacts.length,
@@ -95,7 +102,11 @@ export class AgenciesService {
     input: CreateAgencyDto,
     actorId: string,
   ): Promise<AgencyDetailResponse> {
-    await this.validation.validateCity(input.city);
+    await this.validation.validateCity(
+      input.city,
+      undefined,
+      resourceLibrary(true)!,
+    );
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
       const code =
@@ -104,6 +115,7 @@ export class AgenciesService {
       const entity = repository.create({
         ...input,
         code,
+        library: resourceLibrary(true)!,
         contacts: [],
         createdBy: actorId,
         updatedBy: actorId,
@@ -126,7 +138,11 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      await this.validation.validateCity(input.city, entity.city);
+      await this.validation.validateCity(
+        input.city,
+        entity.city,
+        entity.library,
+      );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, { id, updatedBy: actorId });
@@ -295,6 +311,7 @@ export class AgenciesService {
     entity: AgencyEntity,
     contacts: AgencyContactEntity[],
   ): AgencyDetailResponse {
+    assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity),
       contactCount: contacts.length,
@@ -304,6 +321,7 @@ export class AgenciesService {
   private toListResponse(entity: AgencyEntity): AgencyListItemResponse {
     return {
       ...auditResponse(entity),
+      library: entity.library,
       code: entity.code,
       name: entity.name,
       city: entity.city,

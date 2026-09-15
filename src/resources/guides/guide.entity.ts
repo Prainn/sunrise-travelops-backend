@@ -27,10 +27,14 @@ export function guideName(language: string, shopping: boolean) {
 }
 @Entity({ name: 'resource_guides' })
 @Unique('UQ_resource_guides_code', ['code'])
-@Index('UQ_resource_guides_service', ['secondLanguage', 'shopping'], {
-  unique: true,
-  where: '"deleted_at" IS NULL',
-})
+@Index(
+  'UQ_resource_guides_service',
+  ['library', 'secondLanguage', 'shopping'],
+  {
+    unique: true,
+    where: '"deleted_at" IS NULL',
+  },
+)
 @Check('CHK_resource_guides_status', `"status" IN ('enabled', 'disabled')`)
 @Check('CHK_resource_guides_daily_price', '"daily_price" >= 0')
 @Check(

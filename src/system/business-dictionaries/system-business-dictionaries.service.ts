@@ -202,8 +202,8 @@ export class SystemBusinessDictionariesService {
     if (typeCode === 'transport-method' && entities.length) {
       const used: { exists: boolean }[] = await this.dataSource.query(
         `SELECT EXISTS (
-        SELECT 1 FROM itineraries i, jsonb_array_elements(i.data->'dailyPlans') d
-        WHERE string_to_array(d->>'transport', ',') && $1::text[]
+        SELECT 1 FROM itinerary_days d
+        WHERE string_to_array(d.transport, ',') && $1::text[]
       ) AS exists`,
         [entities.map((item) => item.code)],
       );

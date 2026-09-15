@@ -38,6 +38,8 @@ export class InquiryInput {
   @IsUUID() agencyId: string;
   @IsUUID() contactId: string;
   @IsOptional() @IsUUID() ownerId?: string;
+  @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
+    'shengxu' | 'linxi' | 'website';
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -62,6 +64,9 @@ export class UpdateInquiryDto extends InquiryInput {
   @IsInt() @Min(1) version: number;
 }
 export class InquiryQuery extends PaginationQueryDto {
+  @IsOptional()
+  @IsIn(['shengxu', 'linxi', 'website'])
+  businessUnit?: 'shengxu' | 'linxi' | 'website';
   @IsOptional() @IsString() @MaxLength(50) code?: string;
   @IsOptional()
   @IsIn(['new', 'planning', 'quoted', 'lost', 'archived'])
@@ -70,6 +75,9 @@ export class InquiryQuery extends PaginationQueryDto {
   @IsOptional() @IsString() sourceChannel?: string;
 }
 export class LogQuery extends PaginationQueryDto {
+  @IsOptional()
+  @IsIn(['shengxu', 'linxi', 'website'])
+  businessUnit?: 'shengxu' | 'linxi' | 'website';
   @IsOptional() @IsString() @MaxLength(50) inquiryCode?: string;
   @IsOptional() @IsUUID() inquiryId?: string;
   @IsOptional() @IsUUID() operatorId?: string;
@@ -92,7 +100,19 @@ export class ContactInput {
   @MaxLength(50)
   phone: string;
 }
-class ItemInput {
+class PriceInput {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  referencePrice?: number | null;
+  @IsOptional()
+  @IsIn(['hotel_individual', 'hotel_group', 'resource_price', 'unknown'])
+  referenceBasis?: string | null;
+  @IsOptional() @IsString() @MaxLength(2000) adjustmentReason?: string | null;
+}
+class ItemInput extends PriceInput {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -126,12 +146,6 @@ class ItemInput {
   @IsNumber() @Min(0) @Max(100000) quantity: number;
   @IsString() @MaxLength(100) unit: string;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1e9)
-  referenceUnitCost?: number;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e12) totalCost: number;
   @IsString() @MaxLength(10000) remark: string;
   @IsOptional() @IsIn(['lunch', 'dinner']) mealSlot?: 'lunch' | 'dinner';
@@ -163,7 +177,7 @@ class DayInput {
   @Type(() => ItemInput)
   items: ItemInput[];
 }
-class HotelInput {
+class HotelInput extends PriceInput {
   @IsString() @MaxLength(100) destination: string;
   @IsUUID() hotelId: string;
   @IsString() @MaxLength(500) hotelName: string;
@@ -208,6 +222,11 @@ class VehicleArrangementInput {
     number | null;
 }
 class VehiclePlanInput {
+  @IsOptional() @IsIn(['automatic', 'manual', 'unknown']) pricingMode?:
+    'automatic' | 'manual' | 'unknown' | null;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) segmentTotal?:
+    number | null;
+  @IsOptional() @IsString() @MaxLength(2000) adjustmentReason?: string | null;
   @IsIn(['standard', 'vip']) tier: 'standard' | 'vip';
   @IsArray()
   @ArrayMaxSize(365)
@@ -217,7 +236,7 @@ class VehiclePlanInput {
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) totalPrice:
     number | null;
 }
-class GuideInput {
+class GuideInput extends PriceInput {
   @IsString() @MaxLength(100) destination: string;
   @IsUUID() guideId: string;
   @IsString() @MaxLength(500) guideName: string;
@@ -341,4 +360,15 @@ export class CopyItineraryDto extends VersionDto {
 }
 export class ConfirmPdfDto extends VersionDto {
   @IsInt() @Min(1) inquiryVersion: number;
+}
+
+export class TransferInquiryDto extends VersionDto {
+  @IsUUID() ownerId: string;
+  @IsString()
+  @MaxLength(2000)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @MinLength(1)
+  reason: string;
 }

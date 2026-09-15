@@ -1,3 +1,5 @@
+import { BusinessUnit } from '../users/user-identity.entity';
+import { TransferInquiryDto } from './inquiry.dto';
 import {
   Body,
   Controller,
@@ -53,9 +55,13 @@ export class InquiriesController {
   }
   @Get('owners')
   @Permissions('inquiry:list')
-  async owners(@CurrentUser() user: AuthenticatedUser, @Req() req: Request) {
+  async owners(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+    @Query('businessUnit') businessUnit?: BusinessUnit,
+  ) {
     const actor = await this.service.actor(user, req);
-    return moneyResponse(await this.service.owners(actor));
+    return moneyResponse(await this.service.owners(actor, businessUnit));
   }
   @Post('')
   @Permissions('inquiry:create')
@@ -87,6 +93,31 @@ export class InquiriesController {
   ) {
     const actor = await this.service.actor(user, req);
     return moneyResponse(await this.service.createContact(id, input, actor));
+  }
+  @Post(':id/transfer')
+  @Permissions('inquiry:transfer')
+  async transfer(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: TransferInquiryDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return moneyResponse(
+      await this.service.transfer(
+        id,
+        input,
+        await this.service.actor(user, req),
+      ),
+    );
+  }
+  @Get(':id/transfers')
+  @Permissions('inquiry:list')
+  async transfers(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.service.transfers(id, await this.service.actor(user, req));
   }
   @Get(':id')
   @Permissions('inquiry:list')
@@ -148,6 +179,18 @@ export class InquiriesController {
 @Controller('itineraries')
 export class ItinerariesController {
   constructor(private readonly service: InquiriesService) {}
+  @Get(':id/price-adjustments')
+  @Permissions('itinerary:list')
+  async priceAdjustments(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.service.priceAdjustments(
+      id,
+      await this.service.actor(user, req),
+    );
+  }
   @Get(':id')
   @Permissions('itinerary:list')
   async detail(
@@ -202,7 +245,7 @@ export class ItinerariesController {
     return moneyResponse(await this.service.copy(id, input, actor));
   }
   @Get(':id/pdf-data')
-  @Permissions('itinerary:pdf')
+  @Permissions('itinerary:list')
   async pdf(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,

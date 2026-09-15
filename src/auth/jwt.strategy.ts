@@ -28,6 +28,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    return this.auth.getCurrentUser(payload.sub);
+    return this.auth.getCurrentUser(
+      payload.sub,
+      payload.identityId,
+      payload.scope,
+    );
   }
 }

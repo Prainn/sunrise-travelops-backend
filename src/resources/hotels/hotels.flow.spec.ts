@@ -1,3 +1,5 @@
+import { withResourceScope } from '../common/resource-scope';
+import { AuthenticatedUser } from '../../auth/auth.types';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ResourceStatus } from '../common/resource.constants';
 import { ResourceValidationService } from '../common/resource-validation.service';
@@ -8,82 +10,106 @@ const actorId = '00000000-0000-4000-8000-000000000099';
 const hotelId = '00000000-0000-4000-8000-000000000001';
 
 describe('HotelsService resource lifecycle', () => {
-  it('creates, queries and formats monetary values', async () => {
-    const findOne = jest.fn().mockResolvedValue(null);
-    const create = jest.fn((value) => value as HotelEntity);
-    const save = jest.fn((value: Partial<HotelEntity>) =>
-      Promise.resolve(entity(value)),
-    );
-    const findOneBy = jest.fn().mockResolvedValue(entity());
-    const repository = {
-      findOne,
-      create,
-      save,
-      findOneBy,
-    } as unknown as Repository<HotelEntity>;
-    const validateCity = jest.fn().mockResolvedValue(undefined);
-    const validateUnit = jest.fn().mockResolvedValue(undefined);
-    const service = new HotelsService(
-      repository,
-      { validateUnit, validateCity } as unknown as ResourceValidationService,
-      {} as DataSource,
-    );
+  it('creates, queries and formats monetary values', () =>
+    withResourceScope(
+      { resourceLibrary: 'shengxu' } as AuthenticatedUser,
+      null,
+      async () => {
+        const findOne = jest.fn().mockResolvedValue(null);
+        const create = jest.fn((value) => value as HotelEntity);
+        const save = jest.fn((value: Partial<HotelEntity>) =>
+          Promise.resolve(entity(value)),
+        );
+        const findOneBy = jest.fn().mockResolvedValue(entity());
+        const repository = {
+          findOne,
+          create,
+          save,
+          findOneBy,
+        } as unknown as Repository<HotelEntity>;
+        const validateCity = jest.fn().mockResolvedValue(undefined);
+        const validateUnit = jest.fn().mockResolvedValue(undefined);
+        const service = new HotelsService(
+          repository,
+          {
+            validateUnit,
+            validateCity,
+          } as unknown as ResourceValidationService,
+          {} as DataSource,
+        );
 
-    const created = await service.create(input(), actorId);
-    expect(validateUnit).toHaveBeenCalledWith('roomNight', 'hotel');
-    expect(validateCity).toHaveBeenCalledWith('Kunming');
-    expect(findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ withDeleted: true }),
-    );
-    expect(created).toMatchObject({
-      id: hotelId,
-      individualPrice: '120.00',
-      groupPrice: null,
-    });
+        const created = await service.create(input(), actorId);
+        expect(validateUnit).toHaveBeenCalledWith('roomNight', 'hotel');
+        expect(validateCity).toHaveBeenCalledWith(
+          'Kunming',
+          undefined,
+          'shengxu',
+        );
+        expect(findOne).toHaveBeenCalledWith(
+          expect.objectContaining({ withDeleted: true }),
+        );
+        expect(created).toMatchObject({
+          id: hotelId,
+          individualPrice: '120.00',
+          groupPrice: null,
+        });
 
-    const found = await service.get(hotelId);
-    expect(findOneBy).toHaveBeenCalledWith({ id: hotelId });
-    expect(found.individualPrice).toBe('120.00');
-  });
+        const found = await service.get(hotelId);
+        expect(findOneBy).toHaveBeenCalledWith({ id: hotelId });
+        expect(found.individualPrice).toBe('120.00');
+      },
+    ));
 
-  it('updates under a row lock and returns the incremented version', async () => {
-    const findOne = jest
-      .fn()
-      .mockResolvedValueOnce(entity())
-      .mockResolvedValueOnce(null);
-    const save = jest.fn((value: HotelEntity) =>
-      Promise.resolve(entity({ ...value, version: 2 })),
-    );
-    const repository = { findOne, save } as unknown as Repository<HotelEntity>;
-    const manager = {
-      getRepository: jest.fn().mockReturnValue(repository),
-    } as unknown as EntityManager;
-    const transaction = jest.fn(
-      (callback: (manager: EntityManager) => unknown) => callback(manager),
-    );
-    const validateCity = jest.fn().mockResolvedValue(undefined);
-    const validateUnit = jest.fn().mockResolvedValue(undefined);
-    const service = new HotelsService(
-      {} as Repository<HotelEntity>,
-      { validateUnit, validateCity } as unknown as ResourceValidationService,
-      { transaction } as unknown as DataSource,
-    );
+  it('updates under a row lock and returns the incremented version', () =>
+    withResourceScope(
+      { resourceLibrary: 'shengxu' } as AuthenticatedUser,
+      null,
+      async () => {
+        const findOne = jest
+          .fn()
+          .mockResolvedValueOnce(entity())
+          .mockResolvedValueOnce(null);
+        const save = jest.fn((value: HotelEntity) =>
+          Promise.resolve(entity({ ...value, version: 2 })),
+        );
+        const repository = {
+          findOne,
+          save,
+        } as unknown as Repository<HotelEntity>;
+        const manager = {
+          getRepository: jest.fn().mockReturnValue(repository),
+        } as unknown as EntityManager;
+        const transaction = jest.fn(
+          (callback: (manager: EntityManager) => unknown) => callback(manager),
+        );
+        const validateCity = jest.fn().mockResolvedValue(undefined);
+        const validateUnit = jest.fn().mockResolvedValue(undefined);
+        const service = new HotelsService(
+          {} as Repository<HotelEntity>,
+          {
+            validateUnit,
+            validateCity,
+          } as unknown as ResourceValidationService,
+          { transaction } as unknown as DataSource,
+        );
 
-    const updated = await service.update(
-      hotelId,
-      { ...input(), id: hotelId, version: 1, groupPrice: '100' },
-      actorId,
-    );
-    expect(findOne).toHaveBeenNthCalledWith(1, {
-      where: { id: hotelId },
-      lock: { mode: 'pessimistic_write' },
-    });
-    expect(updated).toMatchObject({ version: 2, groupPrice: '100.00' });
-  });
+        const updated = await service.update(
+          hotelId,
+          { ...input(), id: hotelId, version: 1, groupPrice: '100' },
+          actorId,
+        );
+        expect(findOne).toHaveBeenNthCalledWith(1, {
+          where: { id: hotelId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        expect(updated).toMatchObject({ version: 2, groupPrice: '100.00' });
+      },
+    ));
 });
 
 function input() {
   return {
+    library: 'shengxu' as const,
     code: 'HTL001',
     name: 'Test Hotel',
     province: 'Yunnan',

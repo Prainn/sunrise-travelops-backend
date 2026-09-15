@@ -1,3 +1,4 @@
+import { LOGIN_SCOPES, LoginScope } from '../user-identity.entity';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -18,6 +19,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
@@ -66,6 +68,23 @@ export class UserQueryDto extends PaginationQueryDto {
   createTime?: string[];
 }
 
+export class IdentityInput {
+  @IsOptional() @IsUUID() id?: string;
+  @IsIn(LOGIN_SCOPES) scope: LoginScope;
+  @ApiProperty()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  deptId: number;
+
+  @ApiProperty({ type: [String], format: 'uuid' })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  roleIds: string[];
+}
+
 class UserEditableFieldsDto {
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
@@ -107,18 +126,12 @@ class UserEditableFieldsDto {
   @MaxLength(254)
   email = '';
 
-  @ApiProperty()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  deptId: number;
-
-  @ApiProperty({ type: [String], format: 'uuid' })
   @IsArray()
-  @ArrayNotEmpty()
-  @ArrayUnique()
-  @IsUUID('4', { each: true })
-  roleIds: string[];
+  @ArrayMinSize(1)
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => IdentityInput)
+  identities: IdentityInput[];
 
   @ApiPropertyOptional({ enum: [0, 1], default: 1 })
   @Type(() => Number)
@@ -176,6 +189,26 @@ export class UserBatchIdsQueryDto {
   ids: string[];
 }
 
+export class UserIdentityResponse {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ enum: LOGIN_SCOPES })
+  scope: LoginScope;
+
+  @ApiProperty({ type: Number, nullable: true })
+  deptId: number | null;
+
+  @ApiProperty()
+  deptName: string;
+
+  @ApiProperty({ type: [String], format: 'uuid' })
+  roleIds: string[];
+
+  @ApiProperty()
+  roleNames: string;
+}
+
 export class UserItemResponse {
   id: string;
   username: string;
@@ -184,10 +217,8 @@ export class UserItemResponse {
   gender: number;
   mobile: string;
   email: string;
-  deptId: number | null;
-  deptName: string;
-  roleIds: string[];
-  roleNames: string;
+  @ApiProperty({ type: () => [UserIdentityResponse] })
+  identities: UserIdentityResponse[];
   status: number;
   createTime: string;
 }

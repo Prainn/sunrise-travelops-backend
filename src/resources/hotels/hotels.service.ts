@@ -1,3 +1,4 @@
+import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -43,6 +44,7 @@ export class HotelsService {
       .addOrderBy('hotel.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
+    scopeResources(builder, 'hotel');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -71,7 +73,11 @@ export class HotelsService {
     );
   }
   async create(input: CreateHotelDto, actorId: string): Promise<HotelResponse> {
-    await this.validation.validateCity(input.city);
+    await this.validation.validateCity(
+      input.city,
+      undefined,
+      resourceLibrary(true)!,
+    );
     await this.validation.validateUnit(input.unit, 'hotel');
     const code =
       input.code ?? (await nextBusinessCode(this.hotels.manager, 'HTL'));
@@ -79,6 +85,7 @@ export class HotelsService {
     const entity = this.hotels.create({
       ...input,
       code,
+      library: resourceLibrary(true)!,
       individualPrice: normalizeMoney(input.individualPrice),
       groupPrice:
         input.groupPrice == null ? null : normalizeMoney(input.groupPrice),
@@ -103,7 +110,11 @@ export class HotelsService {
         ErrorCode.HOTEL_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      await this.validation.validateCity(input.city, entity.city);
+      await this.validation.validateCity(
+        input.city,
+        entity.city,
+        entity.library,
+      );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
@@ -138,6 +149,7 @@ export class HotelsService {
   private toResponse(entity: HotelEntity): HotelResponse {
     return {
       ...auditResponse(entity),
+      library: entity.library,
       code: entity.code,
       name: entity.name,
       province: entity.province,

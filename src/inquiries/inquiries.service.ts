@@ -1,3 +1,12 @@
+import {
+  UserIdentityEntity,
+  BusinessUnit,
+  libraryFor,
+} from '../users/user-identity.entity';
+import { withResourceScope } from '../resources/common/resource-scope';
+import { saveItineraryData, loadItineraryData } from './structured-itinerary';
+import { recordPriceAdjustments } from './price-adjustments';
+import { saveFrozenDetails } from './structured-quotes';
 import { nextBusinessCode } from '../common/business-code';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -24,6 +33,7 @@ import {
   LogAction,
   LogQuery,
   UpdateInquiryDto,
+  TransferInquiryDto,
   UpdateItineraryDto,
 } from './inquiry.dto';
 import {
@@ -35,18 +45,21 @@ import {
   PdfData,
 } from './inquiry.entity';
 import { diffChanges, contextualChanges } from './changes';
-import { dateAt, invalid, ItineraryValidation } from './itinerary-validation';
+import {
+  assertItineraryLibrary,
+  dateAt,
+  invalid,
+  ItineraryValidation,
+} from './itinerary-validation';
 import { calculateItineraryQuote } from './quote-pricing';
 import { sumMoney } from './money';
-interface Actor {
-  id: string;
-  username: string;
+interface Actor extends AuthenticatedUser {
   name: string;
-  roles: string[];
   admin: boolean;
   ip: string;
   requestId: string;
 }
+
 function fail(
   code: ErrorCodeValue,
   status: HttpStatus,
@@ -61,27 +74,42 @@ export class InquiriesService {
     private readonly validation: ItineraryValidation,
     private readonly agencies: AgenciesService,
   ) {}
-  async actor(user: AuthenticatedUser, request: Request): Promise<Actor> {
-    const record = await this.db.manager.findOneOrFail(UserEntity, {
-      where: { id: user.id },
-      relations: { roles: true },
-    });
-    const roles = record.roles.filter((r) => r.isEnabled).map((r) => r.code);
-    return {
-      id: user.id,
-      username: user.username,
-      name: record.nickname,
-      roles,
-      admin: roles.some((r) => ['ROOT', 'ADMIN'].includes(r)),
+  actor(user: AuthenticatedUser, request: Request): Promise<Actor> {
+    return Promise.resolve({
+      ...user,
+      name: user.nickname,
+      admin:
+        user.roles.includes('ROOT') || user.roles.includes('BUSINESS_MANAGER'),
       ip: request.ip ?? '',
       requestId: String((request as Request & { id?: string }).id ?? ''),
-    };
+    });
   }
   private queryInquiries(actor: Actor, manager = this.db.manager) {
+    if (!actor.permissions.includes('inquiry:list'))
+      fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
     const query = manager.createQueryBuilder(InquiryEntity, 'i');
-    if (!actor.admin)
-      query.andWhere('i.ownerId = :actorId', { actorId: actor.id });
+    this.scopeInquiryQuery(query, actor);
     return query;
+  }
+  private scopeInquiryQuery(
+    query: {
+      andWhere: (sql: string, params: Record<string, unknown>) => unknown;
+    },
+    actor: Actor,
+  ) {
+    if (!actor.permissions.includes('inquiry:list'))
+      fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
+    if (actor.scope !== 'headquarters') {
+      query.andWhere('i.businessUnit = :businessUnit', {
+        businessUnit: actor.scope,
+      });
+      if (!actor.admin)
+        query.andWhere('i.ownerId = :actorId', { actorId: actor.id });
+    }
+  }
+  private permission(actor: Actor, permission: string) {
+    if (!actor.permissions.includes(permission))
+      fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
   }
   private async inquiry(
     id: string,
@@ -97,7 +125,8 @@ export class InquiriesService {
     if (!row) fail('INQUIRY_NOT_FOUND', HttpStatus.NOT_FOUND);
     return row;
   }
-  private writable(inquiry: InquiryEntity) {
+  private writable(inquiry: InquiryEntity, actor: Actor) {
+    this.permission(actor, 'inquiry:update');
     if (['lost', 'archived'].includes(inquiry.status))
       fail('INQUIRY_READ_ONLY', HttpStatus.CONFLICT);
   }
@@ -113,6 +142,7 @@ export class InquiriesService {
       ...row.data,
       id: row.id,
       code: row.code,
+      businessUnit: row.businessUnit,
       ownerId: row.ownerId,
       owner: row.owner,
       status: row.status,
@@ -140,6 +170,13 @@ export class InquiriesService {
   }
   async list(query: InquiryQuery, actor: Actor) {
     const qb = this.queryInquiries(actor);
+    if (query.businessUnit) {
+      if (actor.scope !== 'headquarters' && query.businessUnit !== actor.scope)
+        fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
+      qb.andWhere('i.businessUnit = :filterBusinessUnit', {
+        filterBusinessUnit: query.businessUnit,
+      });
+    }
     if (query.code?.trim())
       qb.andWhere('LOWER(i.code) = LOWER(:code)', { code: query.code.trim() });
     if (query.status)
@@ -147,12 +184,12 @@ export class InquiriesService {
     if (query.ownerId)
       qb.andWhere('i.ownerId = :ownerId', { ownerId: query.ownerId });
     if (query.sourceChannel)
-      qb.andWhere("i.data ->> 'sourceChannel' = :source", {
+      qb.andWhere('i.sourceChannel = :source', {
         source: query.sourceChannel,
       });
     if (query.keyword?.trim())
       qb.andWhere(
-        "(i.code ILIKE :keyword OR i.data ->> 'agencyName' ILIKE :keyword OR i.data ->> 'contactName' ILIKE :keyword OR i.data ->> 'email' ILIKE :keyword OR i.data ->> 'phone' ILIKE :keyword)",
+        '(i.code ILIKE :keyword OR i.agencyName ILIKE :keyword OR i.contactName ILIKE :keyword OR i.email ILIKE :keyword OR i.phone ILIKE :keyword)',
         { keyword: `%${query.keyword.trim()}%` },
       );
     const [rows, total] = await qb
@@ -171,34 +208,50 @@ export class InquiriesService {
   async detail(id: string, actor: Actor) {
     return this.inquiryResponse(await this.inquiry(id, actor));
   }
-  async owners(actor: Actor) {
+  async owners(actor: Actor, businessUnit?: BusinessUnit) {
+    this.permission(actor, 'inquiry:list');
+    const scope = actor.scope === 'headquarters' ? businessUnit : actor.scope;
     const qb = this.db.manager
       .createQueryBuilder(UserEntity, 'u')
-      .innerJoin('u.roles', 'r')
-      .where('u.status = :status', { status: UserStatus.Enabled });
-    if (actor.admin)
-      qb.andWhere(
-        "((r.code = 'COORDINATOR' AND r.isEnabled = true) OR u.id = :id)",
-        { id: actor.id },
+      .innerJoin('u.identities', 'identity')
+      .innerJoin('identity.roles', 'r')
+      .where(
+        "u.status=:status AND u.isSuperuser=false AND r.code='COORDINATOR' AND r.isEnabled=true",
+        { status: UserStatus.Enabled },
       );
-    else qb.andWhere('u.id = :id', { id: actor.id });
+    if (scope) qb.andWhere('identity.scope=:scope', { scope });
+    if (!actor.admin && actor.scope !== 'headquarters')
+      qb.andWhere('u.id=:id', { id: actor.id });
     return (await qb.orderBy('u.nickname', 'ASC').getMany()).map((u) => ({
       id: u.id,
       name: u.nickname,
       username: u.username,
     }));
   }
-  private async owner(id: string, actor: Actor, manager: EntityManager) {
+  private async owner(
+    id: string,
+    actor: Actor,
+    manager: EntityManager,
+    scope: BusinessUnit,
+    transfer = false,
+  ) {
     if (!actor.admin && id !== actor.id)
       fail('INQUIRY_OWNER_INVALID', HttpStatus.FORBIDDEN);
     const user = await manager.findOne(UserEntity, {
       where: { id, status: UserStatus.Enabled },
+      lock: { mode: 'pessimistic_write' },
+    });
+    const identity = await manager.findOne(UserIdentityEntity, {
+      where: { userId: id, scope },
       relations: { roles: true },
     });
     if (
       !user ||
-      !user.roles.some(
-        (r) => r.isEnabled && ['COORDINATOR', 'ROOT', 'ADMIN'].includes(r.code),
+      !identity?.roles.some(
+        (r) =>
+          r.isEnabled &&
+          (r.code === 'COORDINATOR' ||
+            (!transfer && id === actor.id && r.code === 'BUSINESS_MANAGER')),
       )
     )
       fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
@@ -208,6 +261,7 @@ export class InquiriesService {
     input: InquiryInput,
     manager: EntityManager,
     previous?: InquiryEntity,
+    businessUnit?: BusinessUnit,
   ) {
     const unchanged =
       previous?.data.agencyId === input.agencyId &&
@@ -216,6 +270,9 @@ export class InquiriesService {
     if (!unchanged) {
       const agency = await manager.findOneBy(AgencyEntity, {
         id: input.agencyId,
+        library: libraryFor(
+          businessUnit ?? (previous!.businessUnit as BusinessUnit),
+        ),
       });
       const contact = await manager.findOneBy(AgencyContactEntity, {
         id: input.contactId,
@@ -253,21 +310,41 @@ export class InquiriesService {
     };
   }
   async create(input: InquiryInput, actor: Actor) {
+    this.permission(actor, 'inquiry:create');
     return this.db.transaction(async (manager) => {
       if (input.status && input.status !== 'new')
         invalid('New inquiry must be new');
-      const owner = await this.owner(input.ownerId ?? actor.id, actor, manager);
+      const businessUnit =
+        actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
+      if (
+        !businessUnit ||
+        (input.businessUnit && input.businessUnit !== businessUnit)
+      )
+        invalid('Business unit required');
+      if (
+        actor.scope !== 'headquarters' &&
+        input.ownerId &&
+        input.ownerId !== actor.id
+      )
+        fail('INQUIRY_OWNER_INVALID', HttpStatus.FORBIDDEN);
+      const owner = await this.owner(
+        actor.scope === 'headquarters' ? (input.ownerId ?? actor.id) : actor.id,
+        actor,
+        manager,
+        businessUnit,
+      );
       const row = await manager.save(
         InquiryEntity,
-        manager.create(InquiryEntity, {
+        Object.assign(new InquiryEntity(), {
           code: await nextBusinessCode(manager, 'INQ'),
+          businessUnit,
           ownerId: owner.id,
           owner: owner.nickname,
           status: 'new',
           creator: actor.username,
           createdBy: actor.id,
           updatedBy: actor.id,
-          data: await this.data(input, manager),
+          data: await this.data(input, manager, undefined, businessUnit),
         }),
       );
       await this.log(
@@ -284,7 +361,7 @@ export class InquiriesService {
   async update(id: string, input: UpdateInquiryDto, actor: Actor) {
     return this.db.transaction(async (manager) => {
       const row = await this.inquiry(id, actor, manager, true);
-      this.writable(row);
+      this.writable(row, actor);
       this.checkVersion(row.version, input.version);
       if (
         input.status &&
@@ -295,11 +372,12 @@ export class InquiriesService {
       if (input.status === 'lost' && !input.lostReason.trim())
         invalid('Lost reason required');
       const nextData = await this.data(input, manager, row);
-      const ownerId = input.ownerId ?? row.ownerId;
-      const owner =
-        ownerId === row.ownerId
-          ? { id: row.ownerId, nickname: row.owner }
-          : await this.owner(ownerId, actor, manager);
+      if (
+        (input.ownerId && input.ownerId !== row.ownerId) ||
+        (input.businessUnit && input.businessUnit !== row.businessUnit)
+      )
+        fail('INQUIRY_OWNER_INVALID', HttpStatus.FORBIDDEN);
+      const owner = { id: row.ownerId, nickname: row.owner };
       const nextStatus = input.status ?? row.status;
       const changes = diffChanges(
         {
@@ -338,7 +416,7 @@ export class InquiriesService {
     if (!actor.admin) fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
     return this.db.transaction(async (manager) => {
       const row = await this.inquiry(id, actor, manager, true);
-      this.writable(row);
+      this.writable(row, actor);
       this.checkVersion(row.version, version);
       const before = row.status;
       row.status = 'archived';
@@ -356,10 +434,13 @@ export class InquiriesService {
     });
   }
   async createContact(agencyId: string, input: ContactInput, actor: Actor) {
-    return this.agencies.createContact(
-      agencyId,
-      { name: input.name.trim(), phone: input.phone.trim() },
-      actor.id,
+    this.permission(actor, 'inquiry:update');
+    return withResourceScope(actor, null, () =>
+      this.agencies.createContact(
+        agencyId,
+        { name: input.name.trim(), phone: input.phone.trim() },
+        actor.id,
+      ),
     );
   }
   async itineraries(id: string, actor: Actor) {
@@ -368,6 +449,7 @@ export class InquiriesService {
       where: { inquiryId: id },
       order: { updatedAt: 'DESC', id: 'DESC' },
     });
+    for (const row of rows) await loadItineraryData(this.db.manager, row);
     return rows.map((row) => this.itineraryResponse(row));
   }
   private async pair(
@@ -385,6 +467,7 @@ export class InquiriesService {
           lock: { mode: 'pessimistic_write' },
         })
       : initial;
+    await loadItineraryData(manager, itinerary);
     return { inquiry, itinerary };
   }
   async itinerary(id: string, actor: Actor) {
@@ -416,7 +499,7 @@ export class InquiriesService {
   }
   async previewQuote(id: string, input: ItineraryInput, actor: Actor) {
     const { inquiry, itinerary } = await this.pair(id, actor);
-    this.writable(inquiry);
+    this.writable(inquiry, actor);
     if (itinerary.status !== 'draft')
       fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
     const data = await this.validation.normalize(
@@ -424,6 +507,8 @@ export class InquiriesService {
       input,
       itinerary.data,
       inquiry.data.plannedDays,
+      libraryFor(inquiry.businessUnit as BusinessUnit),
+      false,
     );
     return this.calculateQuote(data);
   }
@@ -441,25 +526,32 @@ export class InquiriesService {
   async createItinerary(id: string, input: ItineraryInput, actor: Actor) {
     return this.db.transaction(async (manager) => {
       const inquiry = await this.inquiry(id, actor, manager, true);
-      this.writable(inquiry);
+      this.writable(inquiry, actor);
       const data = await this.validation.normalize(
         manager,
         input,
         undefined,
         inquiry.data.plannedDays,
+        libraryFor(inquiry.businessUnit as BusinessUnit),
       );
       const row = await manager.save(
         ItineraryEntity,
-        manager.create(ItineraryEntity, {
+        Object.assign(new ItineraryEntity(), {
           inquiryId: id,
           code: await nextBusinessCode(manager, 'ITI'),
           status: 'draft',
           creator: actor.username,
           data,
+          title: data.title,
+          startDate: data.startDate,
+          adults: data.adults,
+          childrenCount: data.childrenCount,
+          leaderCount: data.leaderCount,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
       );
+      await saveItineraryData(manager, row);
       await this.planning(manager, inquiry, actor);
       await this.log(
         manager,
@@ -470,13 +562,14 @@ export class InquiriesService {
         diffChanges(undefined, data),
         { creationMode: 'new' },
       );
+      await recordPriceAdjustments(manager, row.id, undefined, data, actor);
       return this.itineraryResponse(row);
     });
   }
   async saveItinerary(id: string, input: UpdateItineraryDto, actor: Actor) {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
-      this.writable(inquiry);
+      this.writable(inquiry, actor);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       this.checkVersion(itinerary.version, input.version, true);
@@ -487,12 +580,23 @@ export class InquiriesService {
         body,
         itinerary.data,
         inquiry.data.plannedDays,
+        libraryFor(inquiry.businessUnit as BusinessUnit),
       );
       const changes = contextualChanges(itinerary.data, data);
       if (!changes.length) return this.itineraryResponse(itinerary);
+      await recordPriceAdjustments(
+        manager,
+        itinerary.id,
+        itinerary.data,
+        data,
+        actor,
+      );
       itinerary.data = data;
+      // Detail-only edits must advance the parent optimistic-lock version.
+      itinerary.version += 1;
       itinerary.updatedBy = actor.id;
       await manager.save(itinerary);
+      await saveItineraryData(manager, itinerary);
       await this.log(
         manager,
         inquiry,
@@ -507,8 +611,13 @@ export class InquiriesService {
   async copy(id: string, input: CopyItineraryDto, actor: Actor) {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
-      this.writable(inquiry);
+      this.writable(inquiry, actor);
       this.checkVersion(itinerary.version, input.version, true);
+      await assertItineraryLibrary(
+        manager,
+        itinerary.data,
+        libraryFor(inquiry.businessUnit as BusinessUnit),
+      );
       const data = structuredClone(itinerary.data);
       data.title = input.title;
       const ids = new Map(data.dailyPlans.map((d) => [d.id, randomUUID()]));
@@ -531,16 +640,22 @@ export class InquiriesService {
       });
       const row = await manager.save(
         ItineraryEntity,
-        manager.create(ItineraryEntity, {
+        Object.assign(new ItineraryEntity(), {
           inquiryId: inquiry.id,
           code: await nextBusinessCode(manager, 'ITI'),
           status: 'draft',
           creator: actor.username,
           data,
+          title: data.title,
+          startDate: data.startDate,
+          adults: data.adults,
+          childrenCount: data.childrenCount,
+          leaderCount: data.leaderCount,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
       );
+      await saveItineraryData(manager, row);
       await this.planning(manager, inquiry, actor);
       await this.log(
         manager,
@@ -577,12 +692,13 @@ export class InquiriesService {
         itineraryId: id,
       });
       if (original) return original.snapshot;
-      this.writable(inquiry);
+      this.writable(inquiry, actor);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       return this.pdfSnapshot(inquiry, itinerary);
     });
   }
   async confirmPdf(id: string, input: ConfirmPdfDto, actor: Actor) {
+    this.permission(actor, 'itinerary:pdf');
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       const original = await manager.findOneBy(ItineraryQuoteEntity, {
@@ -594,22 +710,36 @@ export class InquiriesService {
         original.snapshot.inquiryVersion === input.inquiryVersion
       )
         return original.snapshot;
-      this.writable(inquiry);
+      this.writable(inquiry, actor);
       this.checkVersion(itinerary.version, input.version, true);
       this.checkVersion(inquiry.version, input.inquiryVersion);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
+      await assertItineraryLibrary(
+        manager,
+        itinerary.data,
+        libraryFor(inquiry.businessUnit as BusinessUnit),
+      );
       const snapshot = this.pdfSnapshot(inquiry, itinerary);
-      await manager.save(
+      const frozen = await manager.save(
         ItineraryQuoteEntity,
         manager.create(ItineraryQuoteEntity, {
           itineraryId: id,
           sourceVersion: itinerary.version,
           createdBy: actor.id,
           snapshot,
+          quoteCode: snapshot.quoteCode,
+          quoteVersion: snapshot.quoteVersion,
+          inquiryId: inquiry.id,
+          inquiryVersion: inquiry.version,
+          hotelGuestCount: snapshot.calculation.hotelGuestCount,
+          hotelRoomCount: snapshot.calculation.hotelRoomCount,
+          dailyResourceCost: snapshot.calculation.dailyResourceCost,
+          guideCost: snapshot.calculation.guideCost,
         }),
       );
+      await saveFrozenDetails(manager, frozen.id, snapshot);
       itinerary.status = 'quoted';
       itinerary.updatedBy = actor.id;
       await manager.save(itinerary);
@@ -627,6 +757,69 @@ export class InquiriesService {
       );
       return snapshot;
     });
+  }
+  async transfer(id: string, input: TransferInquiryDto, actor: Actor) {
+    this.permission(actor, 'inquiry:transfer');
+    return this.db.transaction(async (manager) => {
+      const current = await this.inquiry(id, actor, manager);
+      const owner = await this.owner(
+        input.ownerId,
+        actor,
+        manager,
+        current.businessUnit as BusinessUnit,
+        true,
+      );
+      const row = await this.inquiry(id, actor, manager, true);
+      this.checkVersion(row.version, input.version);
+      if (row.ownerId === owner.id || !input.reason.trim())
+        invalid('Choose a new owner and enter transfer reason');
+      const beforeId = row.ownerId;
+      const beforeName = row.owner;
+      row.ownerId = owner.id;
+      row.owner = owner.nickname;
+      row.updatedBy = actor.id;
+      await manager.save(row);
+      await manager.query(
+        'INSERT INTO inquiry_transfers(inquiry_id,previous_owner_id,new_owner_id,previous_owner_name,new_owner_name,reason,operator_id,operator_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [
+          id,
+          beforeId,
+          owner.id,
+          beforeName,
+          owner.nickname,
+          input.reason.trim(),
+          actor.id,
+          actor.name,
+        ],
+      );
+      await this.log(
+        manager,
+        row,
+        actor,
+        'inquiry_updated',
+        undefined,
+        diffChanges(
+          { ownerId: beforeId, owner: beforeName },
+          { ownerId: owner.id, owner: owner.nickname },
+        ),
+        { transferReason: input.reason.trim() },
+      );
+      return this.inquiryResponse(row);
+    });
+  }
+  async transfers(id: string, actor: Actor) {
+    await this.inquiry(id, actor);
+    return this.db.manager.query<Record<string, unknown>[]>(
+      'SELECT id, inquiry_id AS "inquiryId", previous_owner_id AS "previousOwnerId",new_owner_id AS "newOwnerId",previous_owner_name AS "previousOwnerName",new_owner_name AS "newOwnerName",reason,operator_id AS "operatorId",operator_name AS "operatorName",occurred_at AS "occurredAt" FROM inquiry_transfers WHERE inquiry_id=$1 ORDER BY occurred_at DESC,id DESC',
+      [id],
+    );
+  }
+  async priceAdjustments(id: string, actor: Actor) {
+    await this.pair(id, actor);
+    return this.db.manager.query<Record<string, unknown>[]>(
+      'SELECT id,itinerary_id AS "itineraryId",item_key AS "itemKey",item_type AS "itemType",item_name AS "itemName",reference_basis AS "referenceBasis",reference_price AS "referencePrice",before_price AS "beforePrice",after_price AS "afterPrice",reason,action,operator_id AS "operatorId",operator_name AS "operatorName",occurred_at AS "occurredAt" FROM itinerary_price_adjustments WHERE itinerary_id=$1 ORDER BY occurred_at DESC,id DESC',
+      [id],
+    );
   }
   private async log(
     manager: EntityManager,
@@ -664,8 +857,14 @@ export class InquiriesService {
     const qb = this.db.manager
       .createQueryBuilder(InquiryLogEntity, 'l')
       .innerJoin(InquiryEntity, 'i', 'i.id = l.inquiryId');
-    if (!actor.admin)
-      qb.andWhere('i.ownerId = :actorId', { actorId: actor.id });
+    this.scopeInquiryQuery(qb, actor);
+    if (query.businessUnit) {
+      if (actor.scope !== 'headquarters' && query.businessUnit !== actor.scope)
+        fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
+      qb.andWhere('i.businessUnit = :filterBusinessUnit', {
+        filterBusinessUnit: query.businessUnit,
+      });
+    }
     if (query.inquiryId)
       qb.andWhere('l.inquiryId = :inquiryId', { inquiryId: query.inquiryId });
     if (query.inquiryCode?.trim())

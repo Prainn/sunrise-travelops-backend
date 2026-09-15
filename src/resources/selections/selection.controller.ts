@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { ResourceScopeInterceptor } from '../common/resource-scope';
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
@@ -17,6 +19,7 @@ import {
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
+@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/selections')
 export class SelectionController {
   constructor(private readonly service: SelectionService) {}

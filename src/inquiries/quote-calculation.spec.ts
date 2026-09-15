@@ -1,3 +1,7 @@
+import { ROLE_PERMISSIONS } from '../auth/identity-permissions';
+jest.mock('./structured-itinerary', () => ({
+  loadItineraryData: (_manager: unknown, row: unknown) => Promise.resolve(row),
+}));
 import 'reflect-metadata';
 import type { DataSource, EntityManager } from 'typeorm';
 import { InquiriesService } from './inquiries.service';
@@ -30,6 +34,7 @@ function setup() {
   };
   const inquiry = {
     id: 'inquiry',
+    businessUnit: 'shengxu',
     ownerId: 'owner',
     status: 'planning',
     data: { plannedDays: 15 },
@@ -57,6 +62,14 @@ function setup() {
     {} as AgenciesService,
   );
   const actor = {
+    nickname: 'Owner',
+    identityId: 'identity',
+    scope: 'shengxu' as const,
+    scopeName: '盛旭',
+    deptId: 3,
+    deptName: '计调部',
+    resourceLibrary: 'shengxu' as const,
+    permissions: [...ROLE_PERMISSIONS.COORDINATOR],
     id: 'owner',
     username: 'owner',
     name: 'Owner',
@@ -124,6 +137,8 @@ it('previews normalized unsaved costs without changing the persisted version, da
     expect.anything(),
     t.data,
     15,
+    'shengxu',
+    false,
   );
   expect(t.itinerary).toEqual(original);
   expect(t.manager.save).not.toHaveBeenCalled();

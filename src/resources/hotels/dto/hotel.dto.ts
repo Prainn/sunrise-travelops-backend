@@ -46,6 +46,7 @@ export class UpdateHotelDto extends CreateHotelDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class HotelResponse implements ResourceAuditResponse {
+  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

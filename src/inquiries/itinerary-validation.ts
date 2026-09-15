@@ -1,3 +1,5 @@
+import { ResourceLibrary } from '../users/user-identity.entity';
+import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -9,7 +11,7 @@ import { GuideEntity } from '../resources/guides/guide.entity';
 import { RestaurantPriceEntity } from '../resources/restaurants/restaurant.entity';
 import { AttractionPriceEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
-import { multiplyMoney, roundMoney, sumMoney } from './money';
+import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
 export function invalid(message: string): never {
   throw new BusinessException({
@@ -41,6 +43,8 @@ export class ItineraryValidation {
     input: ItineraryInput,
     previous?: ItineraryInput,
     plannedDays = input.dailyPlans.length,
+    library?: ResourceLibrary,
+    checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
     const newCities = plan.destinations.filter(
@@ -48,7 +52,7 @@ export class ItineraryValidation {
     );
     if (newCities.length) {
       const cities = await manager.find(CityEntity, {
-        where: { name: In(newCities) },
+        where: { name: In(newCities), library },
       });
       if (
         cities.filter((city) => city.status === ResourceStatus.Enabled)
@@ -115,12 +119,15 @@ export class ItineraryValidation {
         )
           invalid('Invalid custom restaurant');
         item.priceName = '';
+        item.referencePrice = null;
+        item.referenceBasis = 'unknown';
       } else if (old)
         Object.assign(item, {
           resourceName: old.resourceName,
           priceName: old.priceName,
           unit: old.unit,
-          unitCost: old.unitCost,
+          referencePrice: old.referencePrice ?? null,
+          referenceBasis: old.referenceBasis ?? 'unknown',
         });
       else if (item.type === 'restaurant') {
         const price = await manager.findOne(RestaurantPriceEntity, {
@@ -130,14 +137,16 @@ export class ItineraryValidation {
         if (
           !price?.restaurant ||
           price.restaurant.deletedAt ||
-          price.restaurant.status !== ResourceStatus.Enabled
+          price.restaurant.status !== ResourceStatus.Enabled ||
+          (library && price.restaurant.library !== library)
         )
           invalid('Invalid restaurant price');
         Object.assign(item, {
           resourceName: price.restaurant.name,
           priceName: price.menuName,
           unit: price.unit,
-          unitCost: Number(price.price),
+          referencePrice: Number(price.price),
+          referenceBasis: 'resource_price',
         });
       } else {
         const price = await manager.findOne(AttractionPriceEntity, {
@@ -147,17 +156,26 @@ export class ItineraryValidation {
         if (
           !price?.attraction ||
           price.attraction.deletedAt ||
-          price.attraction.status !== ResourceStatus.Enabled
+          price.attraction.status !== ResourceStatus.Enabled ||
+          (library && price.attraction.library !== library)
         )
           invalid('Invalid attraction price');
         Object.assign(item, {
           resourceName: price.attraction.name,
           priceName: price.itemName,
           unit: price.unit,
-          unitCost: Number(price.settlementPrice),
+          referencePrice: Number(price.settlementPrice),
+          referenceBasis: 'resource_price',
         });
       }
-      delete item.referenceUnitCost;
+      requirePriceReason(
+        item.unitCost,
+        old?.unitCost,
+        item,
+        old,
+        checkReason,
+        customRestaurant,
+      );
       item.totalCost = multiplyMoney(item.unitCost, item.quantity);
     }
     for (const group of plan.hotelPlans) {
@@ -174,7 +192,12 @@ export class ItineraryValidation {
           );
         if (old)
           Object.assign(selection, {
-            ...old,
+            hotelName: old.hotelName,
+            rating: old.rating,
+            breakfast: old.breakfast,
+            unit: old.unit,
+            referencePrice: old.referencePrice ?? null,
+            referenceBasis: old.referenceBasis ?? 'unknown',
             unitCost: roundMoney(selection.unitCost),
           });
         else {
@@ -189,10 +212,19 @@ export class ItineraryValidation {
             !hotel ||
             hotel.status !== ResourceStatus.Enabled ||
             hotel.city !== selection.destination ||
-            hotel.rating !== rating
+            hotel.rating !== rating ||
+            (library && hotel.library !== library)
           )
             invalid('Hotel does not match city or tier');
+          const groupRate =
+            hotel.groupPrice != null &&
+            hotel.minimumGroupSize != null &&
+            guestCount >= hotel.minimumGroupSize;
           Object.assign(selection, {
+            referencePrice: Number(
+              groupRate ? hotel.groupPrice : hotel.individualPrice,
+            ),
+            referenceBasis: groupRate ? 'hotel_group' : 'hotel_individual',
             hotelName: hotel.name,
             rating: hotel.rating,
             breakfast: hotel.breakfast,
@@ -200,6 +232,13 @@ export class ItineraryValidation {
             unitCost: roundMoney(selection.unitCost),
           });
         }
+        requirePriceReason(
+          selection.unitCost,
+          old?.unitCost,
+          selection,
+          old,
+          checkReason,
+        );
       }
     }
     const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
@@ -239,13 +278,23 @@ export class ItineraryValidation {
           assignedRanges.push(arrangement);
         }
         for (const vehicle of arrangement.vehicles) {
+          const oldVehicle = previous?.vehiclePlans
+            .find((p) => p.tier === group.tier)
+            ?.arrangements.flatMap((a) => a.vehicles)
+            .find((v) => v.vehicleId === vehicle.vehicleId);
+          if (oldVehicle) {
+            vehicle.vehicleName = oldVehicle.vehicleName;
+            vehicle.seats = oldVehicle.seats;
+            continue;
+          }
           const resource = await manager.findOneBy(TransportEntity, {
             id: vehicle.vehicleId,
           });
           if (
             !resource ||
             resource.status !== ResourceStatus.Enabled ||
-            resource.serviceLevel !== group.tier
+            resource.serviceLevel !== group.tier ||
+            (library && resource.library !== library)
           )
             invalid('Invalid vehicle');
           Object.assign(vehicle, {
@@ -260,32 +309,80 @@ export class ItineraryValidation {
         if (hasStartDate && seats < guestCount)
           invalid('Vehicle has insufficient seats');
       }
-      if (
-        group.totalPrice === null &&
-        group.arrangements.length > 0 &&
-        group.arrangements.every(
-          (arrangement) => arrangement.totalPrice !== null,
-        )
-      )
-        group.totalPrice = sumMoney(
-          group.arrangements.map((arrangement) => arrangement.totalPrice!),
+      const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
+      group.segmentTotal = vehicleSegmentTotal(group);
+      group.pricingMode ??=
+        old?.pricingMode ??
+        (old
+          ? 'unknown'
+          : group.segmentTotal != null &&
+              (group.totalPrice == null ||
+                group.totalPrice === group.segmentTotal)
+            ? 'automatic'
+            : 'manual');
+      if (group.pricingMode === 'automatic') {
+        if (group.segmentTotal == null && group.arrangements.length)
+          invalid('Automatic vehicle pricing needs complete segment prices');
+        group.totalPrice = group.segmentTotal;
+        group.adjustmentReason = '';
+      } else if (group.totalPrice != null) {
+        const basisChanged =
+          old &&
+          (vehicleSegmentTotal(old) !== group.segmentTotal ||
+            (old.pricingMode ?? 'unknown') !== group.pricingMode);
+        const fields = {
+          referencePrice: group.segmentTotal,
+          adjustmentReason: group.adjustmentReason,
+        };
+        requirePriceReason(
+          group.totalPrice,
+          basisChanged ? undefined : (old?.totalPrice ?? undefined),
+          fields,
+          old,
+          checkReason,
         );
+        group.adjustmentReason = fields.adjustmentReason;
+      }
     }
     for (const guide of plan.guidePlans) {
       if (!plan.destinations.includes(guide.destination))
         invalid('Invalid guide destination');
-      const resource = await manager.findOneBy(GuideEntity, {
-        id: guide.guideId,
-      });
-      if (!resource || resource.status !== ResourceStatus.Enabled)
-        invalid('Invalid guide');
-      Object.assign(guide, {
-        guideName: resource.name,
-        secondLanguage: resource.secondLanguage,
-        shopping: resource.shopping,
-        dailyPrice: roundMoney(guide.dailyPrice),
-        serviceDays: plannedDays,
-      });
+      const old = previous?.guidePlans.find((g) => g.guideId === guide.guideId);
+      if (old)
+        Object.assign(guide, {
+          guideName: old.guideName,
+          secondLanguage: old.secondLanguage,
+          shopping: old.shopping,
+          referencePrice: old.referencePrice ?? null,
+          referenceBasis: old.referenceBasis ?? 'unknown',
+        });
+      else {
+        const resource = await manager.findOneBy(GuideEntity, {
+          id: guide.guideId,
+        });
+        if (
+          !resource ||
+          resource.status !== ResourceStatus.Enabled ||
+          (library && resource.library !== library)
+        )
+          invalid('Invalid guide');
+        Object.assign(guide, {
+          guideName: resource.name,
+          secondLanguage: resource.secondLanguage,
+          shopping: resource.shopping,
+          referencePrice: Number(resource.dailyPrice),
+          referenceBasis: 'resource_price',
+        });
+      }
+      guide.dailyPrice = roundMoney(guide.dailyPrice);
+      guide.serviceDays = plannedDays;
+      requirePriceReason(
+        guide.dailyPrice,
+        old?.dailyPrice,
+        guide,
+        old,
+        checkReason,
+      );
     }
     plan.dailyPlans.forEach((day, index) => {
       const overnight = plan.dailyPlans[index - 1]?.overnightDestination;
@@ -406,5 +503,42 @@ export class ItineraryValidation {
         status: HttpStatus.BAD_REQUEST,
         details: { issues },
       });
+  }
+}
+
+export async function assertItineraryLibrary(
+  manager: EntityManager,
+  plan: ItineraryInput,
+  library: ResourceLibrary,
+) {
+  const references = [
+    {
+      entity: HotelEntity,
+      ids: plan.hotelPlans.flatMap((p) => p.hotels.map((h) => h.hotelId)),
+    },
+    { entity: GuideEntity, ids: plan.guidePlans.map((g) => g.guideId) },
+    {
+      entity: TransportEntity,
+      ids: plan.vehiclePlans.flatMap((p) =>
+        p.arrangements.flatMap((a) => a.vehicles.map((v) => v.vehicleId)),
+      ),
+    },
+  ];
+  for (const reference of references) {
+    const ids = [...new Set(reference.ids)];
+    if (!ids.length) continue;
+    const rows = await manager
+      .getRepository(reference.entity)
+      .find({ where: { id: In(ids), library }, withDeleted: true });
+    if (rows.length !== ids.length) invalid('Resource outside inquiry library');
+  }
+  for (const item of plan.dailyPlans.flatMap((d) => d.items)) {
+    if (item.resourceId === null && item.type === 'restaurant') continue;
+    const kind = item.type === 'restaurant' ? 'restaurants' : 'attractions';
+    const parent = await manager.query<Array<{ id: string }>>(
+      `SELECT id FROM resource_${kind} WHERE id=$1 AND library=$2`,
+      [item.resourceId, library],
+    );
+    if (!parent.length) invalid('Resource outside inquiry library');
   }
 }

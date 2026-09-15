@@ -1,3 +1,5 @@
+import { UseInterceptors } from '@nestjs/common';
+import { ResourceScopeInterceptor } from '../common/resource-scope';
 import {
   Body,
   Controller,
@@ -36,6 +38,7 @@ import { HotelsService } from './hotels.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
+@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/hotels')
 export class HotelsController {
   constructor(private readonly service: HotelsService) {}

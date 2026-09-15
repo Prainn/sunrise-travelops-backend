@@ -15,6 +15,7 @@ export class UpdateCityDto extends CreateCityDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class CityResponse implements ResourceAuditResponse {
+  library: 'shengxu' | 'shared';
   id: string;
   code: string;
   name: string;

@@ -1,3 +1,4 @@
+import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -41,6 +42,7 @@ export class CitiesService {
       .addOrderBy('city.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
+    scopeResources(builder, 'city');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -59,7 +61,10 @@ export class CitiesService {
   }
   async options(): Promise<CityResponse[]> {
     const entities = await this.cities.find({
-      where: { status: ResourceStatus.Enabled },
+      where: {
+        status: ResourceStatus.Enabled,
+        ...(resourceLibrary() ? { library: resourceLibrary()! } : {}),
+      },
       order: { createdAt: 'ASC', id: 'ASC' },
     });
     return entities.map((entity) => this.toResponse(entity));
@@ -76,6 +81,7 @@ export class CitiesService {
     const entity = this.cities.create({
       ...input,
       code,
+      library: resourceLibrary(true)!,
       createdBy: actorId,
       updatedBy: actorId,
     });
@@ -131,6 +137,7 @@ export class CitiesService {
   private toResponse(entity: CityEntity): CityResponse {
     return {
       ...auditResponse(entity),
+      library: entity.library,
       code: entity.code,
       name: entity.name,
       province: entity.province,

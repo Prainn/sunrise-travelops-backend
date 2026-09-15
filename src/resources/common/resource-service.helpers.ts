@@ -1,3 +1,4 @@
+import { assertResourceLibrary } from './resource-scope';
 import { HttpStatus } from '@nestjs/common';
 import { FindOptionsWhere, In, Not, ObjectLiteral, Repository } from 'typeorm';
 import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
@@ -33,6 +34,7 @@ export async function requireResource<T extends ObjectLiteral & { id: string }>(
       status: HttpStatus.NOT_FOUND,
     });
   }
+  assertResourceLibrary(entity);
   return entity;
 }
 
@@ -54,6 +56,7 @@ export async function requireResourceForUpdate<
       status: HttpStatus.NOT_FOUND,
     });
   }
+  assertResourceLibrary(entity);
   return entity;
 }
 
@@ -73,6 +76,7 @@ export async function requireResources<
     entities.map((entity) => entity.id),
     errorCode,
   );
+  entities.forEach(assertResourceLibrary);
   return entities;
 }
 

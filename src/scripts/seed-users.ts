@@ -1,13 +1,10 @@
+import { UserIdentityEntity } from '../users/user-identity.entity';
 import { NestFactory } from '@nestjs/core';
 import { DataSource, In } from 'typeorm';
 import * as argon2 from 'argon2';
 import { AppModule } from '../app.module';
-import {
-  ADMIN_PERMISSIONS,
-  INQUIRY_PERMISSIONS,
-  PERMISSION_DEFINITIONS,
-  RESOURCE_PERMISSIONS,
-} from '../auth/permissions';
+import { PERMISSION_DEFINITIONS } from '../auth/permissions';
+import { ROLE_PERMISSIONS } from '../auth/identity-permissions';
 import { PermissionEntity } from '../roles/permission.entity';
 import { RoleEntity } from '../roles/role.entity';
 import { UserEntity, UserStatus } from '../users/user.entity';
@@ -24,24 +21,27 @@ interface SeedUser {
   roleCodes: string[];
 }
 
-const roleDefinitions = [
-  { code: 'ROOT', name: 'Root', permissionCodes: ADMIN_PERMISSIONS },
-  {
-    code: 'ADMIN',
-    name: 'System Administrator',
-    permissionCodes: ADMIN_PERMISSIONS,
-  },
-  {
-    code: 'RESOURCE_MANAGER',
-    name: 'Resource Manager',
-    permissionCodes: [...RESOURCE_PERMISSIONS, 'sys:business-dictionary:list'],
-  },
-  {
-    code: 'COORDINATOR',
-    name: '计调',
-    permissionCodes: [...INQUIRY_PERMISSIONS, 'sys:business-dictionary:list'],
-  },
-] as const;
+const roleDefinitions = Object.entries(ROLE_PERMISSIONS).map(
+  ([code, permissionCodes]) => ({
+    code,
+    name: (
+      {
+        ROOT: '超级管理员',
+        ADMIN: '系统管理部',
+        EXECUTIVE: '总经办',
+        BUSINESS_MANAGER: '业务部门负责人',
+        COORDINATOR: '计调',
+        RESOURCE_MANAGER: '资源管理员',
+      } as Record<string, string>
+    )[code],
+    permissionCodes,
+  }),
+);
+const permissionDefinitions = {
+  ...PERMISSION_DEFINITIONS,
+  'inquiry:transfer': '询盘转交',
+  'itinerary:download': '下载已有冻结报价',
+};
 
 const seedUsers: SeedUser[] = [
   {
@@ -53,7 +53,7 @@ const seedUsers: SeedUser[] = [
     email: '',
     deptId: 1,
     createdAt: '2026-08-19T09:00:00+08:00',
-    roleCodes: ['ROOT', 'ADMIN'],
+    roleCodes: ['ADMIN'],
   },
   {
     username: 'inquiry',
@@ -155,14 +155,14 @@ async function seed(): Promise<void> {
       const users = manager.getRepository(UserEntity);
 
       await permissions.upsert(
-        Object.entries(PERMISSION_DEFINITIONS).map(([code, name]) => ({
+        Object.entries(permissionDefinitions).map(([code, name]) => ({
           code,
           name,
         })),
         ['code'],
       );
       const permissionRecords = await permissions.findBy({
-        code: In(Object.keys(PERMISSION_DEFINITIONS)),
+        code: In(Object.keys(permissionDefinitions)),
       });
       const permissionsByCode = new Map(
         permissionRecords.map((permission) => [permission.code, permission]),
@@ -187,10 +187,13 @@ async function seed(): Promise<void> {
       }
 
       for (const input of seedUsers) {
-        let user = await users.findOne({
-          where: { username: input.username },
+        const scope = input.deptId === 1 ? 'headquarters' : 'shengxu';
+        const existing = await manager.findOne(UserIdentityEntity, {
+          where: { username: input.username, scope },
+          relations: { user: true },
           withDeleted: true,
         });
+        let user = existing?.user;
         user ??= users.create({
           username: input.username,
           createdBy: null,
@@ -198,30 +201,33 @@ async function seed(): Promise<void> {
         });
         user.deletedAt = null;
         user.passwordHash = await argon2.hash(password);
-        user.refreshTokenHash = null;
         user.status = UserStatus.Enabled;
         user.nickname = input.nickname;
         user.avatar = input.avatar;
         user.gender = input.gender;
         user.mobile = input.mobile;
         user.email = input.email;
-        user.deptId = input.deptId;
         user.createdAt = new Date(input.createdAt);
-        user.roles = input.roleCodes.map((code) => {
+        const assignedRoles = input.roleCodes.map((code) => {
           const role = rolesByCode.get(code);
           if (!role) throw new Error(`Role "${code}" is missing`);
           return role;
         });
         await users.save(user);
+        await manager.save(
+          UserIdentityEntity,
+          manager.create(UserIdentityEntity, {
+            id: existing?.id,
+            userId: user.id,
+            username: user.username,
+            scope,
+            deptId: input.deptId,
+            roles: assignedRoles,
+            refreshTokenHash: null,
+          }),
+        );
       }
 
-      const legacyAdminRole = await roles.findOne({
-        where: { code: 'system_admin' },
-        relations: { users: true },
-      });
-      if (legacyAdminRole && legacyAdminRole.users.length === 0) {
-        await roles.remove(legacyAdminRole);
-      }
       await permissions.delete({ code: In(['user:manage', 'role:manage']) });
     });
 

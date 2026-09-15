@@ -1,94 +1,132 @@
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { RoleEntity } from '../roles/role.entity';
+import { AuthenticatedUser } from '../auth/auth.types';
 import { UserEntity, UserStatus } from './user.entity';
+import { UserIdentityEntity } from './user-identity.entity';
 import { UserManagementService } from './user-management.service';
-
+const actor = {
+  id: '00000000-0000-4000-8000-000000000999',
+  scope: 'headquarters',
+} as AuthenticatedUser;
+const role = {
+  id: '00000000-0000-4000-8000-000000000010',
+  code: 'COORDINATOR',
+  isEnabled: true,
+} as RoleEntity;
 describe('UserManagementService', () => {
-  let users: jest.Mocked<Repository<UserEntity>>;
-  let roles: jest.Mocked<Repository<RoleEntity>>;
-  let dataSource: jest.Mocked<DataSource>;
-  let service: UserManagementService;
-
-  beforeEach(() => {
-    users = {
-      find: jest.fn(),
-      findOne: jest.fn(),
-      save: jest.fn(),
-    } as unknown as jest.Mocked<Repository<UserEntity>>;
-    roles = {} as jest.Mocked<Repository<RoleEntity>>;
-    dataSource = {
-      transaction: jest.fn(),
-    } as unknown as jest.Mocked<DataSource>;
-    service = new UserManagementService(users, roles, dataSource);
-  });
-
-  it('prevents the current user from deleting their own account', async () => {
-    const actorId = '00000000-0000-4000-8000-000000000999';
-
-    await expect(service.delete([actorId], actorId)).rejects.toMatchObject({
-      code: 'CURRENT_USER_CANNOT_BE_DELETED',
-    });
-    expect(users.find.mock.calls).toHaveLength(0);
-  });
-
-  it('prevents deletion of a root account', async () => {
-    const userId = '00000000-0000-4000-8000-000000000001';
-    users.find.mockResolvedValue([
-      {
-        id: userId,
-        roles: [{ code: 'ROOT' } as RoleEntity],
-      } as UserEntity,
-    ]);
-
-    await expect(
-      service.delete([userId], '00000000-0000-4000-8000-000000000999'),
-    ).rejects.toMatchObject({ code: 'ROOT_USER_CANNOT_BE_DELETED' });
-    expect(dataSource.transaction.mock.calls).toHaveLength(0);
-  });
-
-  it('revokes refresh tokens when an account is disabled', async () => {
-    const userId = '00000000-0000-4000-8000-000000000001';
-    const roleId = '00000000-0000-4000-8000-000000000010';
-    const entity = {
-      id: userId,
+  function setup(user: UserEntity | null, unfinished = 0) {
+    const qb = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(user),
+    };
+    const manager = {
+      createQueryBuilder: jest.fn().mockReturnValue(qb),
+      findOne: jest.fn().mockResolvedValue(user),
+      findBy: jest.fn().mockResolvedValue([role]),
+      query: jest.fn().mockResolvedValue([{ total: 1, unfinished }]),
+      save: jest
+        .fn()
+        .mockImplementation((...values: unknown[]) =>
+          Promise.resolve(values.at(-1)),
+        ),
+      create: jest.fn((_entity: unknown, value: unknown) => value),
+      delete: jest.fn(),
+      update: jest.fn(),
+      softDelete: jest.fn(),
+    };
+    const transaction = jest.fn((fn: (manager: EntityManager) => unknown) =>
+      fn(manager as unknown as EntityManager),
+    );
+    const service = new UserManagementService(
+      {} as Repository<UserEntity>,
+      {} as Repository<RoleEntity>,
+      { manager, transaction } as unknown as DataSource,
+    );
+    return { service, manager, qb, transaction };
+  }
+  function user() {
+    return Object.assign(new UserEntity(), {
+      id: '00000000-0000-4000-8000-000000000001',
       username: 'operations',
       status: UserStatus.Enabled,
-      refreshTokenHash: 'hash',
-      roles: [],
       createdAt: new Date('2026-08-19T01:30:00Z'),
-    } as unknown as UserEntity;
-    users.findOne.mockResolvedValue(entity);
-    roles.findBy = jest.fn().mockResolvedValue([
-      {
-        id: roleId,
-        code: 'COORDINATOR',
-        name: 'Coordinator',
-        isEnabled: true,
-      } as RoleEntity,
-    ]);
-    users.save.mockResolvedValue(entity);
-
-    await service.update(
-      userId,
-      {
-        id: userId,
-        nickname: '张伟',
-        avatar: '',
-        gender: 0,
-        mobile: '',
-        email: '',
-        deptId: 3,
-        roleIds: [roleId],
-        status: 0,
-      },
-      '00000000-0000-4000-8000-000000000999',
-    );
-
-    expect(users.save.mock.calls[0]?.[0]).toEqual(
+      identities: [
+        Object.assign(new UserIdentityEntity(), {
+          id: '00000000-0000-4000-8000-000000000020',
+          scope: 'shengxu',
+          deptId: 3,
+          roles: [role],
+          refreshTokenHash: 'hash',
+        }),
+      ],
+    });
+  }
+  const input = {
+    nickname: '张伟',
+    avatar: '',
+    gender: 0,
+    mobile: '',
+    email: '',
+    status: 0,
+    identities: [{ scope: 'shengxu' as const, deptId: 3, roleIds: [role.id] }],
+  };
+  it('prevents self deletion before opening a write transaction', async () => {
+    const { service, transaction } = setup(null);
+    await expect(service.delete([actor.id], actor)).rejects.toMatchObject({
+      code: 'CURRENT_USER_CANNOT_BE_DELETED',
+    });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+  it('excludes the superuser from direct account management and cannot delete a hidden account', async () => {
+    const { service, qb, manager } = setup(null);
+    await expect(service.delete([user().id], actor)).rejects.toMatchObject({
+      code: 'USER_NOT_FOUND',
+    });
+    expect(qb.where).toHaveBeenCalledWith('u.is_superuser = false');
+    expect(manager.softDelete).not.toHaveBeenCalled();
+  });
+  it('revokes refresh tokens for every retained identity when disabling a completed owner', async () => {
+    const entity = user();
+    const { service, manager } = setup(entity);
+    await service.update(entity.id, input, actor);
+    expect(entity.status).toBe(UserStatus.Disabled);
+    expect(manager.save).toHaveBeenCalledWith(
+      UserIdentityEntity,
       expect.objectContaining({
-        status: UserStatus.Disabled,
+        id: entity.identities[0].id,
         refreshTokenHash: null,
       }),
     );
+  });
+  it('prevents disabling an owner with unfinished inquiries before writing anything', async () => {
+    const entity = user();
+    const { service, manager } = setup(entity, 1);
+    await expect(service.update(entity.id, input, actor)).rejects.toMatchObject(
+      { code: 'INQUIRY_OWNER_INVALID', details: { unfinished: 1 } },
+    );
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
+  it('releases identities while retaining the deleted account for historical ownership', async () => {
+    const entity = user();
+    const { service, manager } = setup(entity);
+    await service.delete([entity.id], actor);
+    expect(manager.delete).toHaveBeenCalledTimes(1);
+    expect(manager.delete).toHaveBeenCalledWith(UserIdentityEntity, {
+      userId: entity.id,
+    });
+    expect(manager.softDelete).toHaveBeenCalledWith(UserEntity, entity.id);
+  });
+
+  it('does not release an identity when unfinished inquiries prevent deletion', async () => {
+    const entity = user();
+    const { service, manager } = setup(entity, 1);
+    await expect(service.delete([entity.id], actor)).rejects.toMatchObject({
+      code: 'INQUIRY_OWNER_INVALID',
+    });
+    expect(manager.delete).not.toHaveBeenCalled();
+    expect(manager.softDelete).not.toHaveBeenCalled();
   });
 });

@@ -8,8 +8,13 @@ const editableFields = {
   gender: 0,
   mobile: '',
   email: 'inquiry@sunrise.local',
-  deptId: 3,
-  roleIds: ['335e91c5-231b-475c-b875-cd34fb1f7601'],
+  identities: [
+    {
+      scope: 'shengxu',
+      deptId: 3,
+      roleIds: ['335e91c5-231b-475c-b875-cd34fb1f7601'],
+    },
+  ],
   status: 1,
 };
 

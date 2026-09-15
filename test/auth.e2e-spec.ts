@@ -1,3 +1,5 @@
+import { UserIdentityEntity } from '../src/users/user-identity.entity';
+import { UserLoginRecordEntity } from '../src/auth/user-login-record.entity';
 import {
   Controller,
   Get,
@@ -46,6 +48,7 @@ describe('Auth API (e2e)', () => {
   let app: INestApplication;
   let server: Server;
   let storedUser: UserEntity;
+  let storedIdentity: UserIdentityEntity;
 
   beforeEach(async () => {
     storedUser = Object.assign(new UserEntity(), {
@@ -56,18 +59,46 @@ describe('Auth API (e2e)', () => {
       gender: 0,
       mobile: '',
       email: '',
-      deptId: 3,
       passwordHash: await argon2.hash('123456'),
-      refreshTokenHash: null,
       status: UserStatus.Enabled,
-      roles: [
-        {
-          isEnabled: true,
-          permissions: [{ code: 'sys:user:update' }],
-        },
-      ],
+    });
+    storedIdentity = Object.assign(new UserIdentityEntity(), {
+      id: 'eb225323-231d-4613-838c-29a9cd21c4aa',
+      userId: storedUser.id,
+      username: storedUser.username,
+      scope: 'shengxu',
+      deptId: 3,
+      user: storedUser,
+      roles: [{ code: 'BUSINESS_MANAGER', isEnabled: true }],
+      refreshTokenHash: null,
     });
     const users = {
+      manager: {
+        findOne: jest.fn(
+          (_entity: unknown, { where }: { where: Record<string, unknown> }) =>
+            Promise.resolve(
+              Object.entries(where).every(
+                ([key, value]) =>
+                  storedIdentity[key as keyof UserIdentityEntity] === value,
+              )
+                ? storedIdentity
+                : null,
+            ),
+        ),
+        save: jest.fn((identity: UserIdentityEntity) =>
+          Promise.resolve(identity),
+        ),
+        update: jest.fn(
+          (
+            _entity: unknown,
+            _id: unknown,
+            change: Partial<UserIdentityEntity>,
+          ) => {
+            Object.assign(storedIdentity, change);
+            return Promise.resolve({ affected: 1 });
+          },
+        ),
+      },
       findOne: jest.fn(
         ({ where }: { where: { id?: string; username?: string } }) => {
           if (where.id && where.id !== storedUser.id) return null;
@@ -112,6 +143,13 @@ describe('Auth API (e2e)', () => {
         AuthService,
         JwtStrategy,
         { provide: getRepositoryToken(UserEntity), useValue: users },
+        {
+          provide: getRepositoryToken(UserLoginRecordEntity),
+          useValue: {
+            create: jest.fn((v) => v as UserLoginRecordEntity),
+            save: jest.fn((v) => Promise.resolve(v as UserLoginRecordEntity)),
+          },
+        },
         { provide: APP_GUARD, useClass: ThrottlerGuard },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
         { provide: APP_GUARD, useClass: PermissionsGuard },
@@ -129,7 +167,7 @@ describe('Auth API (e2e)', () => {
       }),
     );
     app.useGlobalFilters(new ApiExceptionFilter());
-    await app.init();
+    await app.listen(0, '127.0.0.1');
     server = app.getHttpServer() as Server;
   });
 
@@ -140,7 +178,7 @@ describe('Auth API (e2e)', () => {
   it('logs in, authorizes access, rotates refresh tokens and rejects missing permission', async () => {
     const login = await request(server)
       .post('/api/auth/login')
-      .send({ username: 'coordinator', password: '123456' })
+      .send({ scope: 'shengxu', username: 'coordinator', password: '123456' })
       .expect(200);
 
     expect(login.body).toMatchObject({
@@ -152,6 +190,8 @@ describe('Auth API (e2e)', () => {
     expect(loginTokens.accessToken.length).toBeLessThan(500);
     expect(decodeJwtPayload(loginTokens.accessToken)).toMatchObject({
       sub: storedUser.id,
+      identityId: storedIdentity.id,
+      scope: 'shengxu',
       type: 'access',
     });
     expect(decodeJwtPayload(loginTokens.accessToken)).not.toHaveProperty(
@@ -189,7 +229,11 @@ describe('Auth API (e2e)', () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const rejected = await request(server)
         .post('/api/auth/login')
-        .send({ username: 'coordinator', password: 'wrong-password' })
+        .send({
+          scope: 'shengxu',
+          username: 'coordinator',
+          password: 'wrong-password',
+        })
         .expect(401);
       expect(rejected.body).toMatchObject({
         code: 'AUTH_INVALID_CREDENTIALS',
@@ -198,7 +242,11 @@ describe('Auth API (e2e)', () => {
     }
     const throttled = await request(server)
       .post('/api/auth/login')
-      .send({ username: 'coordinator', password: 'wrong-password' })
+      .send({
+        scope: 'shengxu',
+        username: 'coordinator',
+        password: 'wrong-password',
+      })
       .expect(429);
     expect(throttled.body).toMatchObject({
       code: 'TOO_MANY_REQUESTS',

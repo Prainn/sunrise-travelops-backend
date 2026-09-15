@@ -51,32 +51,47 @@ export class UserManagementController {
   @Permissions('sys:user:list')
   @ApiOperation({ summary: 'List users' })
   @ApiPaginatedResponse(UserItemResponse, 'Paginated user list')
-  getPage(@Query() query: UserQueryDto) {
-    return this.userManagement.getPage(query);
+  getPage(
+    @Query() query: UserQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.getPage(query, user);
   }
 
   @Get('options/roles')
   @Permissions('sys:user:list')
   @ApiOperation({ summary: 'List assignable role options' })
   @ApiSuccessResponse({ type: StringOptionResponse, isArray: true })
-  getRoleOptions() {
-    return this.userManagement.getRoleOptions();
+  getRoleOptions(@CurrentUser() user: AuthenticatedUser) {
+    return this.userManagement.getRoleOptions(user);
   }
 
   @Get('options/departments')
   @Permissions('sys:user:list')
   @ApiOperation({ summary: 'List department options' })
   @ApiSuccessResponse({ type: NumberOptionResponse, isArray: true })
-  getDepartmentOptions() {
-    return this.userManagement.getDepartmentOptions();
+  getDepartmentOptions(@CurrentUser() user: AuthenticatedUser) {
+    return this.userManagement.getDepartmentOptions(user);
+  }
+
+  @Get(':id/inquiry-impact')
+  @Permissions('sys:user:list')
+  inquiryImpact(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.inquiryImpact(id, user);
   }
 
   @Get(':id')
   @Permissions('sys:user:list')
   @ApiOperation({ summary: 'Get user form data' })
   @ApiSuccessResponse({ type: UserItemResponse, description: 'User form data' })
-  getFormData(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.userManagement.getFormData(id);
+  getFormData(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.getFormData(id, user);
   }
 
   @Post()
@@ -88,7 +103,7 @@ export class UserManagementController {
     description: 'Created user; includes a one-time password if omitted',
   })
   create(@Body() input: CreateUserDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.userManagement.create(input, user.id);
+    return this.userManagement.create(input, user);
   }
 
   @Put(':id')
@@ -100,7 +115,7 @@ export class UserManagementController {
     @Body() input: UpdateUserDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.userManagement.update(id, input, user.id);
+    return this.userManagement.update(id, input, user);
   }
 
   @Delete()
@@ -112,7 +127,7 @@ export class UserManagementController {
     @Query() query: UserBatchIdsQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.userManagement.delete(query.ids, user.id);
+    return this.userManagement.delete(query.ids, user);
   }
 
   @Post(':id/reset-password')
@@ -125,6 +140,6 @@ export class UserManagementController {
     @Body() input: ResetUserPasswordDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.userManagement.resetPassword(id, input.password, user.id);
+    return this.userManagement.resetPassword(id, input.password, user);
   }
 }

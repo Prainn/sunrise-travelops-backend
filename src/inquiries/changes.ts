@@ -57,6 +57,10 @@ export function diffChanges(
   return [{ path, kind: 'changed', before, after }];
 }
 const MONEY_FIELDS = new Set([
+  'referencePrice',
+  'segmentTotal',
+  'beforePrice',
+  'afterPrice',
   'unitCost',
   'referenceUnitCost',
   'totalCost',

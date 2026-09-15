@@ -1,3 +1,4 @@
+import { ResourceScopeInterceptor } from './common/resource-scope';
 import { SelectionController } from './selections/selection.controller';
 import { SelectionService } from './selections/selection.service';
 import { Module } from '@nestjs/common';
@@ -63,6 +64,7 @@ const entities = [
   ],
   exports: [AgenciesService],
   providers: [
+    ResourceScopeInterceptor,
     SelectionService,
     CitiesService,
     ResourceValidationService,

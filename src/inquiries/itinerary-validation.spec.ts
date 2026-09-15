@@ -58,16 +58,23 @@ function plan() {
 }
 describe('resource snapshot validation', () => {
   const validator = new ItineraryValidation();
-  it('ignores client price edits to existing meals and recalculates quantity at the saved price', async () => {
+  it('requires a current reason for meal price changes but not quantity changes', async () => {
     const old = plan();
     const input = plan();
-    input.dailyPlans[0].items[0].unitCost = 1;
     input.dailyPlans[0].items[0].quantity = 3;
-    const saved = await validator.normalize({} as EntityManager, input, old);
-    expect(saved.dailyPlans[0].items[0]).toMatchObject({
-      unitCost: 50,
-      totalCost: 150,
-    });
+    expect(
+      (await validator.normalize({} as EntityManager, input, old)).dailyPlans[0]
+        .items[0].totalCost,
+    ).toBe(150);
+    input.dailyPlans[0].items[0].unitCost = 1;
+    await expect(
+      validator.normalize({} as EntityManager, input, old),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    input.dailyPlans[0].items[0].adjustmentReason = '供应商优惠';
+    expect(
+      (await validator.normalize({} as EntityManager, input, old)).dailyPlans[0]
+        .items[0],
+    ).toMatchObject({ unitCost: 1, totalCost: 3, referencePrice: null });
   });
   it('preserves guide day price and derives service days from the inquiry', async () => {
     const input = plan();
@@ -75,9 +82,9 @@ describe('resource snapshot validation', () => {
       {
         destination: '昆明',
         guideId: 'g',
-        guideName: 'spoof',
-        secondLanguage: 'none',
-        shopping: true,
+        guideName: 'Historical guide',
+        secondLanguage: 'en',
+        shopping: false,
         dailyPrice: 450,
         serviceDays: 7,
       },
@@ -91,7 +98,11 @@ describe('resource snapshot validation', () => {
         dailyPrice: '600',
       }),
     } as unknown as EntityManager;
-    const saved = await validator.normalize(manager, input, input, 15);
+    const old = structuredClone(input);
+    input.guidePlans[0].guideName = 'spoof';
+    input.guidePlans[0].secondLanguage = 'none';
+    const saved = await validator.normalize(manager, input, old, 15);
+    expect(jest.mocked(manager).findOneBy.mock.calls).toHaveLength(0);
     expect(saved.guidePlans[0]).toMatchObject({
       dailyPrice: 450,
       serviceDays: 15,
@@ -107,6 +118,7 @@ describe('resource snapshot validation', () => {
       {
         tier: 'standard',
         totalPrice: 8000,
+        adjustmentReason: '供应商全程报价',
         arrangements: [
           {
             id: 'fleet',
@@ -136,10 +148,10 @@ describe('resource snapshot validation', () => {
         ),
     } as unknown as EntityManager;
     await expect(
-      validator.normalize(manager, input, input),
+      validator.normalize(manager, input, plan()),
     ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
     input.vehiclePlans[0].arrangements[0].vehicles[2].quantity = 2;
-    const saved = await validator.normalize(manager, input, input);
+    const saved = await validator.normalize(manager, input, plan());
     expect(saved.vehiclePlans[0].arrangements[0].vehicles[0].seats).toBe(39);
     expect(saved.vehiclePlans[0].totalPrice).toBe(8000);
   });
@@ -185,14 +197,15 @@ describe('resource snapshot validation', () => {
     } as unknown as EntityManager;
 
     await expect(
-      validator.normalize(manager, input, input),
+      validator.normalize(manager, input, plan()),
     ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
     input.vehiclePlans[0].arrangements[1].startDate = '2026-09-10';
-    const saved = await validator.normalize(manager, input, input);
+    const saved = await validator.normalize(manager, input, plan());
     expect(saved.vehiclePlans[0].totalPrice).toBe(4000);
     input.vehiclePlans[0].totalPrice = 4500;
+    input.vehiclePlans[0].adjustmentReason = '全程协议价';
     expect(
-      (await validator.normalize(manager, input, input)).vehiclePlans[0]
+      (await validator.normalize(manager, input, plan())).vehiclePlans[0]
         .totalPrice,
     ).toBe(4500);
 
@@ -203,7 +216,7 @@ describe('resource snapshot validation', () => {
       },
     ];
     await expect(
-      validator.normalize(manager, input, input),
+      validator.normalize(manager, input, plan()),
     ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
   });
   it('rejects impossible calendar dates in saves and PDF readiness', async () => {
@@ -252,6 +265,7 @@ describe('resource snapshot validation', () => {
             breakfast: '',
             unit: '',
             unitCost: 123,
+            adjustmentReason: '协议价',
           },
         ],
       },
@@ -275,6 +289,7 @@ describe('resource snapshot validation', () => {
     });
     const changed = structuredClone(saved);
     changed.hotelPlans[0].hotels[0].unitCost = 234;
+    changed.hotelPlans[0].hotels[0].adjustmentReason = '更正报价';
     expect(
       (await validator.normalize(manager, changed, saved)).hotelPlans[0]
         .hotels[0].unitCost,
@@ -390,12 +405,14 @@ it('saves and edits itinerary-only meals without accessing restaurant resources'
   );
   Object.assign(reopened.dailyPlans[0].items[0], {
     resourceName: 'Updated restaurant',
+    adjustmentReason: '菜单升级',
     unitCost: 50,
     quantity: 2,
   });
   const updated = await validator.normalize(manager, reopened, saved);
   expect(updated.dailyPlans[0].items[0]).toMatchObject({
     resourceName: 'Updated restaurant',
+    adjustmentReason: '菜单升级',
     unitCost: 50,
     totalCost: 100,
   });
@@ -425,4 +442,66 @@ it.each([
       input,
     ),
   ).rejects.toThrow('Invalid custom restaurant');
+});
+
+it.each(['restaurant', 'attraction'] as const)(
+  'preserves an authoritative %s reference and accepts only explained deviations or restoration',
+  async (type) => {
+    const input = plan();
+    const item = input.dailyPlans[0].items[0];
+    item.type = type;
+    if (type === 'attraction') delete item.mealSlot;
+    const old = plan();
+    old.dailyPlans[0].items = [];
+    const manager = {
+      findOne: jest.fn().mockResolvedValue({
+        restaurant: { name: '餐厅', status: 'enabled' },
+        attraction: { name: '景点', status: 'enabled' },
+        menuName: '菜单',
+        itemName: '门票',
+        price: '50',
+        settlementPrice: '50',
+        unit: 'personMeal',
+      }),
+    } as unknown as EntityManager;
+    const validator = new ItineraryValidation();
+    const saved = await validator.normalize(manager, input, old);
+    expect(saved.dailyPlans[0].items[0].referencePrice).toBe(50);
+    const change = structuredClone(saved);
+    Object.assign(change.dailyPlans[0].items[0], {
+      unitCost: 60,
+      referencePrice: 60,
+      adjustmentReason: '  ',
+    });
+    await expect(
+      validator.normalize(manager, change, saved),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    change.dailyPlans[0].items[0].adjustmentReason = '新协议价格';
+    const adjusted = await validator.normalize(manager, change, saved);
+    expect(adjusted.dailyPlans[0].items[0]).toMatchObject({
+      unitCost: 60,
+      referencePrice: 50,
+    });
+    change.dailyPlans[0].items[0].unitCost = 50;
+    change.dailyPlans[0].items[0].adjustmentReason = '';
+    expect(
+      (await validator.normalize(manager, change, adjusted)).dailyPlans[0]
+        .items[0].unitCost,
+    ).toBe(50);
+  },
+);
+
+it('requires another reason when a custom meal returns to its first price', async () => {
+  const old = plan();
+  Object.assign(old.dailyPlans[0].items[0], {
+    resourceId: null,
+    resourcePriceId: null,
+    unit: 'personMeal',
+    unitCost: 70,
+  });
+  const changed = structuredClone(old);
+  changed.dailyPlans[0].items[0].unitCost = 50;
+  await expect(
+    new ItineraryValidation().normalize({} as EntityManager, changed, old),
+  ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
 });

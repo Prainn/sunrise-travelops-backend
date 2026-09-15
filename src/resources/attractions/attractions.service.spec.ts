@@ -1,3 +1,5 @@
+import { withResourceScope } from '../common/resource-scope';
+import { AuthenticatedUser } from '../../auth/auth.types';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ResourceValidationService } from '../common/resource-validation.service';
 import { AttractionEntity, AttractionPriceEntity } from './attraction.entity';
@@ -55,88 +57,114 @@ describe('AttractionsService', () => {
     );
   });
 
-  it('applies keyword, area, and category filters in the list query', async () => {
-    const builder = {
-      loadRelationCountAndMap: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      addOrderBy: jest.fn().mockReturnThis(),
-      skip: jest.fn().mockReturnThis(),
-      take: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
-    };
-    attractions.createQueryBuilder = jest.fn().mockReturnValue(builder);
+  it('applies keyword, area, and category filters in the list query', () =>
+    withResourceScope(
+      { resourceLibrary: 'shengxu' } as AuthenticatedUser,
+      null,
+      async () => {
+        const builder = {
+          loadRelationCountAndMap: jest.fn().mockReturnThis(),
+          orderBy: jest.fn().mockReturnThis(),
+          addOrderBy: jest.fn().mockReturnThis(),
+          skip: jest.fn().mockReturnThis(),
+          take: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+        };
+        attractions.createQueryBuilder = jest.fn().mockReturnValue(builder);
 
-    await service.list({
-      page: 1,
-      pageSize: 10,
-      keyword: '日落',
-      area: '大理',
-      category: 'scenic',
-    });
+        await service.list({
+          page: 1,
+          pageSize: 10,
+          keyword: '日落',
+          area: '大理',
+          category: 'scenic',
+        });
 
-    expect(builder.orderBy).toHaveBeenCalledWith('attraction.createdAt', 'ASC');
-    expect(builder.addOrderBy).toHaveBeenCalledWith('attraction.id', 'ASC');
-    expect(builder.andWhere).toHaveBeenCalledWith(
-      expect.stringContaining('attraction.remark ILIKE :keyword'),
-      { keyword: '%日落%' },
-    );
-    expect(builder.andWhere).toHaveBeenCalledWith('attraction.area = :area', {
-      area: '大理',
-    });
-    expect(builder.andWhere).toHaveBeenCalledWith(
-      'attraction.category = :category',
-      { category: 'scenic' },
-    );
-  });
-
-  it('stores both amounts as 0.00 for a free price', async () => {
-    const result = await service.createPrice(
-      '00000000-0000-4000-8000-000000000001',
-      {
-        itemType: 'ticket',
-        itemName: 'Child',
-        audience: 'child',
-        periodName: '',
-        startDate: null,
-        endDate: null,
-        rackPrice: '100',
-        settlementPrice: '80',
-        unit: 'personVisit',
-        isFree: true,
-        priceNote: '',
+        expect(builder.orderBy).toHaveBeenCalledWith(
+          'attraction.createdAt',
+          'ASC',
+        );
+        expect(builder.addOrderBy).toHaveBeenCalledWith('attraction.id', 'ASC');
+        expect(builder.andWhere).toHaveBeenCalledWith(
+          expect.stringContaining('attraction.remark ILIKE :keyword'),
+          { keyword: '%日落%' },
+        );
+        expect(builder.andWhere).toHaveBeenCalledWith(
+          'attraction.area = :area',
+          {
+            area: '大理',
+          },
+        );
+        expect(builder.andWhere).toHaveBeenCalledWith(
+          'attraction.category = :category',
+          { category: 'scenic' },
+        );
       },
-      'actor',
-    );
-    expect(result).toMatchObject({
-      rackPrice: '0.00',
-      settlementPrice: '0.00',
-    });
-    expect(createPriceEntity).toHaveBeenCalledWith(
-      expect.objectContaining({ rackPrice: '0.00', settlementPrice: '0.00' }),
-    );
-  });
+    ));
 
-  it('rejects a reversed price date range before writing', async () => {
-    await expect(
-      service.createPrice(
-        '00000000-0000-4000-8000-000000000001',
-        {
-          itemType: 'ticket',
-          itemName: 'Adult',
-          audience: '',
-          periodName: '',
-          startDate: '2026-10-02',
-          endDate: '2026-10-01',
-          rackPrice: '1',
-          settlementPrice: '1',
-          unit: 'personVisit',
-          isFree: false,
-          priceNote: '',
-        },
-        'actor',
-      ),
-    ).rejects.toMatchObject({ code: 'ATTRACTION_PRICE_DATE_INVALID' });
-    expect((dataSource.transaction as jest.Mock).mock.calls).toHaveLength(0);
-  });
+  it('stores both amounts as 0.00 for a free price', () =>
+    withResourceScope(
+      { resourceLibrary: 'shengxu' } as AuthenticatedUser,
+      null,
+      async () => {
+        const result = await service.createPrice(
+          '00000000-0000-4000-8000-000000000001',
+          {
+            itemType: 'ticket',
+            itemName: 'Child',
+            audience: 'child',
+            periodName: '',
+            startDate: null,
+            endDate: null,
+            rackPrice: '100',
+            settlementPrice: '80',
+            unit: 'personVisit',
+            isFree: true,
+            priceNote: '',
+          },
+          'actor',
+        );
+        expect(result).toMatchObject({
+          rackPrice: '0.00',
+          settlementPrice: '0.00',
+        });
+        expect(createPriceEntity).toHaveBeenCalledWith(
+          expect.objectContaining({
+            rackPrice: '0.00',
+            settlementPrice: '0.00',
+          }),
+        );
+      },
+    ));
+
+  it('rejects a reversed price date range before writing', () =>
+    withResourceScope(
+      { resourceLibrary: 'shengxu' } as AuthenticatedUser,
+      null,
+      async () => {
+        await expect(
+          service.createPrice(
+            '00000000-0000-4000-8000-000000000001',
+            {
+              itemType: 'ticket',
+              itemName: 'Adult',
+              audience: '',
+              periodName: '',
+              startDate: '2026-10-02',
+              endDate: '2026-10-01',
+              rackPrice: '1',
+              settlementPrice: '1',
+              unit: 'personVisit',
+              isFree: false,
+              priceNote: '',
+            },
+            'actor',
+          ),
+        ).rejects.toMatchObject({ code: 'ATTRACTION_PRICE_DATE_INVALID' });
+        expect((dataSource.transaction as jest.Mock).mock.calls).toHaveLength(
+          0,
+        );
+      },
+    ));
 });

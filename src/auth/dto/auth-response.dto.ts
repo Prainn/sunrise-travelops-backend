@@ -1,3 +1,4 @@
+import { LoginScope, ResourceLibrary } from '../../users/user-identity.entity';
 export class AuthTokensResponse {
   accessToken: string;
   refreshToken: string;
@@ -8,6 +9,14 @@ export class AuthTokensResponse {
 export class AuthenticatedUserResponse {
   id: string;
   username: string;
+  nickname: string;
+  identityId: string;
+  scope: LoginScope;
+  scopeName: string;
+  deptId: number | null;
+  deptName: string;
+  roles: string[];
+  resourceLibrary: ResourceLibrary | null;
   permissions: string[];
 }
 

@@ -1,3 +1,11 @@
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import {
+  UserIdentityEntity,
+  LoginScope,
+  SCOPE_NAMES,
+  libraryFor,
+} from '../users/user-identity.entity';
+import { effectivePermissions } from './identity-permissions';
 import { UserLoginRecordEntity } from './user-login-record.entity';
 import { DEPARTMENT_OPTIONS } from '../users/user-management.constants';
 import {
@@ -31,16 +39,27 @@ export class AuthService {
     username: string,
     password: string,
     client: { ip: string; userAgent: string },
+    scope: LoginScope,
   ): Promise<AuthTokens> {
-    const user = await this.findUser(username);
-    if (!user || !(await argon2.verify(user.passwordHash, password))) {
+    const identity = await this.users.manager.findOne(UserIdentityEntity, {
+      where: { username, scope },
+      relations: { user: true, roles: true },
+    });
+    const user = identity?.user;
+    if (
+      !user ||
+      user.deletedAt ||
+      user.status !== UserStatus.Enabled ||
+      !identity?.roles.some((r) => r.isEnabled) ||
+      !(await argon2.verify(user.passwordHash, password))
+    ) {
       throw new BusinessException({
         code: ErrorCode.AUTH_INVALID_CREDENTIALS,
         message: '用户名或密码错误',
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    const tokens = await this.issueTokens(user);
+    const tokens = await this.issueTokens(user, identity);
     await this.loginRecords.save(
       this.loginRecords.create({
         userId: user.id,
@@ -61,39 +80,91 @@ export class AuthService {
       throw this.invalidRefreshToken();
     }
 
-    if (payload.type !== 'refresh') {
+    if (payload.type !== 'refresh' || !payload.identityId || !payload.scope) {
       throw this.invalidRefreshToken();
     }
 
-    const user = await this.users.findOne({
-      where: { id: payload.sub, status: UserStatus.Enabled },
+    const identity = await this.users.manager.findOne(UserIdentityEntity, {
+      where: {
+        id: payload.identityId,
+        userId: payload.sub,
+        scope: payload.scope,
+      },
+      relations: { user: true, roles: true },
     });
     if (
-      !user?.refreshTokenHash ||
-      !(await argon2.verify(user.refreshTokenHash, refreshToken))
-    ) {
+      !identity?.user ||
+      identity.user.deletedAt ||
+      identity.user.status !== UserStatus.Enabled ||
+      !identity.roles.some((r) => r.isEnabled) ||
+      !identity.refreshTokenHash ||
+      !(await argon2.verify(identity.refreshTokenHash, refreshToken))
+    )
       throw this.invalidRefreshToken();
-    }
-    return this.issueTokens(user);
+    return this.issueTokens(identity.user, identity);
   }
 
-  async logout(userId: string): Promise<void> {
-    await this.users.update(userId, { refreshTokenHash: null });
-  }
-
-  async getCurrentUser(userId: string): Promise<AuthenticatedUser> {
-    const user = await this.users.findOne({
-      where: { id: userId, status: UserStatus.Enabled },
-      relations: { roles: { permissions: true } },
+  async logout(identityId: string): Promise<void> {
+    await this.users.manager.update(UserIdentityEntity, identityId, {
+      refreshTokenHash: null,
     });
-    if (!user) {
+  }
+
+  async getCurrentUser(
+    userId: string,
+    identityId: string,
+    scope: LoginScope,
+  ): Promise<AuthenticatedUser> {
+    if (!identityId || !scope) throw this.invalidRefreshToken();
+    const identity = await this.users.manager.findOne(UserIdentityEntity, {
+      where: { id: identityId, userId, scope },
+      relations: { user: true, roles: true },
+    });
+    const user = identity?.user;
+    if (
+      !user ||
+      user.deletedAt ||
+      user.status !== UserStatus.Enabled ||
+      !identity.roles.some((r) => r.isEnabled)
+    ) {
       throw new BusinessException({
         code: ErrorCode.AUTH_TOKEN_INVALID,
         message: '访问令牌无效',
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    return this.toAuthenticatedUser(user);
+    const roles = identity.roles.filter((r) => r.isEnabled).map((r) => r.code);
+    return {
+      id: user.id,
+      username: user.username,
+      nickname: user.nickname,
+      identityId: identity.id,
+      scope,
+      scopeName: SCOPE_NAMES[scope],
+      deptId: identity.deptId,
+      deptName:
+        DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
+        '',
+      roles,
+      permissions: effectivePermissions(scope, roles),
+      resourceLibrary: scope === 'headquarters' ? null : libraryFor(scope),
+    };
+  }
+
+  async updateProfile(
+    actor: AuthenticatedUser,
+    input: UpdateProfileDto,
+  ): Promise<void> {
+    if (!actor.permissions.includes('sys:user:update'))
+      throw new BusinessException({
+        code: ErrorCode.AUTH_FORBIDDEN,
+        message: '无权修改账号资料',
+        status: HttpStatus.FORBIDDEN,
+      });
+    await this.users.update(
+      { id: actor.id, status: UserStatus.Enabled },
+      { ...input, updatedBy: actor.id },
+    );
   }
 
   async changePassword(
@@ -127,16 +198,20 @@ export class AuthService {
       },
       {
         passwordHash: await argon2.hash(newPassword),
-        refreshTokenHash: null,
         updatedBy: userId,
       },
     );
     if (!result.affected) throw incorrectPassword();
+    await this.users.manager.update(
+      UserIdentityEntity,
+      { userId },
+      { refreshTokenHash: null },
+    );
   }
 
-  async getProfile(userId: string): Promise<UserProfileResponse> {
+  async getProfile(actor: AuthenticatedUser): Promise<UserProfileResponse> {
     const user = await this.users.findOne({
-      where: { id: userId, status: UserStatus.Enabled },
+      where: { id: actor.id, status: UserStatus.Enabled },
     });
     if (!user) {
       throw new BusinessException({
@@ -153,17 +228,16 @@ export class AuthService {
       gender: user.gender,
       mobile: user.mobile,
       email: user.email,
-      deptName:
-        DEPARTMENT_OPTIONS.find((option) => option.value === user.deptId)
-          ?.label ?? '',
+      deptName: actor.deptName,
       createTime: user.createdAt.toISOString(),
     };
   }
 
-  async getProfileSecurity(userId: string): Promise<ProfileSecurityResponse> {
+  async getProfileSecurity(
+    actor: AuthenticatedUser,
+  ): Promise<ProfileSecurityResponse> {
     const user = await this.users.findOne({
-      where: { id: userId, status: UserStatus.Enabled },
-      relations: { roles: { permissions: true } },
+      where: { id: actor.id, status: UserStatus.Enabled },
     });
     if (!user) {
       throw new BusinessException({
@@ -172,30 +246,20 @@ export class AuthService {
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    const roles = user.roles
-      .filter((role) => role.isEnabled)
-      .sort((a, b) => a.code.localeCompare(b.code));
-    const permissions = new Map(
-      roles.flatMap((role) =>
-        role.permissions.map(
-          (permission) =>
-            [
-              permission.code,
-              { code: permission.code, name: permission.name },
-            ] as const,
-        ),
-      ),
+    const identity = await this.users.manager.findOneOrFail(
+      UserIdentityEntity,
+      { where: { id: actor.identityId }, relations: { roles: true } },
     );
+    const roles = identity.roles.filter((r) => actor.roles.includes(r.code));
+    const permissions = actor.permissions.map((code) => ({ code, name: code }));
     const records = await this.loginRecords.find({
-      where: { userId },
+      where: { userId: actor.id },
       order: { time: 'DESC', id: 'DESC' },
       take: 3,
     });
     return {
       roles: roles.map(({ code, name }) => ({ code, name })),
-      permissions: [...permissions.values()].sort((a, b) =>
-        a.code.localeCompare(b.code),
-      ),
+      permissions,
       recentLogins: records.map(({ id, time, ip, userAgent }) => ({
         id,
         time: time.toISOString(),
@@ -205,19 +269,20 @@ export class AuthService {
     };
   }
 
-  private async findUser(username: string): Promise<UserEntity | null> {
-    return this.users.findOne({
-      where: { username, status: UserStatus.Enabled },
-    });
-  }
-
-  private async issueTokens(user: UserEntity): Promise<AuthTokens> {
+  private async issueTokens(
+    user: UserEntity,
+    identity: UserIdentityEntity,
+  ): Promise<AuthTokens> {
     const accessPayload: JwtPayload = {
       sub: user.id,
+      identityId: identity.id,
+      scope: identity.scope,
       type: 'access',
     };
     const refreshPayload: JwtPayload = {
       sub: user.id,
+      identityId: identity.id,
+      scope: identity.scope,
       type: 'refresh',
     };
     const accessExpiresIn = this.config.getOrThrow<string>('JWT_EXPIRES_IN');
@@ -237,8 +302,8 @@ export class AuthService {
       }),
     ]);
 
-    user.refreshTokenHash = await argon2.hash(refreshToken);
-    await this.users.save(user);
+    identity.refreshTokenHash = await argon2.hash(refreshToken);
+    await this.users.manager.save(identity);
 
     const decoded = this.jwt.decode<{
       exp: number;
@@ -249,21 +314,6 @@ export class AuthService {
       refreshToken,
       tokenType: 'Bearer',
       expiresIn: decoded.exp - decoded.iat,
-    };
-  }
-
-  private toAuthenticatedUser(user: UserEntity): AuthenticatedUser {
-    const permissions = new Set(
-      user.roles
-        .filter((role) => role.isEnabled)
-        .flatMap((role) =>
-          role.permissions.map((permission) => permission.code),
-        ),
-    );
-    return {
-      id: user.id,
-      username: user.username,
-      permissions: [...permissions].sort(),
     };
   }
 

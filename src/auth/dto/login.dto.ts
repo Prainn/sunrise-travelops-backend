@@ -1,7 +1,12 @@
+import { LOGIN_SCOPES, LoginScope } from '../../users/user-identity.entity';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, Length, MinLength } from 'class-validator';
+import { IsIn, IsString, Length, MinLength } from 'class-validator';
 
 export class LoginDto {
+  @ApiProperty({ enum: LOGIN_SCOPES })
+  @IsIn(LOGIN_SCOPES)
+  scope: LoginScope;
+
   @ApiProperty({ example: 'admin' })
   @IsString()
   @Length(3, 80)

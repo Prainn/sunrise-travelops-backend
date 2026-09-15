@@ -61,6 +61,7 @@ export class AgencyContactResponse implements ResourceAuditResponse {
 }
 
 export class AgencyListItemResponse implements ResourceAuditResponse {
+  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

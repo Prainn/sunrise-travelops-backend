@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './identity-fixture';
 import { GuidesService } from '../src/resources/guides/guides.service';
 import { GuideEntity } from '../src/resources/guides/guide.entity';
 import { calculateItineraryQuote } from '../src/inquiries/quote-pricing';
@@ -40,17 +41,23 @@ async function main() {
       {} as AgenciesService,
     );
     const users = await runner.manager.find(UserEntity, {
-      relations: { roles: true },
+      relations: { identities: { roles: true } },
     });
     const coordinators = users.filter(
       (u) =>
         u.status === UserStatus.Enabled &&
-        u.roles.some((r) => r.code === 'COORDINATOR' && r.isEnabled) &&
-        !u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
+        u.identities
+          .flatMap((i) => i.roles)
+          .some((r) => r.code === 'COORDINATOR' && r.isEnabled) &&
+        !u.identities
+          .flatMap((i) => i.roles)
+          .some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
     );
     assert(coordinators.length >= 2, 'Need two local coordinator fixtures');
     const administrator = users.find((u) =>
-      u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code) && r.isEnabled),
+      u.identities
+        .flatMap((i) => i.roles)
+        .some((r) => r.code === 'ROOT' && r.isEnabled),
     )!;
     assert(administrator);
     const req = {
@@ -58,27 +65,15 @@ async function main() {
       id: 'inquiry-integration',
     } as unknown as Request;
     const actor = await service.actor(
-      {
-        id: coordinators[0].id,
-        username: coordinators[0].username,
-        permissions: [],
-      },
+      fixtureIdentity(coordinators[0], 'shengxu'),
       req,
     );
     const other = await service.actor(
-      {
-        id: coordinators[1].id,
-        username: coordinators[1].username,
-        permissions: [],
-      },
+      fixtureIdentity(coordinators[1], 'shengxu'),
       req,
     );
     const admin = await service.actor(
-      {
-        id: administrator.id,
-        username: administrator.username,
-        permissions: [],
-      },
+      fixtureIdentity(administrator, 'headquarters'),
       req,
     );
     assert(!actor.admin && admin.admin);

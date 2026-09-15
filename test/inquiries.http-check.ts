@@ -1,3 +1,4 @@
+import { fixtureIdentity } from './identity-fixture';
 import { InquiryEntity } from '../src/inquiries/inquiry.entity';
 import assert from 'node:assert/strict';
 import { JwtService } from '@nestjs/jwt';
@@ -7,25 +8,41 @@ async function main() {
   await db.initialize();
   try {
     const users = await db.manager.find(UserEntity, {
-      relations: { roles: true },
+      relations: { identities: { roles: true } },
     });
     const actor = users.find(
       (u) =>
         u.status === UserStatus.Enabled &&
-        u.roles.some((r) => r.code === 'COORDINATOR') &&
-        !u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
+        u.identities
+          .flatMap((i) => i.roles)
+          .some((r) => r.code === 'COORDINATOR') &&
+        !u.identities
+          .flatMap((i) => i.roles)
+          .some((r) => ['ROOT', 'ADMIN'].includes(r.code)),
     )!;
     const resource = users.find(
       (u) =>
         u.status === UserStatus.Enabled &&
-        u.roles.length === 1 &&
-        u.roles[0].code === 'RESOURCE_MANAGER',
+        u.identities.flatMap((i) => i.roles).length === 1 &&
+        u.identities.flatMap((i) => i.roles)[0].code === 'RESOURCE_MANAGER',
     )!;
     assert(actor && resource);
     const jwt = new JwtService();
     const token = (id: string) =>
       jwt.sign(
-        { sub: id, type: 'access' },
+        {
+          sub: id,
+          type: 'access',
+          identityId: fixtureIdentity(
+            users.find((u) => u.id === id)!,
+            users.find((u) => u.id === id)!.isSuperuser
+              ? 'headquarters'
+              : 'shengxu',
+          ).identityId,
+          scope: users.find((u) => u.id === id)!.isSuperuser
+            ? 'headquarters'
+            : 'shengxu',
+        },
         { secret: process.env.JWT_SECRET!, expiresIn: '30s' },
       );
     const base = `http://127.0.0.1:${process.env.PORT ?? 4000}/api`;
@@ -64,7 +81,9 @@ async function main() {
       400,
     );
     const admin = users.find((u) =>
-      u.roles.some((r) => ['ROOT', 'ADMIN'].includes(r.code) && r.isEnabled),
+      u.identities
+        .flatMap((i) => i.roles)
+        .some((r) => ['ROOT', 'ADMIN'].includes(r.code) && r.isEnabled),
     );
     assert(admin);
     const record = await db.manager.findOne(InquiryEntity, {

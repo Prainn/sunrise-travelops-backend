@@ -1,5 +1,4 @@
 import { AuditedEntity } from '../common/entities/audited.entity';
-import { UserEntity } from '../users/user.entity';
 import { PermissionEntity } from './permission.entity';
 import { Column, Entity, JoinTable, ManyToMany } from 'typeorm';
 
@@ -21,7 +20,4 @@ export class RoleEntity extends AuditedEntity {
     inverseJoinColumn: { name: 'permission_id', referencedColumnName: 'id' },
   })
   permissions: PermissionEntity[];
-
-  @ManyToMany(() => UserEntity, (user) => user.roles)
-  users: UserEntity[];
 }

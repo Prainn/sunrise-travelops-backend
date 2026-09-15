@@ -1,3 +1,4 @@
+import type { ReferencePrice } from './price-adjustments';
 export type ItineraryStatus =
   'draft' | 'ready_for_costing' | 'quoted' | 'archived';
 
@@ -12,7 +13,7 @@ export type ItineraryHotelTier =
   'international_five_star' | 'preferred_non_five_star';
 export type ItineraryVehicleTier = VehicleServiceLevel;
 
-export interface ItineraryHotelSelection {
+export interface ItineraryHotelSelection extends ReferencePrice {
   destination: string;
   hotelId: string;
   hotelName: string;
@@ -41,6 +42,9 @@ export interface ItineraryVehicleArrangement {
   totalPrice?: number | null;
 }
 export interface ItineraryVehiclePlan {
+  pricingMode?: 'automatic' | 'manual' | 'unknown' | null;
+  segmentTotal?: number | null;
+  adjustmentReason?: string | null;
   tier: ItineraryVehicleTier;
   arrangements: ItineraryVehicleArrangement[];
   totalPrice: number | null;
@@ -119,7 +123,7 @@ export interface ItineraryQuoteCalculation {
   options: ItineraryQuoteOptionCalculation[];
 }
 
-export interface ItineraryResourceItem {
+export interface ItineraryResourceItem extends ReferencePrice {
   id: string;
   type: ItineraryItemType;
   /** Both IDs are null for an itinerary-only custom restaurant. */
@@ -129,7 +133,6 @@ export interface ItineraryResourceItem {
   priceName: string;
   quantity: number;
   unit: ItineraryPriceUnit;
-  referenceUnitCost?: number;
   unitCost: number;
   totalCost: number;
   remark: string;
@@ -149,7 +152,7 @@ export interface ItineraryDayRecord {
   items: ItineraryResourceItem[];
 }
 
-export interface ItineraryGuidePlan {
+export interface ItineraryGuidePlan extends ReferencePrice {
   destination: string;
   guideId: string;
   guideName: string;

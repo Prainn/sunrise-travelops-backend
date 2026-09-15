@@ -1,3 +1,4 @@
+import { IsIn } from 'class-validator';
 import { Transform } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -25,11 +26,16 @@ const moneyString = ({ value }: { value: unknown }): unknown =>
 
 export class ResourceQueryDto extends PaginationQueryDto {
   @IsOptional()
+  @IsIn(['shengxu', 'linxi', 'website'])
+  businessUnit?: 'shengxu' | 'linxi' | 'website';
+  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
+  @IsOptional()
   @IsEnum(ResourceStatus)
   status?: ResourceStatus;
 }
 
 export class BatchIdsQueryDto {
+  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string'
       ? [...new Set(value.split(',').map((id) => id.trim()))].filter(Boolean)
@@ -42,6 +48,7 @@ export class BatchIdsQueryDto {
 }
 
 export abstract class ResourceInputDto {
+  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional()
   @IsUUID('all')
   id?: string;

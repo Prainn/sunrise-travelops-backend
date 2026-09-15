@@ -1,3 +1,4 @@
+import { IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { OmitType } from '@nestjs/swagger';
@@ -10,6 +11,7 @@ import {
   AttractionPriceResponse,
 } from '../attractions/dto/attraction.dto';
 export class SelectionQuery {
+  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @Type(() => Number) @IsInt() @Min(1) page = 1;
   @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize = 10;
   @IsOptional() @IsString() keyword?: string;

@@ -1,6 +1,16 @@
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { Permissions } from './decorators/permissions.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import type { Request } from 'express';
-import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiNoContentResponse,
@@ -38,10 +48,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Log in with username and password' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
   login(@Body() input: LoginDto, @Req() request: Request) {
-    return this.auth.login(input.username, input.password, {
-      ip: request.ip ?? '',
-      userAgent: request.get('user-agent') ?? '',
-    });
+    return this.auth.login(
+      input.username,
+      input.password,
+      {
+        ip: request.ip ?? '',
+        userAgent: request.get('user-agent') ?? '',
+      },
+      input.scope,
+    );
   }
 
   @Public()
@@ -59,7 +74,17 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiNoContentResponse()
   logout(@CurrentUser() user: AuthenticatedUser) {
-    return this.auth.logout(user.id);
+    return this.auth.logout(user.identityId);
+  }
+
+  @Patch('me/profile')
+  @HttpCode(204)
+  @Permissions('sys:user:update')
+  updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: UpdateProfileDto,
+  ) {
+    return this.auth.updateProfile(user, input);
   }
 
   @Post('me/password')
@@ -86,7 +111,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Get own personal profile' })
   @ApiSuccessResponse({ type: UserProfileResponse })
   getProfile(@CurrentUser() user: AuthenticatedUser) {
-    return this.auth.getProfile(user.id);
+    return this.auth.getProfile(user);
   }
 
   @Get('me/security')
@@ -97,7 +122,7 @@ export class AuthController {
   })
   @ApiSuccessResponse({ type: ProfileSecurityResponse })
   getProfileSecurity(@CurrentUser() user: AuthenticatedUser) {
-    return this.auth.getProfileSecurity(user.id);
+    return this.auth.getProfileSecurity(user);
   }
 
   @Get('me')
