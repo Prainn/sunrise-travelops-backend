@@ -1,69 +1,7 @@
-const RESOURCE_TYPES = [
-  'city',
-  'agency',
-  'hotel',
-  'restaurant',
-  'attraction',
-  'transport',
-  'guide',
-] as const;
+import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export const RESOURCE_PERMISSIONS = RESOURCE_TYPES.flatMap((resource) => [
-  `resource:${resource}:list`,
-  `resource:${resource}:create`,
-  `resource:${resource}:update`,
-  `resource:${resource}:delete`,
-]);
-
-export const INQUIRY_PERMISSIONS = [
-  'inquiry:list',
-  'inquiry:create',
-  'inquiry:update',
-  'itinerary:list',
-  'itinerary:create',
-  'itinerary:update',
-  'itinerary:price',
-  'itinerary:pdf',
-  ...RESOURCE_TYPES.map((resource) => `resource:${resource}:list`),
-] as const;
-
-export const ADMIN_PERMISSIONS = [
-  'sys:user:list',
-  'sys:user:create',
-  'sys:user:update',
-  'sys:user:delete',
-  'sys:user:import',
-  'sys:user:export',
-  'sys:user:reset-password',
-  'sys:role:list',
-  'sys:role:create',
-  'sys:role:update',
-  'sys:role:delete',
-  'sys:dict:list',
-  'sys:dict:create',
-  'sys:dict:update',
-  'sys:dict:delete',
-  'sys:dict-item:list',
-  'sys:dict-item:create',
-  'sys:dict-item:update',
-  'sys:dict-item:delete',
-  'sys:business-dictionary:list',
-  'sys:business-dictionary:create',
-  'sys:business-dictionary:update',
-  'sys:business-dictionary:delete',
-  ...RESOURCE_PERMISSIONS,
-  'inquiry:list',
-  'inquiry:create',
-  'inquiry:update',
-  'inquiry:archive',
-  'itinerary:list',
-  'itinerary:create',
-  'itinerary:update',
-  'itinerary:price',
-  'itinerary:pdf',
-] as const;
-
-export const PERMISSION_DEFINITIONS: Record<string, string> = {
+// Keep historical migration labels independent of runtime permission definitions.
+const names: Record<string, string> = {
   'sys:user:list': '查看用户',
   'sys:user:create': '新增用户',
   'sys:user:update': '修改用户',
@@ -127,3 +65,18 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'itinerary:pdf': '确认报价并生成 PDF',
   'itinerary:download': '下载已有冻结报价',
 };
+
+export class NamePermissionsInChinese1789488000000 implements MigrationInterface {
+  async up(queryRunner: QueryRunner): Promise<void> {
+    for (const [code, name] of Object.entries(names)) {
+      await queryRunner.query(
+        `UPDATE permissions SET name=$2 WHERE code=$1 AND (name=code OR btrim(name)='')`,
+        [code, name],
+      );
+    }
+  }
+
+  async down(): Promise<void> {
+    // Labels remain valid for the previous application; preserve business names.
+  }
+}

@@ -18,7 +18,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import { PermissionEntity } from '../roles/permission.entity';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
@@ -250,8 +251,13 @@ export class AuthService {
       UserIdentityEntity,
       { where: { id: actor.identityId }, relations: { roles: true } },
     );
-    const roles = identity.roles.filter((r) => actor.roles.includes(r.code));
-    const permissions = actor.permissions.map((code) => ({ code, name: code }));
+    const roles = identity.roles
+      .filter((role) => role.isEnabled && actor.roles.includes(role.code))
+      .sort((left, right) => left.code.localeCompare(right.code));
+    const permissions = await this.users.manager.find(PermissionEntity, {
+      where: { code: In([...new Set(actor.permissions)]) },
+      order: { code: 'ASC' },
+    });
     const records = await this.loginRecords.find({
       where: { userId: actor.id },
       order: { time: 'DESC', id: 'DESC' },
@@ -259,7 +265,7 @@ export class AuthService {
     });
     return {
       roles: roles.map(({ code, name }) => ({ code, name })),
-      permissions,
+      permissions: permissions.map(({ code, name }) => ({ code, name })),
       recentLogins: records.map(({ id, time, ip, userAgent }) => ({
         id,
         time: time.toISOString(),
