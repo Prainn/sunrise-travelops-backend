@@ -9,7 +9,8 @@
   },
   "packageManager": "pnpm@11.22.0",
   "scripts": {
-    "verify:release": "pnpm lint && pnpm exec jest --runInBand && python3 -B -m unittest discover -s scripts -p 'test_*.py' && node --test status/status.test.mjs && pnpm build",
+    "verify:release": "pnpm check:migrations && pnpm lint && pnpm exec jest --runInBand && python3 -B -m unittest discover -s scripts -p 'test_*.py' && node --test status/status.test.mjs && pnpm build",
+    "check:migrations": "node scripts/check-migration-names.mjs",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -22,9 +23,9 @@
     "test:e2e": "jest --config test/jest-e2e.json",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
-    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
+    "migration:run": "pnpm check:migrations && typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",
     "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/database/data-source.ts",
-    "migration:show": "typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
+    "migration:show": "pnpm check:migrations && typeorm-ts-node-commonjs migration:show -d src/database/data-source.ts",
     "users:seed": "ts-node -r tsconfig-paths/register src/scripts/seed-users.ts",
     "start:local": "ENV_FILE=.env.local nest start --watch"
   },

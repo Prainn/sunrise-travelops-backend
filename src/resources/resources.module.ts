@@ -16,6 +16,9 @@ import { AttractionsController } from './attractions/attractions.controller';
 import { AttractionsService } from './attractions/attractions.service';
 import { ResourceValidationService } from './common/resource-validation.service';
 import { GuideEntity } from './guides/guide.entity';
+import { GuidePersonEntity } from './guides/guide-person.entity';
+import { GuidePeopleController } from './guides/guide-people.controller';
+import { GuidePeopleService } from './guides/guide-people.service';
 import { GuidesController } from './guides/guides.controller';
 import { GuidesService } from './guides/guides.service';
 import { HotelEntity } from './hotels/hotel.entity';
@@ -46,6 +49,7 @@ const entities = [
   AttractionPriceEntity,
   TransportEntity,
   GuideEntity,
+  GuidePersonEntity,
   BusinessDictionaryTypeEntity,
   BusinessDictionaryItemEntity,
 ];
@@ -61,6 +65,7 @@ const entities = [
     AttractionsController,
     TransportsController,
     GuidesController,
+    GuidePeopleController,
   ],
   exports: [AgenciesService],
   providers: [
@@ -74,6 +79,7 @@ const entities = [
     AttractionsService,
     TransportsService,
     GuidesService,
+    GuidePeopleService,
   ],
 })
 export class ResourcesModule {}

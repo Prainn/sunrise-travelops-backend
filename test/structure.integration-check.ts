@@ -906,6 +906,243 @@ async function main() {
         'RESOURCE_MANAGER',
       );
       const websiteResources = await current(resourceUser.id, 'website');
+      const guidePriceBefore = await httpData<{
+        id: string;
+        dailyPrice: string;
+      }>(await request('GET', `/resources/guides/${ids.guide}`, root));
+      const frozenBefore: unknown = await db.query(
+        'SELECT snapshot FROM itinerary_quotes WHERE itinerary_id=$1',
+        [ids.quoted],
+      );
+      assert.equal(
+        (
+          await httpData<{ total: number }>(
+            await request('GET', '/resources/guide-people', root),
+          )
+        ).total,
+        0,
+      );
+      const personInput = {
+        library: 'shengxu',
+        name: '测试导游',
+        certificateNo: '00123x',
+        identityNumber: '临时编号-A01',
+        status: 'enabled',
+      };
+      const personCreate = await request(
+        'POST',
+        '/resources/guide-people',
+        root,
+        personInput,
+      );
+      assert.equal(personCreate.status, 201, await personCreate.clone().text());
+      const person = (
+        (await personCreate.json()) as {
+          data: {
+            id: string;
+            version: number;
+            gender: number;
+            certificateNo: string | null;
+            identityNumber: string | null;
+          };
+        }
+      ).data;
+      assert.equal(person.gender, 0);
+      assert.equal(person.certificateNo, '00123x');
+      assert.equal(person.identityNumber, '临时编号-A01');
+      const duplicateCreate = await request(
+        'POST',
+        '/resources/guide-people',
+        root,
+        personInput,
+      );
+      assert.equal(duplicateCreate.status, 201);
+      const duplicate = (
+        (await duplicateCreate.json()) as { data: { id: string } }
+      ).data;
+      assert.notEqual(duplicate.id, person.id);
+      const blankCreate = await request(
+        'POST',
+        '/resources/guide-people',
+        root,
+        {
+          library: 'shengxu',
+          name: '测试导游',
+          certificateNo: '',
+          status: 'enabled',
+        },
+      );
+      assert.equal(blankCreate.status, 201);
+      const blank = (
+        (await blankCreate.json()) as {
+          data: { certificateNo: string | null; identityNumber: string | null };
+        }
+      ).data;
+      assert.equal(blank.certificateNo, null);
+      assert.equal(blank.identityNumber, null);
+      assert.equal(
+        (
+          await httpData<{ total: number }>(
+            await request(
+              'GET',
+              '/resources/guide-people?keyword=00123x',
+              root,
+            ),
+          )
+        ).total,
+        2,
+      );
+      assert.equal(
+        (
+          await httpData<{ certificateNo: string; identityNumber: string }>(
+            await request('GET', `/resources/guide-people/${person.id}`, root),
+          )
+        ).identityNumber,
+        '临时编号-A01',
+      );
+      const updatedPerson = await httpData<{
+        version: number;
+        certificateNo: string;
+        identityNumber: string;
+        status: string;
+      }>(
+        await request('PUT', `/resources/guide-people/${person.id}`, root, {
+          ...personInput,
+          version: person.version,
+          certificateNo: ' 00123x ',
+          identityNumber: '临时编号-A01',
+          status: 'disabled',
+        }),
+      );
+      assert.equal(updatedPerson.certificateNo, ' 00123x ');
+      assert.equal(updatedPerson.identityNumber, '临时编号-A01');
+      assert.equal(updatedPerson.status, 'disabled');
+      assert.ok(updatedPerson.version > person.version);
+      assert.equal(
+        (
+          await request(
+            'POST',
+            '/resources/guide-people',
+            executive,
+            personInput,
+          )
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(
+            'GET',
+            `/resources/guide-people/${person.id}`,
+            executive,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request(
+            'GET',
+            `/resources/guide-people/${person.id}`,
+            websiteResources,
+          )
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(
+            'GET',
+            '/resources/guide-people?library=shengxu',
+            websiteResources,
+          )
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request(
+            'POST',
+            '/resources/guide-people',
+            websiteResources,
+            personInput,
+          )
+        ).status,
+        403,
+      );
+      assert.equal(
+        (
+          await request('POST', '/resources/guide-people', root, {
+            ...personInput,
+            certificateNo: 123,
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (
+          await request(
+            'DELETE',
+            `/resources/guide-people?ids=${person.id}`,
+            root,
+          )
+        ).status,
+        204,
+      );
+      assert.equal(
+        (await request('GET', `/resources/guide-people/${person.id}`, root))
+          .status,
+        404,
+      );
+      const sharedPriceInput = {
+        secondLanguage: 'en',
+        shopping: true,
+        dailyPrice: '500',
+        status: 'enabled',
+      };
+      const sharedPriceCreate = await request(
+        'POST',
+        '/resources/guides',
+        websiteResources,
+        sharedPriceInput,
+      );
+      assert.equal(
+        sharedPriceCreate.status,
+        201,
+        await sharedPriceCreate.clone().text(),
+      );
+      const sharedPrice = (
+        (await sharedPriceCreate.json()) as {
+          data: { id: string; version: number; status: string };
+        }
+      ).data;
+      assert.equal(sharedPrice.status, 'enabled');
+      const disabledPrice = await httpData<{ status: string }>(
+        await request(
+          'PUT',
+          `/resources/guides/${sharedPrice.id}`,
+          websiteResources,
+          {
+            ...sharedPriceInput,
+            version: sharedPrice.version,
+            status: 'disabled',
+          },
+        ),
+      );
+      assert.equal(disabledPrice.status, 'disabled');
+      assert.deepEqual(
+        await httpData<{ id: string; dailyPrice: string }>(
+          await request('GET', `/resources/guides/${ids.guide}`, root),
+        ),
+        guidePriceBefore,
+      );
+      assert.deepEqual(
+        await db.query(
+          'SELECT snapshot FROM itinerary_quotes WHERE itinerary_id=$1',
+          [ids.quoted],
+        ),
+        frozenBefore,
+      );
       assert.equal(
         (await request('GET', '/inquiries', websiteResources)).status,
         403,
@@ -1067,7 +1304,7 @@ async function main() {
     }
 
     console.log(
-      `PASS: empty chain, rejected unmapped data rollback, legacy migration, repeat migration, HTTP permissions, shared resources, transaction rollback, consecutive-save versions, scoped identities, read-only access, resource isolation, price history, save/copy/freeze, transfer and disable. Isolated database: ${database}`,
+      `PASS: empty chain, rejected unmapped data rollback, legacy migration, repeat migration, guide-person text/duplicates/soft-delete/scope, guide-price status, HTTP permissions, shared resources, transaction rollback, consecutive-save versions, scoped identities, read-only access, resource isolation, price history, save/copy/freeze, transfer and disable. Isolated database: ${database}`,
     );
   } finally {
     await db.destroy();

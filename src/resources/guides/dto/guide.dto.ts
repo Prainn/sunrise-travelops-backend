@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsEnum,
   IsIn,
   IsInt,
   IsOptional,
@@ -14,6 +15,7 @@ import {
   moneyTransform,
 } from '../../common/resource.dto';
 import { GUIDE_LANGUAGES } from '../guide.entity';
+import { ResourceStatus } from '../../common/resource.constants';
 export class GuideQueryDto extends ResourceQueryDto {
   @IsOptional() @IsIn(GUIDE_LANGUAGES) secondLanguage?: string;
   @IsOptional() @IsIn(['true', 'false']) shopping?: string;
@@ -24,6 +26,7 @@ export class CreateGuideDto {
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) dailyPrice: string;
   @IsIn(GUIDE_LANGUAGES) secondLanguage: string;
   @IsBoolean() shopping: boolean;
+  @IsOptional() @IsEnum(ResourceStatus) status?: ResourceStatus;
 }
 export class UpdateGuideDto extends CreateGuideDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
