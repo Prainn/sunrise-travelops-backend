@@ -52,11 +52,12 @@ class DeploymentTests(unittest.TestCase):
             deploy.cleanup_after_success()
         self.assertIn('::warning::', stderr.getvalue())
     def test_destructive_migration_cannot_use_mistaken_compatibility_flag(self):
-        name = 'ReviseTravelPlanning1788912000000'
-        with self.assertRaisesRegex(ValueError, 'destructive migration'):
-            deploy.check_schema({'A': 'a'}, {'A': 'a', name: 'b'}, ['A', name], [name])
-        with self.assertRaisesRegex(ValueError, 'separate maintenance plan'):
-            deploy.check_schema({'A': 'a', name: 'b'}, {'A': 'a'}, ['A'], [], True)
+        for name in ['ReviseTravelPlanning1788912000000', 'StructureBusinessAndIdentity1789459200000', 'ReleaseDeletedUsernames1789459400000']:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, 'destructive migration'):
+                    deploy.check_schema({'A': 'a'}, {'A': 'a', name: 'b'}, ['A', name], [name])
+                with self.assertRaisesRegex(ValueError, 'separate maintenance plan'):
+                    deploy.check_schema({'A': 'a', name: 'b'}, {'A': 'a'}, ['A'], [], True)
 
     def test_publish_records_time_only_after_verification(self):
         for fails in [False, True]:

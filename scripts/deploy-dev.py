@@ -20,7 +20,11 @@ COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.dev.y
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
-BREAKING_MIGRATIONS = {'ReviseTravelPlanning1788912000000'}
+BREAKING_MIGRATIONS = {
+    'ReviseTravelPlanning1788912000000',
+    'StructureBusinessAndIdentity1789459200000',
+    'ReleaseDeletedUsernames1789459400000',
+}
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
 const result = {};
