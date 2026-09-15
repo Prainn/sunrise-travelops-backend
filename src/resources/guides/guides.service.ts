@@ -37,7 +37,8 @@ export class GuidesService {
     const page = actualPage(query);
     const builder = this.guides
       .createQueryBuilder('guide')
-      .orderBy('guide.createdAt', 'ASC')
+      .orderBy("CAST(SUBSTRING(guide.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .addOrderBy('guide.code', 'ASC')
       .addOrderBy('guide.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

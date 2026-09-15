@@ -36,7 +36,11 @@ describe('HotelsService', () => {
           rating: 'international_five_star',
         });
 
-        expect(builder.orderBy).toHaveBeenCalledWith('hotel.createdAt', 'ASC');
+        expect(builder.orderBy).toHaveBeenCalledWith(
+          "CAST(SUBSTRING(hotel.code FROM '[0-9]+$') AS bigint)",
+          'ASC',
+        );
+        expect(builder.addOrderBy).toHaveBeenCalledWith('hotel.code', 'ASC');
         expect(builder.addOrderBy).toHaveBeenCalledWith('hotel.id', 'ASC');
         expect(builder.andWhere).toHaveBeenCalledWith(
           expect.stringContaining('hotel.address ILIKE :keyword'),

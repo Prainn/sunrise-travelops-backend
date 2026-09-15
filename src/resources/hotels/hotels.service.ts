@@ -40,7 +40,8 @@ export class HotelsService {
     const page = actualPage(query);
     const builder = this.hotels
       .createQueryBuilder('hotel')
-      .orderBy('hotel.createdAt', 'ASC')
+      .orderBy("CAST(SUBSTRING(hotel.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .addOrderBy('hotel.code', 'ASC')
       .addOrderBy('hotel.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

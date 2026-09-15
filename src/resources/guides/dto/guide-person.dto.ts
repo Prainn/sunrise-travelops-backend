@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEnum,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -32,6 +33,31 @@ export class CreateGuidePersonDto {
   @IsOptional()
   @IsIn([0, 1, 2])
   gender?: number | null;
+  @ApiPropertyOptional({ type: Number, nullable: true, minimum: 0 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  age?: number | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsString()
+  contact?: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    enum: ['full_time', 'part_time'],
+    nullable: true,
+  })
+  @IsOptional()
+  @IsIn(['full_time', 'part_time'])
+  employmentType?: 'full_time' | 'part_time' | null;
+  @ApiPropertyOptional({ type: Boolean, nullable: true })
+  @IsOptional()
+  @IsBoolean()
+  hasLaborContract?: boolean | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsString()
+  remark?: string | null;
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsString()
@@ -54,6 +80,20 @@ export class GuidePersonResponse implements ResourceAuditResponse {
   name: string;
   @ApiProperty({ type: Number, enum: [0, 1, 2] })
   gender: number;
+  @ApiProperty({ type: Number, nullable: true, minimum: 0 })
+  age: number | null;
+  @ApiProperty({ type: String, nullable: true })
+  contact: string | null;
+  @ApiProperty({
+    type: String,
+    enum: ['full_time', 'part_time'],
+    nullable: true,
+  })
+  employmentType: 'full_time' | 'part_time' | null;
+  @ApiProperty({ type: Boolean, nullable: true })
+  hasLaborContract: boolean | null;
+  @ApiProperty({ type: String, nullable: true })
+  remark: string | null;
   @ApiProperty({ type: String, nullable: true })
   certificateNo: string | null;
   @ApiProperty({ type: String, nullable: true })

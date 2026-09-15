@@ -58,7 +58,11 @@ export class AttractionsService {
     const builder = this.attractions
       .createQueryBuilder('attraction')
       .loadRelationCountAndMap('attraction.priceCount', 'attraction.prices')
-      .orderBy('attraction.createdAt', 'ASC')
+      .orderBy(
+        "CAST(SUBSTRING(attraction.code FROM '[0-9]+$') AS bigint)",
+        'ASC',
+      )
+      .addOrderBy('attraction.code', 'ASC')
       .addOrderBy('attraction.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

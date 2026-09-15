@@ -41,7 +41,8 @@ export class GuidePeopleService {
     const page = actualPage(query);
     const builder = this.people
       .createQueryBuilder('person')
-      .orderBy('person.createdAt', 'ASC')
+      .orderBy("CAST(SUBSTRING(person.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .addOrderBy('person.code', 'ASC')
       .addOrderBy('person.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
@@ -49,7 +50,7 @@ export class GuidePeopleService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(person.code ILIKE :keyword OR person.name ILIKE :keyword OR person.certificateNo ILIKE :keyword OR person.identityNumber ILIKE :keyword)',
+        '(person.code ILIKE :keyword OR person.name ILIKE :keyword OR person.contact ILIKE :keyword OR person.certificateNo ILIKE :keyword OR person.identityNumber ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -87,6 +88,11 @@ export class GuidePeopleService {
         library: resourceLibrary(true) ?? undefined,
         code,
         gender: input.gender ?? 0,
+        age: input.age ?? null,
+        contact: nullableDocument(input.contact),
+        employmentType: input.employmentType ?? null,
+        hasLaborContract: input.hasLaborContract ?? null,
+        remark: nullableDocument(input.remark),
         certificateNo: nullableDocument(input.certificateNo),
         identityNumber: nullableDocument(input.identityNumber),
         createdBy: actorId,
@@ -115,6 +121,23 @@ export class GuidePeopleService {
         library: entity.library,
         code: entity.code,
         gender: input.gender ?? 0,
+        age: input.age === undefined ? entity.age : input.age,
+        contact:
+          input.contact === undefined
+            ? entity.contact
+            : nullableDocument(input.contact),
+        employmentType:
+          input.employmentType === undefined
+            ? entity.employmentType
+            : input.employmentType,
+        hasLaborContract:
+          input.hasLaborContract === undefined
+            ? entity.hasLaborContract
+            : input.hasLaborContract,
+        remark:
+          input.remark === undefined
+            ? entity.remark
+            : nullableDocument(input.remark),
         certificateNo:
           input.certificateNo === undefined
             ? entity.certificateNo
@@ -155,6 +178,11 @@ export class GuidePeopleService {
       code: entity.code,
       name: entity.name,
       gender: entity.gender,
+      age: entity.age,
+      contact: entity.contact,
+      employmentType: entity.employmentType,
+      hasLaborContract: entity.hasLaborContract,
+      remark: entity.remark,
       certificateNo: entity.certificateNo,
       identityNumber: entity.identityNumber,
       status: entity.status,

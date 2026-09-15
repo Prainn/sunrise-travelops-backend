@@ -38,7 +38,8 @@ export class CitiesService {
     const page = actualPage(query);
     const builder = this.cities
       .createQueryBuilder('city')
-      .orderBy('city.createdAt', 'ASC')
+      .orderBy("CAST(SUBSTRING(city.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .addOrderBy('city.code', 'ASC')
       .addOrderBy('city.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

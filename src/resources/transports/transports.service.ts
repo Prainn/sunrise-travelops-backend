@@ -38,7 +38,11 @@ export class TransportsService {
     const page = actualPage(query);
     const builder = this.transports
       .createQueryBuilder('transport')
-      .orderBy('transport.createdAt', 'ASC')
+      .orderBy(
+        "CAST(SUBSTRING(transport.code FROM '[0-9]+$') AS bigint)",
+        'ASC',
+      )
+      .addOrderBy('transport.code', 'ASC')
       .addOrderBy('transport.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);

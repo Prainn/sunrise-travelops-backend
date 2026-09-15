@@ -64,7 +64,33 @@ async function main() {
     synchronize: false,
   }).initialize();
   try {
+    const migrations = [...empty.migrations];
+    empty.migrations.splice(
+      0,
+      empty.migrations.length,
+      ...migrations.filter(
+        (m) =>
+          Number((m.name ?? m.constructor.name).slice(-13)) < 1789488200000,
+      ),
+    );
     await empty.runMigrations();
+    await empty.query(`INSERT INTO resource_guide_people(library,code,name)
+      VALUES ('shengxu','GPR-OLD','旧导游档案')`);
+    empty.migrations.splice(0, empty.migrations.length, ...migrations);
+    assert.equal((await empty.runMigrations()).length, 1);
+    const oldPerson: unknown = await empty.query(`SELECT name, age, contact,
+      employment_type, has_labor_contract, remark FROM resource_guide_people
+      WHERE code='GPR-OLD'`);
+    assert.deepEqual(oldPerson, [
+      {
+        name: '旧导游档案',
+        age: null,
+        contact: null,
+        employment_type: null,
+        has_labor_contract: null,
+        remark: null,
+      },
+    ]);
     assert.equal((await empty.runMigrations()).length, 0);
   } finally {
     await empty.destroy();
@@ -925,6 +951,11 @@ async function main() {
       const personInput = {
         library: 'shengxu',
         name: '测试导游',
+        age: 36,
+        contact: '微信: guide-01',
+        employmentType: 'part_time',
+        hasLaborContract: false,
+        remark: '可周末接团',
         certificateNo: '00123x',
         identityNumber: '临时编号-A01',
         status: 'enabled',
@@ -942,12 +973,22 @@ async function main() {
             id: string;
             version: number;
             gender: number;
+            age: number | null;
+            contact: string | null;
+            employmentType: string | null;
+            hasLaborContract: boolean | null;
+            remark: string | null;
             certificateNo: string | null;
             identityNumber: string | null;
           };
         }
       ).data;
       assert.equal(person.gender, 0);
+      assert.equal(person.age, 36);
+      assert.equal(person.contact, '微信: guide-01');
+      assert.equal(person.employmentType, 'part_time');
+      assert.equal(person.hasLaborContract, false);
+      assert.equal(person.remark, '可周末接团');
       assert.equal(person.certificateNo, '00123x');
       assert.equal(person.identityNumber, '临时编号-A01');
       const duplicateCreate = await request(
@@ -975,11 +1016,36 @@ async function main() {
       assert.equal(blankCreate.status, 201);
       const blank = (
         (await blankCreate.json()) as {
-          data: { certificateNo: string | null; identityNumber: string | null };
+          data: {
+            age: number | null;
+            contact: string | null;
+            employmentType: string | null;
+            hasLaborContract: boolean | null;
+            remark: string | null;
+            certificateNo: string | null;
+            identityNumber: string | null;
+          };
         }
       ).data;
       assert.equal(blank.certificateNo, null);
       assert.equal(blank.identityNumber, null);
+      assert.equal(blank.age, null);
+      assert.equal(blank.contact, null);
+      assert.equal(blank.employmentType, null);
+      assert.equal(blank.hasLaborContract, null);
+      assert.equal(blank.remark, null);
+      assert.equal(
+        (
+          await httpData<{ total: number }>(
+            await request(
+              'GET',
+              '/resources/guide-people?keyword=guide-01',
+              root,
+            ),
+          )
+        ).total,
+        2,
+      );
       assert.equal(
         (
           await httpData<{ total: number }>(
@@ -1004,6 +1070,11 @@ async function main() {
         version: number;
         certificateNo: string;
         identityNumber: string;
+        age: number | null;
+        contact: string | null;
+        employmentType: string | null;
+        hasLaborContract: boolean | null;
+        remark: string | null;
         status: string;
       }>(
         await request('PUT', `/resources/guide-people/${person.id}`, root, {
@@ -1011,11 +1082,21 @@ async function main() {
           version: person.version,
           certificateNo: ' 00123x ',
           identityNumber: '临时编号-A01',
+          age: null,
+          contact: '',
+          employmentType: 'full_time',
+          hasLaborContract: true,
+          remark: '',
           status: 'disabled',
         }),
       );
       assert.equal(updatedPerson.certificateNo, ' 00123x ');
       assert.equal(updatedPerson.identityNumber, '临时编号-A01');
+      assert.equal(updatedPerson.age, null);
+      assert.equal(updatedPerson.contact, null);
+      assert.equal(updatedPerson.employmentType, 'full_time');
+      assert.equal(updatedPerson.hasLaborContract, true);
+      assert.equal(updatedPerson.remark, null);
       assert.equal(updatedPerson.status, 'disabled');
       assert.ok(updatedPerson.version > person.version);
       assert.equal(
@@ -1079,6 +1160,21 @@ async function main() {
         ).status,
         400,
       );
+      for (const invalidField of [
+        { age: -1 },
+        { employmentType: 'temporary' },
+        { hasLaborContract: 'yes' },
+      ]) {
+        assert.equal(
+          (
+            await request('POST', '/resources/guide-people', root, {
+              ...personInput,
+              ...invalidField,
+            })
+          ).status,
+          400,
+        );
+      }
       assert.equal(
         (
           await request(

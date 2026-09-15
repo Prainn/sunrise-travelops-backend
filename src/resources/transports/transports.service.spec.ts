@@ -35,7 +35,7 @@ describe('TransportsService', () => {
         });
 
         expect(builder.orderBy).toHaveBeenCalledWith(
-          'transport.createdAt',
+          "CAST(SUBSTRING(transport.code FROM '[0-9]+$') AS bigint)",
           'ASC',
         );
         expect(builder.addOrderBy).toHaveBeenCalledWith('transport.id', 'ASC');

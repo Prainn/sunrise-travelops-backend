@@ -82,7 +82,7 @@ describe('AttractionsService', () => {
         });
 
         expect(builder.orderBy).toHaveBeenCalledWith(
-          'attraction.createdAt',
+          "CAST(SUBSTRING(attraction.code FROM '[0-9]+$') AS bigint)",
           'ASC',
         );
         expect(builder.addOrderBy).toHaveBeenCalledWith('attraction.id', 'ASC');
