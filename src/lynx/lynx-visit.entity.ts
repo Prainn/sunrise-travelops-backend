@@ -17,7 +17,7 @@ export class LynxVisit {
   whatsappReference!: string;
   @Column({ name: 'website_inquiry_id', type: 'varchar', length: 128 })
   websiteInquiryId!: string;
-  @Column({ name: 'contract_version', type: 'varchar', length: 16 })
+  @Column({ name: 'contract_version', type: 'varchar', length: 2048 })
   contractVersion!: string;
   @Column({ name: 'first_landing_page', type: 'text', nullable: true })
   firstLandingPage!: string | null;

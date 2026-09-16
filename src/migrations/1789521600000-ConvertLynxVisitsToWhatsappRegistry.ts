@@ -11,7 +11,7 @@ export class ConvertLynxVisitsToWhatsappRegistry1789521600000 implements Migrati
     await queryRunner.query(`
       ALTER TABLE "lynx_visits"
         ADD COLUMN "website_inquiry_id" varchar(128) NOT NULL,
-        ADD COLUMN "contract_version" varchar(16) NOT NULL,
+        ADD COLUMN "contract_version" varchar(2048) NOT NULL,
         ADD COLUMN "first_landing_page" text,
         ADD COLUMN "external_referrer" text,
         ADD COLUMN "utm_source" text,
