@@ -88,7 +88,7 @@ describe('WhatsApp attribution registry HTTP contract', () => {
 
   it('accepts any non-empty contract version string within storage length', async () => {
     const http = app.getHttpServer();
-    const customVersion = 'partner-2026.09';
+    const customVersion = 'partner-contract-version-2026.09';
     await request(http)
       .post('/v1/whatsapp/register')
       .send({ ...body, contract_version: customVersion })

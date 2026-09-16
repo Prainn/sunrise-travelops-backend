@@ -12,7 +12,7 @@ const connection = {
   username: 'postgres',
   password: 'isolated-test-only',
 };
-const NEW_MIGRATION = 1789521600000;
+const REGISTRY_MIGRATION = 1789521600000;
 
 async function rowCount(source: DataSource): Promise<number> {
   const rows: unknown = await source.query(
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
         ...all.filter(
           (migration) =>
             Number((migration.name ?? migration.constructor.name).slice(-13)) <
-            NEW_MIGRATION,
+            REGISTRY_MIGRATION,
         ),
       );
       await upgraded.runMigrations({ transaction: 'all' });
@@ -61,7 +61,13 @@ async function main(): Promise<void> {
       );
       assert.equal(await rowCount(upgraded), 1);
       const applied = await upgraded.runMigrations({ transaction: 'all' });
-      assert.equal(applied.length, 1);
+      assert.deepEqual(
+        applied.map((migration) => migration.name),
+        [
+          'ConvertLynxVisitsToWhatsappRegistry1789521600000',
+          'ExpandWhatsappContractVersion1789530710880',
+        ],
+      );
       assert.equal(await rowCount(upgraded), 0);
       const columns: unknown = await upgraded.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'lynx_visits'`,
@@ -88,7 +94,7 @@ async function main(): Promise<void> {
       const input = {
         whatsapp_reference: 'LX-NEW-TEST',
         website_inquiry_id: 'wi-test',
-        contract_version: 'v1' as const,
+        contract_version: 'partner-contract-version-2026.09',
       };
       assert.equal(await service.register(input), true);
       assert.equal(await service.register(input), false);
