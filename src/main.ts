@@ -1,4 +1,4 @@
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -19,7 +19,15 @@ async function bootstrap(): Promise<void> {
 
   app.useLogger(app.get(Logger));
   app.set('trust proxy', parseTrustProxy(config.get<string>('TRUST_PROXY')));
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'v1/whatsapp/register', method: RequestMethod.POST },
+      {
+        path: 'v1/private/whatsapp/:whatsapp_reference',
+        method: RequestMethod.GET,
+      },
+    ],
+  });
   app.useBodyParser('json', { limit: '2mb' });
   app.use(helmet());
   app.enableCors(

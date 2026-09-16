@@ -12,6 +12,7 @@ x-api-environment: &api-environment
   JWT_SECRET: ${JWT_SECRET:?required}
   JWT_EXPIRES_IN: 15m
   REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:?required}
+  WHATSAPP_RESOLVER_TOKEN: ${WHATSAPP_RESOLVER_TOKEN:?required}
   REFRESH_TOKEN_EXPIRES_IN: 7d
   CORS_ORIGIN: https://ops-dev.sunrisevacation.cn
   TRUST_PROXY: "1"

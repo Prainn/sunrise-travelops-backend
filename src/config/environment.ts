@@ -11,6 +11,7 @@ const REQUIRED_ENVIRONMENT_VARIABLES = [
   'REFRESH_TOKEN_SECRET',
   'REFRESH_TOKEN_EXPIRES_IN',
   'CORS_ORIGIN',
+  'WHATSAPP_RESOLVER_TOKEN',
 ] as const;
 
 export function validateEnvironment(environment: Environment): Environment {
@@ -41,6 +42,12 @@ export function validateEnvironment(environment: Environment): Environment {
 
   if (environment.JWT_SECRET === environment.REFRESH_TOKEN_SECRET) {
     throw new Error('JWT_SECRET and REFRESH_TOKEN_SECRET must be different');
+  }
+
+  if ((environment.WHATSAPP_RESOLVER_TOKEN?.length ?? 0) < 32) {
+    throw new Error(
+      'WHATSAPP_RESOLVER_TOKEN must contain at least 32 characters',
+    );
   }
 
   parseTrustProxy(environment.TRUST_PROXY);

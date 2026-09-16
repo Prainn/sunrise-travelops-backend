@@ -1,48 +1,63 @@
+import { timingSafeEqual } from 'node:crypto';
 import {
-  BadRequestException,
   Controller,
+  ForbiddenException,
   Get,
   Header,
-  Query,
+  Param,
+  Post,
   Req,
+  Res,
+  UnauthorizedException,
+  Body,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Request } from 'express';
-import { Repository } from 'typeorm';
+import { Request, Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
-import { LynxVisit } from './lynx-visit.entity';
+import { WhatsappRegisterDto } from './whatsapp-register.dto';
+import { WhatsappRegistryService } from './whatsapp-registry.service';
 
 @ApiExcludeController()
-@Controller('lynx')
+@Controller('v1')
 export class LynxController {
   constructor(
-    @InjectRepository(LynxVisit)
-    private readonly visits: Repository<LynxVisit>,
+    private readonly registry: WhatsappRegistryService,
+    private readonly config: ConfigService,
   ) {}
 
   @Public()
-  @Get()
+  @Post('whatsapp/register')
   @Header('Cache-Control', 'no-store')
-  async record(
-    @Query('whatsapp_reference') reference: unknown,
-    @Req() request: Request,
+  async register(
+    @Body() body: WhatsappRegisterDto,
+    @Res({ passthrough: true }) response: Response,
   ): Promise<{ recorded: true }> {
-    if (
-      typeof reference !== 'string' ||
-      reference.trim().length === 0 ||
-      reference.trim().length > 128
-    ) {
-      throw new BadRequestException(
-        'whatsapp_reference must be a non-empty string of at most 128 characters',
-      );
-    }
-
-    await this.visits.insert({
-      whatsappReference: reference.trim(),
-      ip: request.ip ?? null,
-      browser: request.get('user-agent') ?? '',
-    });
+    const inserted = await this.registry.register(body);
+    if (!inserted) response.status(200);
     return { recorded: true };
+  }
+
+  @Public()
+  @Get('private/whatsapp/:whatsapp_reference')
+  @Header('Cache-Control', 'no-store')
+  async resolve(
+    @Param('whatsapp_reference') reference: string,
+    @Req() request: Request,
+  ): Promise<Record<string, string | null>> {
+    const authorization = request.headers.authorization;
+    if (!authorization) throw new UnauthorizedException();
+    if (!authorization.startsWith('Bearer ')) throw new ForbiddenException();
+    const supplied = Buffer.from(authorization.slice(7));
+    const expected = Buffer.from(
+      this.config.getOrThrow<string>('WHATSAPP_RESOLVER_TOKEN'),
+    );
+    if (
+      supplied.length !== expected.length ||
+      !timingSafeEqual(supplied, expected)
+    ) {
+      throw new UnauthorizedException();
+    }
+    return this.registry.resolve(reference);
   }
 }

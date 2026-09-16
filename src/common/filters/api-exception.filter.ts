@@ -41,11 +41,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const requestId = this.requestId(request);
     const userId =
       typeof request.user?.id === 'string' ? request.user.id : undefined;
+    const isWhatsappRoute = request.path.startsWith('/v1/');
     const logContext = {
       requestId,
       userId,
       method: request.method,
-      path: request.originalUrl,
+      path: request.path,
       statusCode: normalized.status,
       code: normalized.code,
     };
@@ -54,7 +55,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       this.logger.error({
         ...logContext,
         message: 'Unhandled request exception',
-        err: exception,
+        ...(isWhatsappRoute ? {} : { err: exception }),
       });
     } else {
       this.logger.warn({ ...logContext, message: 'Request rejected' });

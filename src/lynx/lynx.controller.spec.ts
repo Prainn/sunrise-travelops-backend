@@ -1,74 +1,133 @@
-import { Server } from 'node:http';
-import { INestApplication } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { LynxController } from './lynx.controller';
 import { LynxVisit } from './lynx-visit.entity';
+import { WhatsappRegistryService } from './whatsapp-registry.service';
 
-describe('GET /api/lynx', () => {
-  let app: INestApplication;
-  const insert = jest.fn().mockResolvedValue({});
+describe('WhatsApp attribution registry HTTP contract', () => {
+  let app: NestExpressApplication;
+  const rows = new Map<string, LynxVisit>();
+  const repository = {
+    insert: jest.fn((data: Partial<LynxVisit>) => {
+      if (rows.has(data.whatsappReference!)) {
+        throw Object.assign(new Error('unique reference'), {
+          driverError: {
+            code: '23505',
+            constraint: 'UQ_lynx_visits_whatsapp_reference',
+          },
+        });
+      }
+      rows.set(data.whatsappReference!, data as LynxVisit);
+      return Promise.resolve();
+    }),
+    findOneBy: jest.fn(({ whatsappReference }: { whatsappReference: string }) =>
+      Promise.resolve(rows.get(whatsappReference) ?? null),
+    ),
+  };
+  const token = 'r'.repeat(40);
+  const body = {
+    whatsapp_reference: 'LX-ABC123',
+    website_inquiry_id: 'wi-abc123',
+    contract_version: 'v1',
+    first_landing_page: 'https://lynxtour.cn/products/yunnan?gclid=secret#top',
+    utm_source: 'google',
+  };
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [LynxController],
       providers: [
-        { provide: getRepositoryToken(LynxVisit), useValue: { insert } },
+        WhatsappRegistryService,
+        { provide: getRepositoryToken(LynxVisit), useValue: repository },
+        { provide: ConfigService, useValue: { getOrThrow: () => token } },
       ],
     }).compile();
     app = module.createNestApplication<NestExpressApplication>();
-    (app as NestExpressApplication).set('trust proxy', 'loopback');
-    app.setGlobalPrefix('api');
+    app.setGlobalPrefix('api', {
+      exclude: [
+        { path: 'v1/whatsapp/register', method: RequestMethod.POST },
+        {
+          path: 'v1/private/whatsapp/:whatsapp_reference',
+          method: RequestMethod.GET,
+        },
+      ],
+    });
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+    );
     await app.init();
   });
-  beforeEach(() => insert.mockClear());
+  beforeEach(() => {
+    rows.clear();
+    repository.insert.mockClear();
+  });
   afterAll(async () => app.close());
 
-  it('records each visit, accepts existing link parameters and derives IP and browser from the request', async () => {
-    for (let i = 0; i < 2; i++) {
-      await request(app.getHttpServer() as Server)
-        .get('/api/lynx')
-        .query({
-          whatsapp_reference: 'LX-TEST',
-          utm_source: 'test',
-          ip: 'fake',
-          browser: 'fake',
-          time: 'fake',
-        })
-        .set('X-Forwarded-For', '116.53.208.174')
-        .set('User-Agent', 'Mozilla/5.0 Chrome/152.0.0.0')
-        .expect(200)
-        .expect('Cache-Control', 'no-store')
-        .expect({ recorded: true });
-    }
-    expect(insert).toHaveBeenCalledTimes(2);
-    expect(insert).toHaveBeenLastCalledWith({
-      whatsappReference: 'LX-TEST',
-      ip: '116.53.208.174',
-      browser: 'Mozilla/5.0 Chrome/152.0.0.0',
+  it('inserts once, accepts identical retry and rejects changed evidence', async () => {
+    const http = app.getHttpServer();
+    await request(http).post('/v1/whatsapp/register').send(body).expect(201);
+    await request(http).post('/v1/whatsapp/register').send(body).expect(200);
+    await request(http)
+      .post('/v1/whatsapp/register')
+      .send({ ...body, utm_source: 'facebook' })
+      .expect(409);
+    expect(rows.size).toBe(1);
+    expect(rows.get(body.whatsapp_reference)?.utmSource).toBe('google');
+    expect(rows.get(body.whatsapp_reference)?.firstLandingPage).toBe(
+      'https://lynxtour.cn/products/yunnan',
+    );
+    expect(rows.get(body.whatsapp_reference)?.expiresAtUtc.getTime()).toBe(
+      rows.get(body.whatsapp_reference)!.createdAtUtc.getTime() +
+        180 * 86_400_000,
+    );
+  });
+
+  it('resolves exact unexpired evidence only with server token', async () => {
+    const http = app.getHttpServer();
+    await request(http).post('/v1/whatsapp/register').send(body).expect(201);
+    const path = `/v1/private/whatsapp/${body.whatsapp_reference}`;
+    await request(http).get(path).expect(401);
+    await request(http)
+      .get(path)
+      .set('Authorization', 'Bearer wrong')
+      .expect(401);
+    const found = await request(http)
+      .get(path)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(found.body).toMatchObject({
+      whatsapp_reference: body.whatsapp_reference,
+      first_landing_page: 'https://lynxtour.cn/products/yunnan',
+      utm_source: 'google',
     });
+    const evidence = found.body as Record<string, unknown>;
+    expect(evidence.created_at_utc).toMatch(/Z$/);
+    expect(evidence.payload_fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    await request(http)
+      .get('/v1/private/whatsapp/LX-MISSING')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
+    rows.get(body.whatsapp_reference)!.expiresAtUtc = new Date(Date.now() - 1);
+    await request(http)
+      .get(path)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(404);
   });
 
-  it.each([
-    '',
-    '?whatsapp_reference=',
-    '?whatsapp_reference=%20',
-    '?whatsapp_reference=a&whatsapp_reference=b',
-    `?whatsapp_reference=${'x'.repeat(129)}`,
-  ])('rejects invalid reference %s without inserting', async (query) => {
-    await request(app.getHttpServer() as Server)
-      .get(`/api/lynx${query}`)
+  it('rejects unexpected fields and obvious PII before storing', async () => {
+    const http = app.getHttpServer();
+    await request(http)
+      .post('/v1/whatsapp/register')
+      .send({ ...body, browser: 'fake' })
       .expect(400);
-    expect(insert).not.toHaveBeenCalled();
-  });
-
-  it('does not acknowledge a failed database write', async () => {
-    insert.mockRejectedValueOnce(new Error('Database unavailable'));
-    app.useLogger(false);
-    await request(app.getHttpServer() as Server)
-      .get('/api/lynx?whatsapp_reference=LX-TEST')
-      .expect(500);
+    await request(http)
+      .post('/v1/whatsapp/register')
+      .send({ ...body, utm_campaign: 'person@example.com' })
+      .expect(400);
+    expect(rows.size).toBe(0);
   });
 });

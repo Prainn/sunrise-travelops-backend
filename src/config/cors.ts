@@ -8,17 +8,28 @@ export function createCorsOptions(
 ): CorsOptionsDelegate<Request> {
   return (request, callback) => {
     const path = request.path.replace(/\/$/, '').toLowerCase();
-    const isLynxRequest =
-      (path === '/api/lynx' || path === '/api/health') &&
+    const isRegistryRequest =
+      path === '/v1/whatsapp/register' &&
+      ['POST', 'OPTIONS'].includes(request.method) &&
       LYNX_ORIGINS.includes(request.get('origin') ?? '');
+    const isLynxHealthRequest =
+      path === '/api/health' &&
+      ['GET', 'OPTIONS'].includes(request.method) &&
+      LYNX_ORIGINS.includes(request.get('origin') ?? '');
+    if (path.startsWith('/v1/private/whatsapp/')) {
+      callback(null, { origin: false });
+      return;
+    }
 
     callback(
       null,
-      isLynxRequest
+      isRegistryRequest || isLynxHealthRequest
         ? {
             origin: LYNX_ORIGINS,
             credentials: false,
-            methods: ['GET', 'POST', 'OPTIONS'],
+            methods: isLynxHealthRequest
+              ? ['GET', 'OPTIONS']
+              : ['POST', 'OPTIONS'],
             allowedHeaders: ['Content-Type'],
           }
         : { origin: businessOrigins, credentials: true },

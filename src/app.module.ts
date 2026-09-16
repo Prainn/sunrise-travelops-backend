@@ -78,11 +78,15 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
               ? request.id
               : '-';
 
-          return `[HTTP] ${request.method ?? '-'} ${request.url ?? '-'} ${response.statusCode} ${responseTime}ms [requestId=${requestId}]`;
+          const path = request.url?.split('?')[0] ?? '-';
+          return `[HTTP] ${request.method ?? '-'} ${path} ${response.statusCode} ${responseTime}ms [requestId=${requestId}]`;
         },
         redact: {
           paths: [
             'req.headers.authorization',
+            'req.headers.referer',
+            'req.headers.referrer',
+            'req.body',
             'req.body.password',
             'req.body.oldPassword',
             'req.body.newPassword',

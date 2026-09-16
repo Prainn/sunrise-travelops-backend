@@ -24,6 +24,7 @@ BREAKING_MIGRATIONS = {
     'ReviseTravelPlanning1788912000000',
     'StructureBusinessAndIdentity1789459200000',
     'ReleaseDeletedUsernames1789459400000',
+    'ConvertLynxVisitsToWhatsappRegistry1789521600000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');

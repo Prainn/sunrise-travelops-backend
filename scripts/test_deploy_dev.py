@@ -52,7 +52,7 @@ class DeploymentTests(unittest.TestCase):
             deploy.cleanup_after_success()
         self.assertIn('::warning::', stderr.getvalue())
     def test_destructive_migration_cannot_use_mistaken_compatibility_flag(self):
-        for name in ['ReviseTravelPlanning1788912000000', 'StructureBusinessAndIdentity1789459200000', 'ReleaseDeletedUsernames1789459400000']:
+        for name in ['ReviseTravelPlanning1788912000000', 'StructureBusinessAndIdentity1789459200000', 'ReleaseDeletedUsernames1789459400000', 'ConvertLynxVisitsToWhatsappRegistry1789521600000']:
             with self.subTest(name=name):
                 with self.assertRaisesRegex(ValueError, 'destructive migration'):
                     deploy.check_schema({'A': 'a'}, {'A': 'a', name: 'b'}, ['A', name], [name])
