@@ -13,6 +13,52 @@ import { WhatsappRegisterDto } from './whatsapp-register.dto';
 const EXPIRY_MS = 180 * 24 * 60 * 60 * 1000;
 const EMAIL = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/i;
 
+type Evidence = Pick<
+  LynxVisit,
+  | 'whatsappReference'
+  | 'websiteInquiryId'
+  | 'contractVersion'
+  | 'firstLandingPage'
+  | 'externalReferrer'
+  | 'utmSource'
+  | 'utmMedium'
+  | 'utmCampaign'
+  | 'utmTerm'
+  | 'utmContent'
+  | 'gclid'
+  | 'gbraid'
+  | 'wbraid'
+>;
+
+function canonicalEvidence(record: Evidence): Record<string, string> {
+  const fields = {
+    whatsapp_reference: record.whatsappReference,
+    website_inquiry_id: record.websiteInquiryId,
+    contract_version: record.contractVersion,
+    first_landing_page: record.firstLandingPage ?? '',
+    external_referrer: record.externalReferrer ?? '',
+    utm_source: record.utmSource ?? '',
+    utm_medium: record.utmMedium ?? '',
+    utm_campaign: record.utmCampaign ?? '',
+    utm_term: record.utmTerm ?? '',
+    utm_content: record.utmContent ?? '',
+    gclid: record.gclid ?? '',
+    gbraid: record.gbraid ?? '',
+    wbraid: record.wbraid ?? '',
+  };
+  return Object.fromEntries(
+    Object.keys(fields)
+      .sort()
+      .map((key) => [key, fields[key as keyof typeof fields]]),
+  );
+}
+
+function fingerprintOf(record: Evidence): string {
+  return createHash('sha256')
+    .update(JSON.stringify(canonicalEvidence(record)), 'utf8')
+    .digest('hex');
+}
+
 @Injectable()
 export class WhatsappRegistryService {
   constructor(
@@ -22,9 +68,7 @@ export class WhatsappRegistryService {
 
   async register(body: WhatsappRegisterDto): Promise<boolean> {
     const payload = this.normalize(body);
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify(payload))
-      .digest('hex');
+    const fingerprint = fingerprintOf(payload);
     const createdAtUtc = new Date();
     try {
       await this.visits.insert({
@@ -39,12 +83,12 @@ export class WhatsappRegistryService {
       const existing = await this.visits.findOneBy({
         whatsappReference: payload.whatsappReference,
       });
-      if (existing?.payloadFingerprint === fingerprint) return false;
+      if (existing && fingerprintOf(existing) === fingerprint) return false;
       throw new ConflictException('whatsapp_reference already registered');
     }
   }
 
-  async resolve(reference: string): Promise<Record<string, string | null>> {
+  async resolve(reference: string): Promise<Record<string, string>> {
     if (!reference || reference.length > 128) throw new NotFoundException();
     const record = await this.visits.findOneBy({
       whatsappReference: reference,
@@ -53,34 +97,22 @@ export class WhatsappRegistryService {
       throw new NotFoundException();
     }
     return {
-      whatsapp_reference: record.whatsappReference,
-      website_inquiry_id: record.websiteInquiryId,
-      contract_version: record.contractVersion,
-      first_landing_page: record.firstLandingPage,
-      external_referrer: record.externalReferrer,
-      utm_source: record.utmSource,
-      utm_medium: record.utmMedium,
-      utm_campaign: record.utmCampaign,
-      utm_term: record.utmTerm,
-      utm_content: record.utmContent,
-      gclid: record.gclid,
-      gbraid: record.gbraid,
-      wbraid: record.wbraid,
+      ...canonicalEvidence(record),
       created_at_utc: record.createdAtUtc.toISOString(),
       expires_at_utc: record.expiresAtUtc.toISOString(),
-      payload_fingerprint: record.payloadFingerprint,
+      payload_fingerprint: fingerprintOf(record),
     };
   }
 
   private normalize(body: WhatsappRegisterDto) {
-    const text = (value: string | null | undefined): string | null => {
-      if (!value) return null;
+    const text = (value: string | null | undefined): string => {
+      if (value == null) return '';
       if (EMAIL.test(value))
         throw new BadRequestException('PII is not accepted');
       return value;
     };
-    const url = (value: string | null | undefined): string | null => {
-      if (!value) return null;
+    const url = (value: string | null | undefined): string => {
+      if (value == null || value === '') return '';
       let parsed: URL;
       try {
         parsed = new URL(value);
@@ -90,7 +122,7 @@ export class WhatsappRegistryService {
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         throw new BadRequestException('Invalid URL');
       }
-      return text(`${parsed.origin}${parsed.pathname}`);
+      return text(value);
     };
     if (
       EMAIL.test(body.whatsapp_reference) ||

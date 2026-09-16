@@ -44,7 +44,7 @@ export class LynxController {
   async resolve(
     @Param('whatsapp_reference') reference: string,
     @Req() request: Request,
-  ): Promise<Record<string, string | null>> {
+  ): Promise<Record<string, string>> {
     const authorization = request.headers.authorization;
     if (!authorization) throw new UnauthorizedException();
     if (!authorization.startsWith('Bearer ')) throw new ForbiddenException();

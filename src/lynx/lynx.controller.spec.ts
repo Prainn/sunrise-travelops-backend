@@ -78,7 +78,7 @@ describe('WhatsApp attribution registry HTTP contract', () => {
     expect(rows.size).toBe(1);
     expect(rows.get(body.whatsapp_reference)?.utmSource).toBe('google');
     expect(rows.get(body.whatsapp_reference)?.firstLandingPage).toBe(
-      'https://lynxtour.cn/products/yunnan',
+      body.first_landing_page,
     );
     expect(rows.get(body.whatsapp_reference)?.expiresAtUtc.getTime()).toBe(
       rows.get(body.whatsapp_reference)!.createdAtUtc.getTime() +
@@ -98,6 +98,61 @@ describe('WhatsApp attribution registry HTTP contract', () => {
     );
   });
 
+  it('matches the Lynxtour canonical fingerprint vector', async () => {
+    const input = {
+      whatsapp_reference: 'LX-23456789AB',
+      website_inquiry_id: 'wi-12345678-1234-4abc-8def-1234567890ab',
+      contract_version: 'lynxtour.whatsapp-attribution.v1',
+      first_landing_page: 'https://www.lynxtour.cn/pages/start',
+      utm_source: 'google',
+      utm_medium: 'organic',
+      utm_campaign: '',
+      gbraid: '',
+    };
+    const http = app.getHttpServer();
+    await request(http).post('/v1/whatsapp/register').send(input).expect(201);
+    const stored = rows.get(input.whatsapp_reference)!;
+    expect(stored.payloadFingerprint).toBe(
+      'daf34eb2100e1402ae6a03bb54a2deed170db5fc7d63055654d8b1fb172e4278',
+    );
+    const found = await request(http)
+      .get(`/v1/private/whatsapp/${input.whatsapp_reference}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const evidence = found.body as Record<string, unknown>;
+    expect(evidence.payload_fingerprint).toBe(stored.payloadFingerprint);
+    for (const field of [
+      'external_referrer',
+      'utm_term',
+      'utm_content',
+      'gclid',
+      'wbraid',
+    ]) {
+      expect(evidence[field]).toBe('');
+    }
+    await request(http)
+      .post('/v1/whatsapp/register')
+      .send({ ...input, external_referrer: null, utm_term: '' })
+      .expect(200);
+  });
+
+  it('uses canonical evidence for a stored record with legacy nulls and fingerprint', async () => {
+    const http = app.getHttpServer();
+    await request(http).post('/v1/whatsapp/register').send(body).expect(201);
+    const stored = rows.get(body.whatsapp_reference)!;
+    const canonicalFingerprint = stored.payloadFingerprint;
+    stored.externalReferrer = null;
+    stored.payloadFingerprint = '0'.repeat(64);
+    await request(http).post('/v1/whatsapp/register').send(body).expect(200);
+    const found = await request(http)
+      .get(`/v1/private/whatsapp/${body.whatsapp_reference}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const evidence = found.body as Record<string, unknown>;
+    expect(evidence.external_referrer).toBe('');
+    expect(evidence.payload_fingerprint).toBe(canonicalFingerprint);
+  });
+
   it('resolves exact unexpired evidence only with server token', async () => {
     const http = app.getHttpServer();
     await request(http).post('/v1/whatsapp/register').send(body).expect(201);
@@ -113,8 +168,10 @@ describe('WhatsApp attribution registry HTTP contract', () => {
       .expect(200);
     expect(found.body).toMatchObject({
       whatsapp_reference: body.whatsapp_reference,
-      first_landing_page: 'https://lynxtour.cn/products/yunnan',
+      first_landing_page: body.first_landing_page,
       utm_source: 'google',
+      external_referrer: '',
+      gclid: '',
     });
     const evidence = found.body as Record<string, unknown>;
     expect(evidence.created_at_utc).toMatch(/Z$/);
