@@ -86,6 +86,18 @@ describe('WhatsApp attribution registry HTTP contract', () => {
     );
   });
 
+  it('accepts any non-empty contract version string within storage length', async () => {
+    const http = app.getHttpServer();
+    const customVersion = 'partner-2026.09';
+    await request(http)
+      .post('/v1/whatsapp/register')
+      .send({ ...body, contract_version: customVersion })
+      .expect(201);
+    expect(rows.get(body.whatsapp_reference)?.contractVersion).toBe(
+      customVersion,
+    );
+  });
+
   it('resolves exact unexpired evidence only with server token', async () => {
     const http = app.getHttpServer();
     await request(http).post('/v1/whatsapp/register').send(body).expect(201);

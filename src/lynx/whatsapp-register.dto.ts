@@ -1,25 +1,18 @@
-import {
-  IsIn,
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class WhatsappRegisterDto {
   @IsString()
   @MinLength(1)
   @MaxLength(128)
   whatsapp_reference!: string;
-
   @IsString()
   @MinLength(1)
   @MaxLength(128)
   website_inquiry_id!: string;
-
-  @IsIn(['v1'])
-  contract_version!: 'v1';
-
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2048)
+  contract_version!: string;
   @IsOptional()
   @IsString()
   @MaxLength(2048)
