@@ -74,8 +74,6 @@ function render(snapshot, unavailable = false) {
   }
   document.getElementById('checked').textContent = formatTime(snapshot?.checkedAt);
   document.getElementById('freshness').textContent = stale ? 'STALE / 快照过期' : '快照有效';
-  const notification = { sent: '通知已提交发信服务器', ready: '通知已配置', unconfigured: '通知未配置', failed: '通知发送失败' };
-  document.getElementById('notification').textContent = stale ? '通知状态未知' : notification[snapshot?.notification] || '通知状态未知';
 }
 
 if (typeof document !== 'undefined') {

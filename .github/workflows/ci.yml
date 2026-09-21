@@ -67,7 +67,7 @@ jobs:
           deploy_application=true
           if [[ "$EVENT_NAME" == push && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
             changed=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
-            if printf '%s\n' "$changed" | grep -qx 'scripts/collect-status.py' && ! printf '%s\n' "$changed" | grep -qvE '^(scripts/collect-status\.py|scripts/test_collect_status\.py|\.github/workflows/ci\.yml)$'; then
+            if printf '%s\n' "$changed" | grep -qE '^(scripts/collect-status\.py|ops/status\.env\.example|status/(index\.html|status\.css|status\.mjs))$' && ! printf '%s\n' "$changed" | grep -qvE '^(scripts/collect-status\.py|ops/status\.env\.example|status/(index\.html|status\.css|status\.mjs)|\.github/workflows/ci\.yml)$'; then
               deploy_application=false
             fi
           fi
