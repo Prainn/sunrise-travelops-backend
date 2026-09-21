@@ -87,6 +87,10 @@ export const ITINERARY_TABLES = {
     adjustmentReason: 'text?',
   },
   itinerary_quote_settings: {
+    mealOtherCost: 'numeric?',
+    mealOtherReason: 'text',
+    attractionOtherCost: 'numeric?',
+    attractionOtherReason: 'text',
     guideServiceTotal: 'numeric?',
     chineseTip: 'numeric?',
     englishTip: 'numeric?',

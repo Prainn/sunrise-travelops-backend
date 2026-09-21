@@ -185,7 +185,13 @@ export interface PdfData extends Omit<
     leaderCount: number;
     quote: Omit<
       ItineraryRecord['quote'],
-      'options' | 'guideServiceTotal' | 'staffRoomCosts'
+      | 'options'
+      | 'guideServiceTotal'
+      | 'staffRoomCosts'
+      | 'mealOtherCost'
+      | 'mealOtherReason'
+      | 'attractionOtherCost'
+      | 'attractionOtherReason'
     > & {
       otherExpenses: number | null;
       options: Array<{

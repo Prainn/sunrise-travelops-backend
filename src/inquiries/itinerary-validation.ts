@@ -419,6 +419,23 @@ export class ItineraryValidation {
         overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
     });
+    for (const kind of ['meal', 'attraction'] as const) {
+      const amountKey = `${kind}OtherCost` as const;
+      const reasonKey = `${kind}OtherReason` as const;
+      plan.quote[amountKey] =
+        plan.quote[amountKey] == null
+          ? null
+          : roundMoney(plan.quote[amountKey]);
+      plan.quote[reasonKey] = (plan.quote[reasonKey] ?? '').trim();
+      if (
+        checkReason &&
+        (plan.quote[amountKey] ?? 0) > 0 &&
+        !plan.quote[reasonKey]
+      )
+        invalid(
+          kind === 'meal' ? '请填写餐食其它费用原因' : '请填写景点其它费用原因',
+        );
+    }
     unique(plan.quote.staffRoomCosts.map((cost) => cost.destination));
     if (
       plan.quote.staffRoomCosts.some(

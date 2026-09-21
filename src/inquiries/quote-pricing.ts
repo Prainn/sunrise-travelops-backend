@@ -43,19 +43,32 @@ export function calculateItineraryQuote(
         item.unit === 'table'
           ? roundMoney(item.unitCost / item.dinerCount!)
           : item.unitCost;
-      return { type: item.type, cost: multiplyMoney(unitCost, item.quantity) };
+      return {
+        type: item.type,
+        detail: {
+          dayNumber: day.dayNumber,
+          resourceName: item.resourceName,
+          unitCost,
+          quantity: item.quantity,
+          totalCost: multiplyMoney(unitCost, item.quantity),
+        },
+      };
     }),
   );
-  const mealCost = sumMoney(
-    resourceCosts
-      .filter((item) => item.type === 'restaurant')
-      .map((item) => item.cost),
-  );
-  const attractionCost = sumMoney(
-    resourceCosts
-      .filter((item) => item.type === 'attraction')
-      .map((item) => item.cost),
-  );
+  const mealDetails = resourceCosts
+    .filter((item) => item.type === 'restaurant')
+    .map((item) => item.detail);
+  const attractionDetails = resourceCosts
+    .filter((item) => item.type === 'attraction')
+    .map((item) => item.detail);
+  const mealCost = sumMoney([
+    ...mealDetails.map((item) => item.totalCost),
+    itinerary.quote.mealOtherCost ?? 0,
+  ]);
+  const attractionCost = sumMoney([
+    ...attractionDetails.map((item) => item.totalCost),
+    itinerary.quote.attractionOtherCost ?? 0,
+  ]);
   const dailyResourceCost = sumMoney([mealCost, attractionCost]);
   const tipUnitPrice = roundMoney(
     itinerary.quote.chineseTip ?? itinerary.quote.englishTip ?? 0,
@@ -63,6 +76,8 @@ export function calculateItineraryQuote(
   return {
     pricingVersion: 2,
     dailyResourceCost,
+    mealDetails,
+    attractionDetails,
     mealCost,
     attractionCost,
     guideCost,
@@ -70,15 +85,31 @@ export function calculateItineraryQuote(
       const hotels =
         itinerary.hotelPlans.find((plan) => plan.tier === option.hotelTier)
           ?.hotels ?? [];
-      const roomCost = sumMoney(
-        itinerary.dailyPlans.map(
-          (day) =>
-            hotels.find(
-              (hotel) => hotel.destination === day.overnightDestination,
-            )?.unitCost ?? 0,
-        ),
-      );
-      const hotelUnitCost = roundMoney(roomCost / 2);
+      const nightsByCity = new Map<string, number>();
+      for (const day of itinerary.dailyPlans) {
+        if (day.overnightDestination)
+          nightsByCity.set(
+            day.overnightDestination,
+            (nightsByCity.get(day.overnightDestination) ?? 0) + 1,
+          );
+      }
+      let accumulatedRoomCost = 0;
+      const hotelCityCosts = [...nightsByCity].map(([destination, nights]) => {
+        const unitCost =
+          hotels.find((hotel) => hotel.destination === destination)?.unitCost ??
+          0;
+        const previousTotal = roundMoney(accumulatedRoomCost / 2);
+        accumulatedRoomCost = sumMoney([
+          accumulatedRoomCost,
+          multiplyMoney(unitCost, nights),
+        ]);
+        // Allocate any half-cent rounding to the current city so the breakdown equals the existing total.
+        const totalCost = roundMoney(
+          roundMoney(accumulatedRoomCost / 2) - previousTotal,
+        );
+        return { destination, nights, unitCost, totalCost };
+      });
+      const hotelUnitCost = roundMoney(accumulatedRoomCost / 2);
       const vehicleTotal = roundMoney(
         itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
           ?.totalPrice ?? 0,
@@ -93,6 +124,7 @@ export function calculateItineraryQuote(
         optionId: option.id,
         hotelTier: option.hotelTier,
         vehicleTier: option.vehicleTier,
+        hotelCityCosts,
         hotelUnitCost,
         vehicleTotal,
         guideServiceTotal,

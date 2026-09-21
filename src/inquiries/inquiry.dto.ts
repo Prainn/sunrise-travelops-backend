@@ -303,6 +303,27 @@ class QuoteInput {
   @IsNumber()
   @Min(0)
   @Max(1e9)
+  mealOtherCost: number | null = null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  mealOtherReason: string = '';
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  attractionOtherCost: number | null = null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  attractionOtherReason: string = '';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
   guideServiceTotal: number | null;
   @IsArray()
   @ArrayMaxSize(100)
