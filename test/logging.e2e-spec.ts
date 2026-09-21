@@ -5,6 +5,7 @@ import {
   HttpStatus,
   INestApplication,
   Logger,
+  Param,
   Post,
   RequestMethod,
   ValidationPipe,
@@ -42,6 +43,11 @@ class LoggingController {
   @Post('created')
   created(@Body() input: LoggingInputDto) {
     return input;
+  }
+
+  @Get('items/:id')
+  item(@Param('id') id: string) {
+    return { id };
   }
 
   @Get('business')
@@ -200,16 +206,19 @@ describe('structured HTTP logging (e2e)', () => {
       statusCode: 200,
       context: 'LoggingController',
       handler: 'ok',
+      query: { ignored: 'true' },
       msg: 'HTTP request completed',
     });
     expect(httpLogs[1]).toMatchObject({
       level: 'warn',
       statusCode: 400,
+      body: { count: 1, password: '[REDACTED]' },
       msg: 'HTTP request failed',
     });
     expect(httpLogs[2]).toMatchObject({
       level: 'info',
       statusCode: 201,
+      body: { count: 1 },
       msg: 'HTTP request completed',
     });
     for (const log of httpLogs) {
@@ -220,9 +229,24 @@ describe('structured HTTP logging (e2e)', () => {
       expect(log).not.toHaveProperty('req');
       expect(log).not.toHaveProperty('res');
       expect(log).not.toHaveProperty('headers');
-      expect(log).not.toHaveProperty('body');
     }
     expect(output.join('')).not.toContain('TOP_SECRET');
+  });
+
+  it('includes route params in the completion log', async () => {
+    output.length = 0;
+    await request(server)
+      .get('/api/logging/items/item-123')
+      .set('X-Request-Id', 'request-params-1')
+      .expect(HttpStatus.OK);
+
+    expect(
+      records().find((log) => log.requestId === 'request-params-1'),
+    ).toMatchObject({
+      params: { id: 'item-123' },
+      context: 'LoggingController',
+      handler: 'item',
+    });
   });
 
   it.each([
@@ -314,7 +338,11 @@ describe('structured HTTP logging (e2e)', () => {
     await request(server)
       .post('/v1/whatsapp/register')
       .set('X-Request-Id', 'request-whatsapp-1')
-      .send({})
+      .send({
+        whatsapp_reference: 'PRIVATE_REFERENCE',
+        website_inquiry_id: 'WEB-123',
+        utm_campaign: 'autumn-campaign',
+      })
       .expect(HttpStatus.CREATED);
     const matching = records().filter(
       (log) => log.requestId === 'request-whatsapp-1',
@@ -327,6 +355,11 @@ describe('structured HTTP logging (e2e)', () => {
       statusCode: 201,
       context: 'ExcludedLoggingController',
       handler: 'register',
+      body: {
+        whatsapp_reference: 'PRIVATE_REFERENCE',
+        website_inquiry_id: 'WEB-123',
+        utm_campaign: 'autumn-campaign',
+      },
       msg: 'HTTP request completed',
     });
   });
