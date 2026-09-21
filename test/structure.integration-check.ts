@@ -17,6 +17,7 @@ import { AuthService } from '../src/auth/auth.service';
 import { UserLoginRecordEntity } from '../src/auth/user-login-record.entity';
 import { UserManagementService } from '../src/users/user-management.service';
 import { InquiriesService } from '../src/inquiries/inquiries.service';
+import { calculateItineraryQuote } from '../src/inquiries/quote-pricing';
 import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
 import { InquiryQuery } from '../src/inquiries/inquiry.dto';
 import { ItineraryEntity, PdfData } from '../src/inquiries/inquiry.entity';
@@ -431,21 +432,132 @@ async function main() {
       'UPDATE itinerary_quote_options SET staff_room_total=1040 WHERE itinerary_id=$1',
       [ids.draft],
     );
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...all.filter(
+        (m) =>
+          Number((m.name ?? m.constructor.name).slice(-13)) < 1790006600000,
+      ),
+    );
+    await db.runMigrations();
+    await db.query(
+      `INSERT INTO itinerary_quote_options(itinerary_id,position,id,hotel_tier,vehicle_tier,guide_service_total,staff_room_total)
+      SELECT itinerary_id,1,'option-vip',hotel_tier,'vip',guide_service_total+1,staff_room_total
+      FROM itinerary_quote_options WHERE itinerary_id=$1`,
+      [ids.draft],
+    );
     db.migrations.splice(0, db.migrations.length, ...all);
+    await assert.rejects(db.runMigrations(), /Conflicting shared staff costs/);
+    await db.query(
+      `UPDATE itinerary_quote_options SET guide_service_total=1499.99 WHERE itinerary_id=$1`,
+      [ids.draft],
+    );
+    // Missing city cost on one option is zero, not an implicit copy of the other.
+    await assert.rejects(db.runMigrations(), /Conflicting shared staff costs/);
+    await db.query(
+      `INSERT INTO itinerary_staff_room_costs(itinerary_id,option_id,position,destination,total)
+      SELECT itinerary_id,'option-vip',position,destination,total FROM itinerary_staff_room_costs
+      WHERE itinerary_id=$1 AND option_id='option-old'`,
+      [ids.draft],
+    );
     assert(
       (await db.runMigrations()).some(
-        ({ name }) => name === 'AddStaffRoomCostsByDestination1790006500000',
+        ({ name }) => name === 'ShareItineraryStaffCosts1790006600000',
       ),
+    );
+    // Leave the representative plan with its original hotel/vehicle combination.
+    await db.query(
+      `DELETE FROM itinerary_quote_options WHERE itinerary_id=$1 AND id='option-vip'`,
+      [ids.draft],
     );
     assert.equal((await db.runMigrations()).length, 0);
     const migrated = await loadItineraryData(
       db.manager,
       await db.manager.findOneByOrFail(ItineraryEntity, { id: ids.draft }),
     );
+    const pricingPlan = structuredClone(migrated.data);
+    pricingPlan.paxTiers = [10, 20];
+    pricingPlan.quote.guideServiceTotal = 1000;
+    pricingPlan.quote.staffRoomCosts = [{ destination: '昆明', total: 400 }];
+    pricingPlan.quote.options[0].paxPrices = [];
+    pricingPlan.quote.options.push({
+      ...pricingPlan.quote.options[0],
+      id: 'vip',
+      vehicleTier: 'vip',
+    });
+    pricingPlan.vehiclePlans.push({
+      ...pricingPlan.vehiclePlans[0],
+      tier: 'vip',
+      totalPrice: 2234.56,
+    });
+    pricingPlan.dailyPlans.forEach((day) => {
+      day.items = [];
+    });
+    const meal = {
+      ...migrated.data.dailyPlans[0].items[0],
+      unit: 'table',
+      unitCost: 100.01,
+      dinerCount: 3,
+      quantity: 2,
+    };
+    pricingPlan.dailyPlans[0].items = [
+      meal,
+      {
+        ...meal,
+        id: 'attraction',
+        type: 'attraction',
+        unit: 'ticket',
+        unitCost: 25.555,
+        dinerCount: null,
+      },
+    ];
+    const costs = calculateItineraryQuote(pricingPlan);
+    assert.equal(costs.mealCost, 66.68);
+    assert.equal(costs.attractionCost, 51.12);
+    assert.equal(costs.dailyResourceCost, 117.8);
+    assert.deepEqual(
+      costs.options.map((option) =>
+        option.paxPrices.map((row) => [
+          row.guideServiceUnitCost,
+          row.staffRoomUnitCost,
+        ]),
+      ),
+      [
+        [
+          [100, 40],
+          [50, 20],
+        ],
+        [
+          [100, 40],
+          [50, 20],
+        ],
+      ],
+    );
+    assert.deepEqual(
+      costs.options.map((option) =>
+        option.paxPrices.map((row) => row.baseCostPerPerson),
+      ),
+      [
+        [936.81, 805.08],
+        [1036.81, 855.08],
+      ],
+    );
+    pricingPlan.quote.guideServiceTotal = null;
+    pricingPlan.quote.staffRoomCosts[0].total = null;
+    assert(
+      calculateItineraryQuote(pricingPlan).options.every((option) =>
+        option.paxPrices.every(
+          (row) =>
+            row.guideServiceUnitCost === 0 && row.staffRoomUnitCost === 0,
+        ),
+      ),
+    );
+    assert.equal(migrated.data.quote.guideServiceTotal, 1499.99);
     assert.equal(migrated.data.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(migrated.data.hotelPlans[0].hotels[0].referencePrice, null);
     assert.deepEqual(
-      migrated.data.quote.options[0].staffRoomCosts.map((cost) => ({
+      migrated.data.quote.staffRoomCosts.map((cost) => ({
         ...cost,
       })),
       [{ destination: '昆明', total: 1040 }],
@@ -731,11 +843,11 @@ async function main() {
     assert.equal(saved.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(
       (
-        await db.query<Array<{ staff_room_total: string }>>(
-          'SELECT staff_room_total FROM itinerary_quote_options WHERE itinerary_id=$1',
+        await db.query<Array<{ total: string }>>(
+          'SELECT total FROM itinerary_shared_staff_room_costs WHERE itinerary_id=$1',
           [ids.draft],
         )
-      )[0].staff_room_total,
+      )[0].total,
       '1040',
     );
     assert.equal(

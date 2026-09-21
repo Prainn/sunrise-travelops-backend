@@ -94,6 +94,8 @@ const MONEY_FIELDS = new Set([
   'totalPrice',
   'profit',
   'dailyResourceCost',
+  'mealCost',
+  'attractionCost',
   'guideCost',
 ]);
 export function moneyResponse(value: unknown, field = ''): unknown {

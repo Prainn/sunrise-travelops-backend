@@ -63,12 +63,12 @@ export interface ItineraryQuoteOption {
   id: string;
   hotelTier: ItineraryHotelTier;
   vehicleTier: ItineraryVehicleTier;
-  guideServiceTotal: number | null;
-  staffRoomCosts: ItineraryStaffRoomCost[];
   paxPrices: ItineraryPaxPrice[];
 }
 
 export interface ItineraryQuoteSettings {
+  guideServiceTotal: number | null;
+  staffRoomCosts: ItineraryStaffRoomCost[];
   options: ItineraryQuoteOption[];
   /** Full-tour tip per adult/child, charged separately and included in profit. */
   chineseTip: number | null;
@@ -160,6 +160,8 @@ export interface ItineraryQuoteOptionCalculation {
 export interface PaxQuoteCalculation {
   pricingVersion: 2;
   dailyResourceCost: number;
+  mealCost?: number;
+  attractionCost?: number;
   guideCost: number;
   options: ItineraryQuoteOptionCalculation[];
 }

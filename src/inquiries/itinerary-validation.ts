@@ -419,19 +419,29 @@ export class ItineraryValidation {
         overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
     });
+    unique(plan.quote.staffRoomCosts.map((cost) => cost.destination));
+    if (
+      plan.quote.staffRoomCosts.some(
+        (cost) => !plan.destinations.includes(cost.destination),
+      )
+    )
+      invalid('司陪房城市不属于行程目的地');
+    plan.quote.guideServiceTotal =
+      plan.quote.guideServiceTotal == null
+        ? null
+        : roundMoney(plan.quote.guideServiceTotal);
+    plan.quote.staffRoomCosts = plan.destinations.map((destination) => {
+      const total = plan.quote.staffRoomCosts.find(
+        (cost) => cost.destination === destination,
+      )?.total;
+      return { destination, total: total == null ? null : roundMoney(total) };
+    });
     const options = plan.quote.options;
     unique(options.map((o) => `${o.hotelTier}:${o.vehicleTier}`));
     for (const option of options) {
       unique(option.paxPrices.map((price) => String(price.pax)));
       if (option.paxPrices.some((price) => !plan.paxTiers.includes(price.pax)))
         invalid('报价档位不属于行程');
-      unique(option.staffRoomCosts.map((cost) => cost.destination));
-      if (
-        option.staffRoomCosts.some(
-          (cost) => !plan.destinations.includes(cost.destination),
-        )
-      )
-        invalid('司陪房城市不属于行程目的地');
     }
     plan.quote.options = plan.hotelPlans
       .filter((p) => p.hotels.length)
@@ -446,19 +456,6 @@ export class ItineraryValidation {
               id: option?.id ?? randomUUID(),
               hotelTier: h.tier,
               vehicleTier: v.tier,
-              guideServiceTotal:
-                option?.guideServiceTotal == null
-                  ? null
-                  : roundMoney(option.guideServiceTotal),
-              staffRoomCosts: plan.destinations.map((destination) => {
-                const total = option?.staffRoomCosts.find(
-                  (cost) => cost.destination === destination,
-                )?.total;
-                return {
-                  destination,
-                  total: total == null ? null : roundMoney(total),
-                };
-              }),
               paxPrices: plan.paxTiers.map((pax) => {
                 const price = option?.paxPrices.find(
                   (price) => price.pax === pax,

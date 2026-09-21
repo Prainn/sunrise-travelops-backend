@@ -30,33 +30,41 @@ export function calculateItineraryQuote(
       multiplyMoney(plan.dailyPrice, plan.serviceDays),
     ),
   );
-  const dailyResourceCost = sumMoney(
-    itinerary.dailyPlans.flatMap((day) =>
-      day.items.map((item) => {
-        if (
-          item.unit === 'table' &&
-          !(item.dinerCount && item.dinerCount > 0)
-        ) {
-          throw new BusinessException({
-            code: 'ITINERARY_INVALID',
-            message: '请补充按桌餐食的每桌人数',
-            status: 400,
-          });
-        }
-        const unitCost =
-          item.unit === 'table'
-            ? roundMoney(item.unitCost / item.dinerCount!)
-            : item.unitCost;
-        return multiplyMoney(unitCost, item.quantity);
-      }),
-    ),
+  const resourceCosts = itinerary.dailyPlans.flatMap((day) =>
+    day.items.map((item) => {
+      if (item.unit === 'table' && !(item.dinerCount && item.dinerCount > 0)) {
+        throw new BusinessException({
+          code: 'ITINERARY_INVALID',
+          message: '请补充按桌餐食的每桌人数',
+          status: 400,
+        });
+      }
+      const unitCost =
+        item.unit === 'table'
+          ? roundMoney(item.unitCost / item.dinerCount!)
+          : item.unitCost;
+      return { type: item.type, cost: multiplyMoney(unitCost, item.quantity) };
+    }),
   );
+  const mealCost = sumMoney(
+    resourceCosts
+      .filter((item) => item.type === 'restaurant')
+      .map((item) => item.cost),
+  );
+  const attractionCost = sumMoney(
+    resourceCosts
+      .filter((item) => item.type === 'attraction')
+      .map((item) => item.cost),
+  );
+  const dailyResourceCost = sumMoney([mealCost, attractionCost]);
   const tipUnitPrice = roundMoney(
     itinerary.quote.chineseTip ?? itinerary.quote.englishTip ?? 0,
   );
   return {
     pricingVersion: 2,
     dailyResourceCost,
+    mealCost,
+    attractionCost,
     guideCost,
     options: itinerary.quote.options.map((option) => {
       const hotels =
@@ -75,9 +83,11 @@ export function calculateItineraryQuote(
         itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
           ?.totalPrice ?? 0,
       );
-      const guideServiceTotal = roundMoney(option.guideServiceTotal ?? 0);
+      const guideServiceTotal = roundMoney(
+        itinerary.quote.guideServiceTotal ?? 0,
+      );
       const staffRoomTotal = sumMoney(
-        option.staffRoomCosts.map((cost) => cost.total ?? 0),
+        itinerary.quote.staffRoomCosts.map((cost) => cost.total ?? 0),
       );
       return {
         optionId: option.id,

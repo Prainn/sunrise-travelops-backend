@@ -275,17 +275,6 @@ class QuoteOptionInput {
   @IsIn(['international_five_star', 'preferred_non_five_star']) hotelTier:
     'international_five_star' | 'preferred_non_five_star';
   @IsIn(['standard', 'vip']) vehicleTier: 'standard' | 'vip';
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1e9)
-  guideServiceTotal: number | null;
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => StaffRoomCostInput)
-  staffRoomCosts: StaffRoomCostInput[];
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
@@ -309,6 +298,18 @@ class TransportFeeInput {
     number | null;
 }
 class QuoteInput {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  guideServiceTotal: number | null;
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => StaffRoomCostInput)
+  staffRoomCosts: StaffRoomCostInput[];
+
   @IsArray()
   @ArrayMaxSize(4)
   @ValidateNested({ each: true })

@@ -2,7 +2,6 @@ import { plainToInstance } from 'class-transformer';
 import { EntityManager } from 'typeorm';
 import { ItineraryInput } from './inquiry.dto';
 import { ItineraryEntity } from './inquiry.entity';
-import { sumMoney } from './money';
 
 // Fixed business tables used by the nested itinerary API.
 export const ITINERARY_TABLES = {
@@ -88,6 +87,7 @@ export const ITINERARY_TABLES = {
     adjustmentReason: 'text?',
   },
   itinerary_quote_settings: {
+    guideServiceTotal: 'numeric?',
     chineseTip: 'numeric?',
     englishTip: 'numeric?',
     customerNotes: 'text',
@@ -98,11 +98,8 @@ export const ITINERARY_TABLES = {
     id: 'text',
     hotelTier: 'text',
     vehicleTier: 'text',
-    guideServiceTotal: 'numeric?',
-    staffRoomTotal: 'numeric?',
   },
-  itinerary_staff_room_costs: {
-    optionId: 'text',
+  itinerary_shared_staff_room_costs: {
     destination: 'text',
     total: 'numeric?',
   },
@@ -151,14 +148,9 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     ),
     itinerary_guides: data.guidePlans.map((row) => ({ ...row })),
     itinerary_quote_settings: [{ ...data.quote }],
-    itinerary_quote_options: data.quote.options.map((row) => ({
-      ...row,
-      staffRoomTotal: sumMoney(
-        row.staffRoomCosts.map((cost) => cost.total ?? 0),
-      ),
-    })),
-    itinerary_staff_room_costs: data.quote.options.flatMap((option) =>
-      option.staffRoomCosts.map((cost) => ({ ...cost, optionId: option.id })),
+    itinerary_quote_options: data.quote.options.map((row) => ({ ...row })),
+    itinerary_shared_staff_room_costs: data.quote.staffRoomCosts.map(
+      (cost) => ({ ...cost }),
     ),
     itinerary_pax_prices: data.quote.options.flatMap((option) =>
       option.paxPrices.map((price) => ({ ...price, optionId: option.id })),
@@ -256,11 +248,9 @@ export async function loadItineraryData(
     guidePlans: rows.itinerary_guides,
     quote: {
       ...rows.itinerary_quote_settings[0],
+      staffRoomCosts: rows.itinerary_shared_staff_room_costs,
       options: rows.itinerary_quote_options.map((option) => ({
-        ...omit(option, ['staffRoomTotal']),
-        staffRoomCosts: rows.itinerary_staff_room_costs
-          .filter((cost) => cost.optionId === option.id)
-          .map((cost) => omit(cost, ['optionId'])),
+        ...option,
         paxPrices: rows.itinerary_pax_prices
           .filter((price) => price.optionId === option.id)
           .map((price) => omit(price, ['optionId'])),
