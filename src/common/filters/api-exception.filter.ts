@@ -29,6 +29,13 @@ type RequestContext = Request & {
   user?: { id?: unknown };
 };
 
+interface ErrorDetails {
+  errorName: string;
+  errorMessage: string;
+  stack?: string;
+  cause?: string | Record<string, string>;
+}
+
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
@@ -42,23 +49,32 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const userId =
       typeof request.user?.id === 'string' ? request.user.id : undefined;
     const isWhatsappRoute = request.path.startsWith('/v1/');
+    const source = response.locals.httpLogSource as
+      | undefined
+      | {
+          context?: unknown;
+          handler?: unknown;
+        };
     const logContext = {
-      requestId,
       userId,
       method: request.method,
       path: request.path,
       statusCode: normalized.status,
       code: normalized.code,
+      ...(typeof source?.context === 'string'
+        ? { context: source.context }
+        : {}),
+      ...(typeof source?.handler === 'string'
+        ? { handler: source.handler }
+        : {}),
     };
 
     if (normalized.status >= 500) {
       this.logger.error({
         ...logContext,
-        message: 'Unhandled request exception',
-        ...(isWhatsappRoute ? {} : { err: exception }),
+        msg: 'Unhandled request exception',
+        ...(isWhatsappRoute ? {} : this.errorDetails(exception)),
       });
-    } else {
-      this.logger.warn({ ...logContext, message: 'Request rejected' });
     }
 
     const body: ApiErrorResponse = {
@@ -212,5 +228,34 @@ export class ApiExceptionFilter implements ExceptionFilter {
     if (typeof request.id === 'number') return String(request.id);
     const header = request.headers['x-request-id'];
     return typeof header === 'string' ? header : header?.[0];
+  }
+
+  private errorDetails(exception: unknown): ErrorDetails {
+    if (!(exception instanceof Error)) {
+      return {
+        errorName: 'UnknownError',
+        errorMessage: 'Unknown non-Error exception',
+      };
+    }
+
+    const cause = exception.cause;
+    return {
+      errorName: exception.name,
+      errorMessage: exception.message,
+      ...(exception.stack ? { stack: exception.stack } : {}),
+      ...(cause instanceof Error
+        ? {
+            cause: {
+              name: cause.name,
+              message: cause.message,
+              ...(cause.stack ? { stack: cause.stack } : {}),
+            },
+          }
+        : typeof cause === 'string' ||
+            typeof cause === 'number' ||
+            typeof cause === 'boolean'
+          ? { cause: String(cause) }
+          : {}),
+    };
   }
 }

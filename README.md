@@ -57,7 +57,25 @@ Compose 会依次启动 PostgreSQL、执行 Migration、启动后端和 Nginx。
 ```bash
 docker compose logs -f api
 docker compose logs -f postgres
+docker logs -f --since 10m <api-container>
 ```
+
+开发服务 `pnpm start:dev` 使用 pino-pretty 显示本地时间；Docker 中的生产配置保持一行一条的结构化 JSON。正常 `/api/health` 200 不写普通 access log，异常 health 仍会记录。
+
+启动独立日志 UI Dozzle：
+
+```bash
+docker compose up -d dozzle
+docker compose ps
+```
+
+浏览器打开 `http://127.0.0.1:8081`。Dozzle 左侧时间使用浏览器本地时区显示，结构化日志内的 ISO 8601 UTC `time` 原值不变。可搜索 `whatsapp`、requestId、controller context、handler 和日志级别；它不被 API、PostgreSQL 或 Nginx 依赖。停止 Dozzle 不影响业务服务：
+
+```bash
+docker compose stop dozzle
+```
+
+ECS 的 8081 仍只绑定 localhost；外部访问由 `log.sunrisevacation.cn` 反向代理到 Compose 内网，并启用 Dozzle simple auth。部署和 DNS 说明见 workspace 的 `docs/deployment/ECS开发环境部署.md`。
 
 停止服务：
 

@@ -1,6 +1,4 @@
-import { randomUUID } from 'node:crypto';
-import { IncomingMessage } from 'node:http';
-import { Module, RequestMethod } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -9,22 +7,19 @@ import { LoggerModule } from 'nestjs-pino';
 import { InquiriesModule } from './inquiries/inquiries.module';
 import { AuthModule } from './auth/auth.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { HttpLogContextInterceptor } from './common/interceptors/http-log-context.interceptor';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { validateEnvironment } from './config/environment';
 import { createTypeOrmOptions } from './config/typeorm.config';
+import { createLoggerModuleOptions } from './config/logger';
 import { HealthModule } from './health/health.module';
 import { LynxModule } from './lynx/lynx.module';
+import { LynxController } from './lynx/lynx.controller';
 import { RolesModule } from './roles/roles.module';
 import { ResourcesModule } from './resources/resources.module';
 import { SystemModule } from './system/system.module';
 import { UsersModule } from './users/users.module';
-
-const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
-  'InstanceLoader',
-  'RoutesResolver',
-  'RouterExplorer',
-]);
 
 @Module({
   imports: [
@@ -33,70 +28,7 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
       envFilePath: process.env.ENV_FILE ?? '.env',
       validate: validateEnvironment,
     }),
-    LoggerModule.forRoot({
-      forRoutes: [{ path: '{/*splat}', method: RequestMethod.ALL }],
-      pinoHttp: {
-        level: process.env.LOG_LEVEL ?? 'info',
-        transport:
-          process.env.NODE_ENV === 'development'
-            ? {
-                target: 'pino-pretty',
-                options: {
-                  colorize: true,
-                  ignore: 'pid,hostname,context,req,res,responseTime',
-                  messageFormat: '{if context}[{context}] {end}{msg}',
-                  singleLine: true,
-                  translateTime: 'SYS:HH:MM:ss.l',
-                },
-              }
-            : undefined,
-        hooks: {
-          logMethod(args, method) {
-            const bindings = args[0];
-            const context =
-              typeof bindings === 'object' &&
-              bindings !== null &&
-              'context' in bindings
-                ? bindings.context
-                : undefined;
-
-            if (
-              typeof context === 'string' &&
-              HIDDEN_NEST_STARTUP_LOG_CONTEXTS.has(context)
-            ) {
-              return;
-            }
-
-            method.apply(this, args);
-          },
-        },
-        genReqId: (request: IncomingMessage) =>
-          request.headers['x-request-id']?.toString() ?? randomUUID(),
-        customSuccessMessage: (request, response, responseTime) => {
-          const requestId =
-            typeof request.id === 'string' || typeof request.id === 'number'
-              ? request.id
-              : '-';
-
-          const path = request.url?.split('?')[0] ?? '-';
-          return `[HTTP] ${request.method ?? '-'} ${path} ${response.statusCode} ${responseTime}ms [requestId=${requestId}]`;
-        },
-        redact: {
-          paths: [
-            'req.headers.authorization',
-            'req.headers.referer',
-            'req.headers.referrer',
-            'req.body',
-            'req.body.password',
-            'req.body.oldPassword',
-            'req.body.newPassword',
-            'req.body.refreshToken',
-            'res.headers["set-cookie"]',
-          ],
-          censor: '[REDACTED]',
-        },
-      },
-    }),
+    LoggerModule.forRoot(createLoggerModuleOptions([LynxController])),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: createTypeOrmOptions,
@@ -115,6 +47,7 @@ const HIDDEN_NEST_STARTUP_LOG_CONTEXTS = new Set([
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_INTERCEPTOR, useClass: HttpLogContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })
