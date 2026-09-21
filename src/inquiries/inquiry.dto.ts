@@ -255,6 +255,21 @@ class PaxPriceInput {
   @Max(1e9)
   adultUnitPrice: number | null;
 }
+class StaffRoomCostInput {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  destination: string;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  total: number | null;
+}
 class QuoteOptionInput {
   @IsString() @MinLength(1) @MaxLength(100) id: string;
   @IsIn(['international_five_star', 'preferred_non_five_star']) hotelTier:
@@ -266,12 +281,11 @@ class QuoteOptionInput {
   @Min(0)
   @Max(1e9)
   guideServiceTotal: number | null;
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1e9)
-  staffRoomTotal: number | null;
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => StaffRoomCostInput)
+  staffRoomCosts: StaffRoomCostInput[];
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })

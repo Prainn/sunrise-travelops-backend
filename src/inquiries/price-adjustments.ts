@@ -14,7 +14,7 @@ export function requirePriceReason(
   fields: ReferencePrice,
   old: ReferencePrice | undefined,
   checkReason: boolean,
-  custom = false,
+  allowRestoreWithoutReason = false,
 ) {
   const changed =
     previous === undefined || roundMoney(previous) !== roundMoney(actual);
@@ -22,18 +22,19 @@ export function requirePriceReason(
   const restored =
     reference != null && roundMoney(actual) === roundMoney(reference);
   const needsReason =
-    changed && !restored && !(custom && previous === undefined);
+    changed &&
+    (!restored || (previous !== undefined && !allowRestoreWithoutReason));
   if (needsReason && checkReason && !fields.adjustmentReason?.trim())
     throw new BusinessException({
       code: 'ITINERARY_INVALID',
       message: '调整价格必须填写本次原因',
       status: HttpStatus.BAD_REQUEST,
     });
-  fields.adjustmentReason = restored
-    ? ''
-    : changed
+  fields.adjustmentReason = changed
+    ? needsReason
       ? (fields.adjustmentReason?.trim() ?? '')
-      : (old?.adjustmentReason ?? fields.adjustmentReason ?? '');
+      : ''
+    : (old?.adjustmentReason ?? fields.adjustmentReason ?? '');
 }
 export function vehicleSegmentTotal(
   plan: ItineraryInput['vehiclePlans'][number],
@@ -99,15 +100,24 @@ export async function recordPriceAdjustments(
     const reference = item.referencePrice ?? null;
     if (
       before &&
-      before.source === item.source &&
+      (before.source === item.source || item.type === 'vehicle') &&
       roundMoney(before.price) === roundMoney(item.price)
     )
       continue;
+    if (!before && item.type === 'vehicle') continue;
     if (
       !before &&
       (reference == null
         ? !item.adjustmentReason?.trim()
         : roundMoney(reference) === roundMoney(item.price))
+    )
+      continue;
+    if (
+      before &&
+      item.type !== 'vehicle' &&
+      before.source !== item.source &&
+      reference != null &&
+      roundMoney(reference) === roundMoney(item.price)
     )
       continue;
     const action =

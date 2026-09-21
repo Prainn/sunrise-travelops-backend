@@ -180,14 +180,7 @@ export class ItineraryValidation {
           referenceBasis: 'resource_price',
         });
       }
-      requirePriceReason(
-        item.unitCost,
-        old?.unitCost,
-        item,
-        old,
-        checkReason,
-        customRestaurant,
-      );
+      requirePriceReason(item.unitCost, old?.unitCost, item, old, checkReason);
       if (
         item.unit === 'table' &&
         !(
@@ -360,21 +353,20 @@ export class ItineraryValidation {
         group.totalPrice = group.segmentTotal;
         group.adjustmentReason = '';
       } else if (group.totalPrice != null) {
-        const basisChanged =
-          old &&
-          (vehicleSegmentTotal(old) !== group.segmentTotal ||
-            (old.pricingMode ?? 'unknown') !== group.pricingMode);
         const fields = {
           referencePrice: group.segmentTotal,
           adjustmentReason: group.adjustmentReason,
         };
-        requirePriceReason(
-          group.totalPrice,
-          basisChanged ? undefined : (old?.totalPrice ?? undefined),
-          fields,
-          old,
-          checkReason,
-        );
+        if (old?.totalPrice == null) fields.adjustmentReason = '';
+        else
+          requirePriceReason(
+            group.totalPrice,
+            old.totalPrice,
+            fields,
+            old,
+            checkReason,
+            true,
+          );
         group.adjustmentReason = fields.adjustmentReason;
       }
     }
@@ -433,6 +425,13 @@ export class ItineraryValidation {
       unique(option.paxPrices.map((price) => String(price.pax)));
       if (option.paxPrices.some((price) => !plan.paxTiers.includes(price.pax)))
         invalid('报价档位不属于行程');
+      unique(option.staffRoomCosts.map((cost) => cost.destination));
+      if (
+        option.staffRoomCosts.some(
+          (cost) => !plan.destinations.includes(cost.destination),
+        )
+      )
+        invalid('司陪房城市不属于行程目的地');
     }
     plan.quote.options = plan.hotelPlans
       .filter((p) => p.hotels.length)
@@ -451,10 +450,15 @@ export class ItineraryValidation {
                 option?.guideServiceTotal == null
                   ? null
                   : roundMoney(option.guideServiceTotal),
-              staffRoomTotal:
-                option?.staffRoomTotal == null
-                  ? null
-                  : roundMoney(option.staffRoomTotal),
+              staffRoomCosts: plan.destinations.map((destination) => {
+                const total = option?.staffRoomCosts.find(
+                  (cost) => cost.destination === destination,
+                )?.total;
+                return {
+                  destination,
+                  total: total == null ? null : roundMoney(total),
+                };
+              }),
               paxPrices: plan.paxTiers.map((pax) => {
                 const price = option?.paxPrices.find(
                   (price) => price.pax === pax,

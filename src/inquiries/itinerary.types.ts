@@ -54,12 +54,17 @@ export interface ItineraryPaxPrice {
   adultUnitPrice: number | null;
 }
 
+export interface ItineraryStaffRoomCost {
+  destination: string;
+  total: number | null;
+}
+
 export interface ItineraryQuoteOption {
   id: string;
   hotelTier: ItineraryHotelTier;
   vehicleTier: ItineraryVehicleTier;
   guideServiceTotal: number | null;
-  staffRoomTotal: number | null;
+  staffRoomCosts: ItineraryStaffRoomCost[];
   paxPrices: ItineraryPaxPrice[];
 }
 

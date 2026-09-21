@@ -65,6 +65,7 @@ const MONEY_FIELDS = new Set([
   'vehicleTotal',
   'guideServiceTotal',
   'staffRoomTotal',
+  'total',
   'vehicleUnitCost',
   'guideServiceUnitCost',
   'staffRoomUnitCost',

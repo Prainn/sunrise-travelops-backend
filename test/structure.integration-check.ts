@@ -418,7 +418,25 @@ async function main() {
       "UPDATE itineraries SET data=data-'unmappedLegacyField' WHERE id=$1",
       [ids.draft],
     );
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...all.filter(
+        (m) =>
+          Number((m.name ?? m.constructor.name).slice(-13)) < 1790006500000,
+      ),
+    );
     await db.runMigrations();
+    await db.query(
+      'UPDATE itinerary_quote_options SET staff_room_total=1040 WHERE itinerary_id=$1',
+      [ids.draft],
+    );
+    db.migrations.splice(0, db.migrations.length, ...all);
+    assert(
+      (await db.runMigrations()).some(
+        ({ name }) => name === 'AddStaffRoomCostsByDestination1790006500000',
+      ),
+    );
     assert.equal((await db.runMigrations()).length, 0);
     const migrated = await loadItineraryData(
       db.manager,
@@ -426,6 +444,12 @@ async function main() {
     );
     assert.equal(migrated.data.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(migrated.data.hotelPlans[0].hotels[0].referencePrice, null);
+    assert.deepEqual(
+      migrated.data.quote.options[0].staffRoomCosts.map((cost) => ({
+        ...cost,
+      })),
+      [{ destination: '昆明', total: 1040 }],
+    );
     assert.deepEqual(
       migrated.data.vehiclePlans[0].arrangements.map((a) => [
         a.id,
@@ -706,6 +730,15 @@ async function main() {
     assert.equal(saved.dailyPlans[0].items[0].unitCost, 90);
     assert.equal(saved.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(
+      (
+        await db.query<Array<{ staff_room_total: string }>>(
+          'SELECT staff_room_total FROM itinerary_quote_options WHERE itinerary_id=$1',
+          [ids.draft],
+        )
+      )[0].staff_room_total,
+      '1040',
+    );
+    assert.equal(
       (await service.priceAdjustments(ids.draft, a)).length,
       beforeHistory + 1,
     );
@@ -805,6 +838,9 @@ async function main() {
     await assert.rejects(
       validation.normalize(db.manager, migrated.data, undefined, 3, 'shared'),
     );
+    for (const day of migrated.data.dailyPlans)
+      for (const item of day.items)
+        if (!item.resourceId) item.adjustmentReason = '历史自定义餐';
     const normalized = await validation.normalize(
       db.manager,
       {
@@ -847,6 +883,10 @@ async function main() {
     assert.equal(adjusted.hotelPlans[0].hotels[0].referencePrice, 900);
     priceChange.hotelPlans[0].hotels[0].unitCost = 900;
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '';
+    await assert.rejects(
+      validation.normalize(db.manager, priceChange, adjusted, 3, 'shengxu'),
+    );
+    priceChange.hotelPlans[0].hotels[0].adjustmentReason = '恢复参考价';
     assert.equal(
       (
         await validation.normalize(

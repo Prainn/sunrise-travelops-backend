@@ -51,7 +51,8 @@ export class InquiriesController {
     @Req() req: Request,
   ) {
     const actor = await this.service.actor(user, req);
-    return moneyResponse(await this.service.list(query, actor));
+    const result = await this.service.list(query, actor);
+    return { ...result, list: moneyResponse(result.list) };
   }
   @Get('owners')
   @Permissions('inquiry:list')
@@ -280,7 +281,8 @@ export class InquiryLogsController {
     @Req() req: Request,
   ) {
     const actor = await this.service.actor(user, req);
-    return moneyResponse(await this.service.logs(query, actor));
+    const result = await this.service.logs(query, actor);
+    return { ...result, list: moneyResponse(result.list) };
   }
   @Get('report')
   @Permissions('inquiry:list')

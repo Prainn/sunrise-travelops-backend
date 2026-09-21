@@ -75,10 +75,10 @@ export function calculateItineraryQuote(
         itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
           ?.totalPrice ?? 0,
       );
-      const guideServiceTotal = roundMoney(
-        option.guideServiceTotal ?? guideCost,
+      const guideServiceTotal = roundMoney(option.guideServiceTotal ?? 0);
+      const staffRoomTotal = sumMoney(
+        option.staffRoomCosts.map((cost) => cost.total ?? 0),
       );
-      const staffRoomTotal = roundMoney(option.staffRoomTotal ?? 0);
       return {
         optionId: option.id,
         hotelTier: option.hotelTier,
