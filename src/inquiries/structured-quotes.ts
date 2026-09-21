@@ -1,62 +1,64 @@
 import { EntityManager } from 'typeorm';
-import { PdfData } from './inquiry.entity';
+import { CurrentPdfData as PdfData } from './inquiry.entity';
 export async function saveFrozenDetails(
   manager: EntityManager,
   id: string,
   snapshot: PdfData,
 ) {
   const calculation = snapshot.calculation;
+  if (!('pricingVersion' in calculation) || calculation.pricingVersion !== 2)
+    throw new Error('Only PAX quotes can be newly frozen');
   await manager.query(
-    'UPDATE itinerary_quotes SET quote_code=$2,quote_version=$3,inquiry_id=$4,inquiry_version=$5,hotel_guest_count=$6,hotel_room_count=$7,daily_resource_cost=$8,guide_cost=$9 WHERE id=$1',
+    'UPDATE itinerary_quotes SET quote_code=$2,quote_version=$3,inquiry_id=$4,inquiry_version=$5,daily_resource_cost=$6,guide_cost=$7 WHERE id=$1',
     [
       id,
       snapshot.quoteCode,
       snapshot.quoteVersion,
       snapshot.inquiry.id,
       snapshot.inquiryVersion,
-      calculation.hotelGuestCount,
-      calculation.hotelRoomCount,
       calculation.dailyResourceCost,
       calculation.guideCost,
     ],
   );
   for (const [position, option] of calculation.options.entries()) {
     await manager.query(
-      `INSERT INTO quote_options(quote_id,option_id,position,hotel_tier,vehicle_tier,hotel_cost,vehicle_cost,common_group_cost,base_group_cost,base_cost_per_person,single_supplement_unit_cost,adult_unit_price,child_unit_price,total_price,expected_profit,margin_rate,leader_foc_enabled) VALUES (${Array.from({ length: 17 }, (_, i) => `$${i + 1}`).join(',')})`,
+      `INSERT INTO quote_options(quote_id,option_id,position,hotel_tier,vehicle_tier,hotel_unit_cost,vehicle_total,guide_service_total,staff_room_total)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         id,
         option.optionId,
         position,
         option.hotelTier,
         option.vehicleTier,
-        option.hotelCost,
-        option.vehicleCost,
-        option.commonGroupCost,
-        option.baseGroupCost,
-        option.baseCostPerPerson,
-        option.singleSupplementUnitCost,
-        option.adultUnitPrice,
-        option.childUnitPrice,
-        option.totalPrice,
-        option.profit,
-        option.actualMarginRate,
-        snapshot.itinerary.quote.options.find((o) => o.id === option.optionId)!
-          .leaderFocEnabled,
+        option.hotelUnitCost,
+        option.vehicleTotal,
+        option.guideServiceTotal,
+        option.staffRoomTotal,
       ],
     );
-    for (const [order, line] of option.lines.entries())
+    for (const [order, price] of option.paxPrices.entries()) {
       await manager.query(
-        'INSERT INTO quote_lines(quote_id,option_id,position,type,quantity,unit_price,total_price) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        `INSERT INTO quote_pax_prices(quote_id,option_id,position,pax,vehicle_unit_cost,guide_service_unit_cost,staff_room_unit_cost,base_cost_per_person,adult_unit_price,child_unit_price,leader_unit_price,single_supplement_unit_cost,tip_unit_price,profit_per_person,actual_margin_rate)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           id,
           option.optionId,
           order,
-          line.type,
-          line.quantity,
-          line.unitPrice,
-          line.totalPrice,
+          price.pax,
+          price.vehicleUnitCost,
+          price.guideServiceUnitCost,
+          price.staffRoomUnitCost,
+          price.baseCostPerPerson,
+          price.adultUnitPrice,
+          price.childUnitPrice,
+          price.leaderUnitPrice,
+          price.singleSupplementUnitCost,
+          price.tipUnitPrice,
+          price.profitPerPerson,
+          price.actualMarginRate,
         ],
       );
+    }
   }
   const plan = snapshot.itinerary;
   const items = [
@@ -73,6 +75,7 @@ export async function saveFrozenDetails(
         priceId: i.resourcePriceId,
         unit: i.unit,
         quantity: i.quantity,
+        dinerCount: i.dinerCount,
         price: i.unitCost,
         total: i.totalCost,
         day: d.dayNumber,
@@ -92,6 +95,7 @@ export async function saveFrozenDetails(
         priceId: null,
         unit: h.unit,
         quantity: null,
+        dinerCount: null,
         price: h.unitCost,
         total: null,
         day: null,
@@ -110,6 +114,7 @@ export async function saveFrozenDetails(
       priceId: null,
       unit: 'day',
       quantity: g.serviceDays,
+      dinerCount: null,
       price: g.dailyPrice,
       total: null,
       day: null,
@@ -127,6 +132,7 @@ export async function saveFrozenDetails(
       priceId: null,
       unit: 'trip',
       quantity: 1,
+      dinerCount: null,
       price: v.totalPrice,
       total: v.totalPrice,
       day: null,
@@ -135,7 +141,7 @@ export async function saveFrozenDetails(
   ];
   for (const [position, item] of items.entries())
     await manager.query(
-      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
+      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason,diner_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
       [
         id,
         position,
@@ -154,6 +160,7 @@ export async function saveFrozenDetails(
         item.referencePrice ?? null,
         item.referenceBasis ?? null,
         item.adjustmentReason ?? null,
+        item.dinerCount,
       ],
     );
   for (const vehicle of plan.vehiclePlans)
@@ -194,7 +201,7 @@ export async function saveFrozenDetails(
       arrival: f.arrivalCity,
       cabin: f.cabin,
     })),
-    ...(['chineseTip', 'englishTip', 'otherExpenses'] as const).map((key) => ({
+    ...(['chineseTip', 'englishTip'] as const).map((key) => ({
       id: key,
       type: key,
       price: plan.quote[key],

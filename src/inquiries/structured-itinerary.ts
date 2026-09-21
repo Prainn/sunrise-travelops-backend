@@ -28,6 +28,7 @@ export const ITINERARY_TABLES = {
     resourceName: 'text',
     priceName: 'text',
     quantity: 'numeric',
+    dinerCount: 'integer?',
     unit: 'text',
     unitCost: 'numeric',
     totalCost: 'numeric',
@@ -88,7 +89,6 @@ export const ITINERARY_TABLES = {
   itinerary_quote_settings: {
     chineseTip: 'numeric?',
     englishTip: 'numeric?',
-    otherExpenses: 'numeric?',
     customerNotes: 'text',
     holidayRestrictions: 'text',
     hotelReplacementTerms: 'text',
@@ -97,8 +97,13 @@ export const ITINERARY_TABLES = {
     id: 'text',
     hotelTier: 'text',
     vehicleTier: 'text',
+    guideServiceTotal: 'numeric?',
+    staffRoomTotal: 'numeric?',
+  },
+  itinerary_pax_prices: {
+    optionId: 'text',
+    pax: 'integer',
     adultUnitPrice: 'numeric?',
-    leaderFocEnabled: 'boolean',
   },
   itinerary_transport_fees: {
     id: 'text',
@@ -141,6 +146,9 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     itinerary_guides: data.guidePlans.map((row) => ({ ...row })),
     itinerary_quote_settings: [{ ...data.quote }],
     itinerary_quote_options: data.quote.options.map((row) => ({ ...row })),
+    itinerary_pax_prices: data.quote.options.flatMap((option) =>
+      option.paxPrices.map((price) => ({ ...price, optionId: option.id })),
+    ),
     itinerary_transport_fees: data.quote.transportFees.map((row) => ({
       ...row,
     })),
@@ -152,15 +160,8 @@ export async function saveItineraryData(
 ) {
   const data = row.data;
   await manager.query(
-    'UPDATE itineraries SET title=$2,start_date=$3,adults=$4,children_count=$5,leader_count=$6 WHERE id=$1',
-    [
-      row.id,
-      data.title,
-      data.startDate,
-      data.adults,
-      data.childrenCount,
-      data.leaderCount,
-    ],
+    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5 WHERE id=$1',
+    [row.id, data.title, data.startDate, data.paxTiers, data.childRate],
   );
   const rows = itineraryRows(data);
   for (const table of Object.keys(ITINERARY_TABLES).reverse() as Table[]) {
@@ -211,9 +212,8 @@ export async function loadItineraryData(
   row.data = plainToInstance(ItineraryInput, {
     title: row.title,
     startDate: row.startDate,
-    adults: row.adults,
-    childrenCount: row.childrenCount,
-    leaderCount: row.leaderCount,
+    paxTiers: row.paxTiers,
+    childRate: row.childRate,
     destinations: rows.itinerary_destinations.map((r) => r.destination),
     dailyPlans: rows.itinerary_days.map((d) => ({
       ...omit(d, ['breakfast', 'lunch', 'dinner']),
@@ -242,7 +242,12 @@ export async function loadItineraryData(
     guidePlans: rows.itinerary_guides,
     quote: {
       ...rows.itinerary_quote_settings[0],
-      options: rows.itinerary_quote_options,
+      options: rows.itinerary_quote_options.map((option) => ({
+        ...option,
+        paxPrices: rows.itinerary_pax_prices
+          .filter((price) => price.optionId === option.id)
+          .map((price) => omit(price, ['optionId'])),
+      })),
       transportFees: rows.itinerary_transport_fees,
     },
   });

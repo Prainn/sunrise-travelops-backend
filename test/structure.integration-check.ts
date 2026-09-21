@@ -18,7 +18,7 @@ import { UserLoginRecordEntity } from '../src/auth/user-login-record.entity';
 import { UserManagementService } from '../src/users/user-management.service';
 import { InquiriesService } from '../src/inquiries/inquiries.service';
 import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
-import { ItineraryInput, InquiryQuery } from '../src/inquiries/inquiry.dto';
+import { InquiryQuery } from '../src/inquiries/inquiry.dto';
 import { ItineraryEntity, PdfData } from '../src/inquiries/inquiry.entity';
 import { loadItineraryData } from '../src/inquiries/structured-itinerary';
 import { AgenciesService } from '../src/resources/agencies/agencies.service';
@@ -33,10 +33,6 @@ import { CityEntity } from '../src/resources/cities/city.entity';
 import { CitiesService } from '../src/resources/cities/cities.service';
 import { SelectionService } from '../src/resources/selections/selection.service';
 import { withResourceScope } from '../src/resources/common/resource-scope';
-import {
-  calculateItineraryQuote,
-  createDefaultQuoteSettings,
-} from '../src/inquiries/quote-pricing';
 import { AuthenticatedUser } from '../src/auth/auth.types';
 import type { Request } from 'express';
 const connection = {
@@ -189,7 +185,7 @@ async function main() {
       "INSERT INTO inquiries(id,code,owner_id,owner,status,creator,data) VALUES($1,'INQ-20260901-01',$2,'侯悦','quoted','houyue',$3)",
       [ids.inquiry, ids.owner, inquiryData],
     );
-    const plan: ItineraryInput = {
+    const plan = {
       title: '历史方案',
       startDate: '2026-09-14',
       adults: 8,
@@ -287,7 +283,9 @@ async function main() {
         },
       ],
       quote: {
-        ...createDefaultQuoteSettings(),
+        customerNotes: '',
+        holidayRestrictions: '',
+        hotelReplacementTerms: '如所列酒店满房，将调整为同级酒店。',
         chineseTip: 200,
         englishTip: null,
         otherExpenses: 500,
@@ -355,7 +353,40 @@ async function main() {
       generatedAt: '2026-09-01T00:00:00Z',
       quoteCode: 'ITI-20260901-02-V1',
       quoteVersion: 1,
-      calculation: calculateItineraryQuote(plan, 2808.96),
+      // Frozen pre-PAX calculation: migration fixtures must not use current pricing.
+      calculation: {
+        hotelGuestCount: 11,
+        hotelRoomCount: 6,
+        dailyResourceCost: 2808.96,
+        guideCost: 999.99,
+        options: [
+          {
+            optionId: 'option-old',
+            hotelTier: 'international_five_star',
+            vehicleTier: 'standard',
+            hotelCost: 6666.6,
+            vehicleCost: 1234.56,
+            commonGroupCost: 5043.51,
+            baseGroupCost: 11710.11,
+            baseCostPerPerson: 1245.76,
+            singleSupplementUnitCost: 555.55,
+            adultUnitPrice: 2000,
+            childUnitPrice: 1400,
+            totalPrice: 18800,
+            profit: 7089.89,
+            actualMarginRate: 37.71,
+            lines: [
+              {
+                type: 'adult',
+                quantity: 8,
+                unitPrice: 2000,
+                totalPrice: 16000,
+              },
+              { type: 'child', quantity: 2, unitPrice: 1400, totalPrice: 2800 },
+            ],
+          },
+        ],
+      },
     } as PdfData;
     snapshot.calculation.options[0].profit = -12.34;
     await db.query(
@@ -585,7 +616,11 @@ async function main() {
         service.copy(ids.draft, { version: 1, title: 'blocked' }, reader),
       );
       await assert.rejects(
-        service.saveItinerary(ids.draft, { ...plan, version: 1 }, reader),
+        service.saveItinerary(
+          ids.draft,
+          { ...migrated.data, version: 1 },
+          reader,
+        ),
       );
       await assert.rejects(
         service.confirmPdf(
@@ -758,21 +793,23 @@ async function main() {
       withResourceScope(lxActor, null, () => agencies.get(ids.agency)),
     );
     await assert.rejects(
-      validation.normalize(db.manager, plan, undefined, 3, 'shared'),
+      validation.normalize(db.manager, migrated.data, undefined, 3, 'shared'),
     );
     const normalized = await validation.normalize(
       db.manager,
       {
-        ...plan,
+        ...migrated.data,
         hotelPlans: [
           {
-            ...plan.hotelPlans[0],
-            hotels: [{ ...plan.hotelPlans[0].hotels[0], unitCost: 900 }],
+            ...migrated.data.hotelPlans[0],
+            hotels: [
+              { ...migrated.data.hotelPlans[0].hotels[0], unitCost: 900 },
+            ],
           },
         ],
         guidePlans: [],
         vehiclePlans: [],
-        dailyPlans: plan.dailyPlans,
+        dailyPlans: migrated.data.dailyPlans,
       },
       undefined,
       3,

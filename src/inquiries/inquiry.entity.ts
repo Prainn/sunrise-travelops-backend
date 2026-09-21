@@ -11,6 +11,7 @@ import type { ItineraryInput, LogAction } from './inquiry.dto';
 import type {
   ItineraryRecord,
   ItineraryQuoteCalculation,
+  LegacyQuoteCalculation,
 } from './itinerary.types';
 export interface InquiryData {
   agencyId: string;
@@ -109,9 +110,9 @@ export class ItineraryEntity extends AuditedEntity {
   data: ItineraryInput;
   @Column({ name: 'title', type: 'text' }) title: string;
   @Column({ name: 'start_date', type: 'text' }) startDate: string;
-  @Column({ name: 'adults', type: 'integer' }) adults: number;
-  @Column({ name: 'children_count', type: 'integer' }) childrenCount: number;
-  @Column({ name: 'leader_count', type: 'integer' }) leaderCount: number;
+  @Column({ name: 'pax_tiers', type: 'integer', array: true })
+  paxTiers: number[];
+  @Column({ name: 'child_rate', type: 'double precision' }) childRate: number;
   @VersionColumn() version: number;
 }
 export interface FieldChange {
@@ -151,7 +152,7 @@ export class InquiryLogEntity {
   @Column({ default: '' }) ip: string;
   @Column({ name: 'request_id', default: '' }) requestId: string;
 }
-export interface PdfData {
+export interface CurrentPdfData {
   inquiry: InquiryData & {
     id: string;
     code: string;
@@ -170,6 +171,31 @@ export interface PdfData {
   quoteVersion: number;
   calculation: ItineraryQuoteCalculation;
 }
+/** Historical migration input: preserve the pre-PAX snapshot contract. */
+export interface PdfData extends Omit<
+  CurrentPdfData,
+  'itinerary' | 'calculation'
+> {
+  itinerary: Omit<
+    CurrentPdfData['itinerary'],
+    'paxTiers' | 'childRate' | 'quote'
+  > & {
+    adults: number;
+    childrenCount: number;
+    leaderCount: number;
+    quote: Omit<ItineraryRecord['quote'], 'options'> & {
+      otherExpenses: number | null;
+      options: Array<{
+        id: string;
+        hotelTier: ItineraryRecord['hotelPlans'][number]['tier'];
+        vehicleTier: ItineraryRecord['vehiclePlans'][number]['tier'];
+        adultUnitPrice: number | null;
+        leaderFocEnabled: boolean;
+      }>;
+    };
+  };
+  calculation: LegacyQuoteCalculation;
+}
 @Entity('itinerary_quotes')
 export class ItineraryQuoteEntity {
   @PrimaryGeneratedColumn('uuid') id: string;
@@ -183,11 +209,12 @@ export class ItineraryQuoteEntity {
   @Column({ name: 'quote_version', type: 'integer' }) quoteVersion: number;
   @Column({ name: 'inquiry_id', type: 'uuid' }) inquiryId: string;
   @Column({ name: 'inquiry_version', type: 'integer' }) inquiryVersion: number;
-  @Column({ name: 'hotel_guest_count', type: 'integer' })
-  hotelGuestCount: number;
-  @Column({ name: 'hotel_room_count', type: 'integer' }) hotelRoomCount: number;
+  @Column({ name: 'hotel_guest_count', type: 'integer', nullable: true })
+  hotelGuestCount: number | null;
+  @Column({ name: 'hotel_room_count', type: 'integer', nullable: true })
+  hotelRoomCount: number | null;
   @Column({ name: 'daily_resource_cost', type: 'numeric' })
   dailyResourceCost: number;
   @Column({ name: 'guide_cost', type: 'numeric' }) guideCost: number;
-  @Column({ type: 'jsonb' }) snapshot: PdfData;
+  @Column({ type: 'jsonb' }) snapshot: CurrentPdfData;
 }

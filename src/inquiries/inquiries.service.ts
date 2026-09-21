@@ -42,7 +42,7 @@ import {
   InquiryLogEntity,
   ItineraryEntity,
   ItineraryQuoteEntity,
-  PdfData,
+  CurrentPdfData as PdfData,
 } from './inquiry.entity';
 import { diffChanges, contextualChanges } from './changes';
 import {
@@ -52,7 +52,6 @@ import {
   ItineraryValidation,
 } from './itinerary-validation';
 import { calculateItineraryQuote } from './quote-pricing';
-import { sumMoney } from './money';
 interface Actor extends AuthenticatedUser {
   name: string;
   admin: boolean;
@@ -475,14 +474,7 @@ export class InquiriesService {
     return this.itineraryResponse(itinerary);
   }
   private calculateQuote(data: ItineraryInput) {
-    return calculateItineraryQuote(
-      data,
-      sumMoney(
-        data.dailyPlans.flatMap((day) =>
-          day.items.map((item) => item.totalCost),
-        ),
-      ),
-    );
+    return calculateItineraryQuote(data);
   }
   async quoteCalculation(id: string, actor: Actor) {
     const { itinerary } = await this.pair(id, actor);
@@ -544,9 +536,8 @@ export class InquiriesService {
           data,
           title: data.title,
           startDate: data.startDate,
-          adults: data.adults,
-          childrenCount: data.childrenCount,
-          leaderCount: data.leaderCount,
+          paxTiers: data.paxTiers,
+          childRate: data.childRate,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
@@ -648,9 +639,8 @@ export class InquiriesService {
           data,
           title: data.title,
           startDate: data.startDate,
-          adults: data.adults,
-          childrenCount: data.childrenCount,
-          leaderCount: data.leaderCount,
+          paxTiers: data.paxTiers,
+          childRate: data.childRate,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
@@ -733,8 +723,8 @@ export class InquiriesService {
           quoteVersion: snapshot.quoteVersion,
           inquiryId: inquiry.id,
           inquiryVersion: inquiry.version,
-          hotelGuestCount: snapshot.calculation.hotelGuestCount,
-          hotelRoomCount: snapshot.calculation.hotelRoomCount,
+          hotelGuestCount: null,
+          hotelRoomCount: null,
           dailyResourceCost: snapshot.calculation.dailyResourceCost,
           guideCost: snapshot.calculation.guideCost,
         }),

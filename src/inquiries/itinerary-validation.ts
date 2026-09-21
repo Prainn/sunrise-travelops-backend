@@ -47,6 +47,12 @@ export class ItineraryValidation {
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
+    const previousDayCount = previous?.dailyPlans.length;
+    if (
+      plan.dailyPlans.length !== plannedDays &&
+      plan.dailyPlans.length !== previousDayCount
+    )
+      invalid('行程天数必须与询盘计划天数一致');
     const newCities = plan.destinations.filter(
       (city) => !previous?.destinations.includes(city),
     );
@@ -60,7 +66,8 @@ export class ItineraryValidation {
       )
         invalid('Invalid destination');
     }
-    const guestCount = plan.adults + plan.childrenCount + plan.leaderCount;
+    plan.paxTiers.sort((a, b) => a - b);
+    const guestCount = Math.max(...plan.paxTiers);
     unique(
       plan.dailyPlans.flatMap((day) => [
         day.id,
@@ -112,8 +119,8 @@ export class ItineraryValidation {
         if (
           !item.resourceName ||
           !['personMeal', 'table'].includes(item.unit) ||
-          !Number.isInteger(item.quantity) ||
-          item.quantity < 1 ||
+          !Number.isFinite(item.quantity) ||
+          item.quantity <= 0 ||
           !Number.isFinite(item.unitCost) ||
           item.unitCost < 0
         )
@@ -126,6 +133,7 @@ export class ItineraryValidation {
           resourceName: old.resourceName,
           priceName: old.priceName,
           unit: old.unit,
+          dinerCount: old.dinerCount ?? item.dinerCount ?? null,
           referencePrice: old.referencePrice ?? null,
           referenceBasis: old.referenceBasis ?? 'unknown',
         });
@@ -145,6 +153,10 @@ export class ItineraryValidation {
           resourceName: price.restaurant.name,
           priceName: price.menuName,
           unit: price.unit,
+          dinerCount:
+            price.unit === 'table'
+              ? (price.dinerCount ?? item.dinerCount ?? null)
+              : null,
           referencePrice: Number(price.price),
           referenceBasis: 'resource_price',
         });
@@ -176,7 +188,22 @@ export class ItineraryValidation {
         checkReason,
         customRestaurant,
       );
-      item.totalCost = multiplyMoney(item.unitCost, item.quantity);
+      if (
+        item.unit === 'table' &&
+        !(
+          item.dinerCount &&
+          Number.isInteger(item.dinerCount) &&
+          item.dinerCount > 0
+        )
+      )
+        invalid('请补充按桌餐食的每桌人数');
+      if (item.unit !== 'table') item.dinerCount = null;
+      item.totalCost = multiplyMoney(
+        item.unit === 'table'
+          ? roundMoney(item.unitCost / item.dinerCount!)
+          : item.unitCost,
+        item.quantity,
+      );
     }
     for (const group of plan.hotelPlans) {
       unique(group.hotels.map((h) => h.destination));
@@ -190,7 +217,7 @@ export class ItineraryValidation {
               h.destination === selection.destination &&
               h.hotelId === selection.hotelId,
           );
-        if (old)
+        if (old && selection.referenceBasis === old.referenceBasis)
           Object.assign(selection, {
             hotelName: old.hotelName,
             rating: old.rating,
@@ -216,10 +243,15 @@ export class ItineraryValidation {
             (library && hotel.library !== library)
           )
             invalid('Hotel does not match city or tier');
-          const groupRate =
-            hotel.groupPrice != null &&
-            hotel.minimumGroupSize != null &&
-            guestCount >= hotel.minimumGroupSize;
+          const groupRate = selection.referenceBasis === 'hotel_group';
+          if (groupRate && hotel.groupPrice == null)
+            invalid('Hotel group price unavailable');
+          if (
+            !['hotel_group', 'hotel_individual'].includes(
+              selection.referenceBasis ?? '',
+            )
+          )
+            invalid('请选择酒店参考价');
           Object.assign(selection, {
             referencePrice: Number(
               groupRate ? hotel.groupPrice : hotel.individualPrice,
@@ -234,7 +266,9 @@ export class ItineraryValidation {
         }
         requirePriceReason(
           selection.unitCost,
-          old?.unitCost,
+          old && old.referenceBasis === selection.referenceBasis
+            ? old.unitCost
+            : undefined,
           selection,
           old,
           checkReason,
@@ -395,6 +429,11 @@ export class ItineraryValidation {
     });
     const options = plan.quote.options;
     unique(options.map((o) => `${o.hotelTier}:${o.vehicleTier}`));
+    for (const option of options) {
+      unique(option.paxPrices.map((price) => String(price.pax)));
+      if (option.paxPrices.some((price) => !plan.paxTiers.includes(price.pax)))
+        invalid('报价档位不属于行程');
+    }
     plan.quote.options = plan.hotelPlans
       .filter((p) => p.hotels.length)
       .flatMap((h) =>
@@ -408,11 +447,23 @@ export class ItineraryValidation {
               id: option?.id ?? randomUUID(),
               hotelTier: h.tier,
               vehicleTier: v.tier,
-              adultUnitPrice:
-                option?.adultUnitPrice == null
+              guideServiceTotal:
+                option?.guideServiceTotal == null
                   ? null
-                  : roundMoney(option.adultUnitPrice),
-              leaderFocEnabled: option?.leaderFocEnabled ?? false,
+                  : roundMoney(option.guideServiceTotal),
+              staffRoomTotal:
+                option?.staffRoomTotal == null
+                  ? null
+                  : roundMoney(option.staffRoomTotal),
+              paxPrices: plan.paxTiers.map((pax) => {
+                const price = option?.paxPrices.find(
+                  (price) => price.pax === pax,
+                )?.adultUnitPrice;
+                return {
+                  pax,
+                  adultUnitPrice: price == null ? null : roundMoney(price),
+                };
+              }),
             };
           }),
       );
@@ -425,9 +476,10 @@ export class ItineraryValidation {
         invalid('Invalid transport cabin');
       fee.unitPrice ??= null;
     }
-    plan.quote.otherExpenses ??= null;
     plan.quote.chineseTip ??= null;
     plan.quote.englishTip ??= null;
+    if (plan.quote.chineseTip !== null && plan.quote.englishTip !== null)
+      invalid('中文和第二语言小费只能填写一种');
     return plan;
   }
   assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {

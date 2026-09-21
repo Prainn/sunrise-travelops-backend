@@ -143,7 +143,8 @@ class ItemInput extends PriceInput {
   resourcePriceId: string | null;
   @IsString() @MaxLength(500) resourceName: string;
   @IsString() @MaxLength(500) priceName: string;
-  @IsNumber() @Min(0) @Max(100000) quantity: number;
+  @IsNumber() @Min(0.000001) @Max(100000) quantity: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) dinerCount: number | null;
   @IsString() @MaxLength(100) unit: string;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e12) totalCost: number;
@@ -245,14 +246,17 @@ class GuideInput extends PriceInput {
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) dailyPrice: number;
   @IsInt() @Min(1) @Max(365) serviceDays: number;
 }
+class PaxPriceInput {
+  @IsInt() @Min(1) @Max(10000) pax: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  adultUnitPrice: number | null;
+}
 class QuoteOptionInput {
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  id: string;
+  @IsString() @MinLength(1) @MaxLength(100) id: string;
   @IsIn(['international_five_star', 'preferred_non_five_star']) hotelTier:
     'international_five_star' | 'preferred_non_five_star';
   @IsIn(['standard', 'vip']) vehicleTier: 'standard' | 'vip';
@@ -261,8 +265,18 @@ class QuoteOptionInput {
   @IsNumber()
   @Min(0)
   @Max(1e9)
-  adultUnitPrice: number | null;
-  @IsBoolean() leaderFocEnabled: boolean;
+  guideServiceTotal: number | null;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  staffRoomTotal: number | null;
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => PaxPriceInput)
+  paxPrices: PaxPriceInput[];
 }
 class TransportFeeInput {
   @Transform(({ value }: { value: unknown }) =>
@@ -281,12 +295,6 @@ class TransportFeeInput {
     number | null;
 }
 class QuoteInput {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1e9)
-  otherExpenses: number | null;
   @IsArray()
   @ArrayMaxSize(4)
   @ValidateNested({ each: true })
@@ -314,9 +322,15 @@ export class ItineraryInput {
   @MaxLength(300)
   title: string;
   @IsDateString({ strict: true }) @MaxLength(10) startDate: string;
-  @IsInt() @Min(1) @Max(10000) adults: number;
-  @IsInt() @Min(0) @Max(10000) childrenCount: number;
-  @IsInt() @Min(0) @Max(10000) leaderCount: number;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(10000, { each: true })
+  paxTiers: number[];
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) childRate: number;
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(365)

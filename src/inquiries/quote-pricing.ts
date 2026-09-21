@@ -1,222 +1,129 @@
-import type {
-  ItineraryQuoteCalculation,
-  ItineraryQuoteLine,
-  ItineraryQuoteOption,
-  ItineraryQuoteOptionCalculation,
-  ItineraryQuoteSettings,
-  ItineraryHotelTier,
-  ItineraryRecord,
-  ItineraryVehicleTier,
-} from './itinerary.types';
+import type { ItineraryRecord, PaxQuoteCalculation } from './itinerary.types';
 import { multiplyMoney, roundMoney, sumMoney } from './money';
-const DEFAULT_QUOTE_PROFIT_MARGIN_RATE = 10;
-function calculateDestinationNights(plan: Pick<ItineraryRecord, 'dailyPlans'>) {
-  const nights: Record<string, number> = {};
-  for (const day of plan.dailyPlans)
-    if (day.overnightDestination)
-      nights[day.overnightDestination] =
-        (nights[day.overnightDestination] ?? 0) + 1;
-  return nights;
-}
-function getHotelPlan(
-  plan: Pick<ItineraryRecord, 'hotelPlans'>,
-  tier: ItineraryHotelTier,
-) {
-  return plan.hotelPlans.find((p) => p.tier === tier);
-}
-function getVehiclePlan(
-  plan: Pick<ItineraryRecord, 'vehiclePlans'>,
-  tier: ItineraryVehicleTier,
-) {
-  return plan.vehiclePlans.find((p) => p.tier === tier);
-}
-function calculateVehiclePlanCost(
-  plan: ItineraryRecord['vehiclePlans'][number] | undefined,
-) {
-  return plan?.totalPrice ?? 0;
-}
+import { BusinessException } from '../common/exceptions/business.exception';
 
-export const CHILD_RATE = 70;
-
-export function createDefaultQuoteOption(
-  hotelTier: ItineraryHotelTier,
-  vehicleTier: ItineraryVehicleTier,
-  id = `quote-option-${hotelTier}-${vehicleTier}`,
-): ItineraryQuoteOption {
-  return {
-    id,
-    hotelTier,
-    vehicleTier,
-    adultUnitPrice: null,
-    leaderFocEnabled: false,
-  };
-}
-
-export function createDefaultQuoteSettings(): ItineraryQuoteSettings {
-  return {
-    options: [],
-    chineseTip: null,
-    englishTip: null,
-    transportFees: [],
-    otherExpenses: null,
-    customerNotes: '',
-    holidayRestrictions: '',
-    hotelReplacementTerms: '如所列酒店满房，将调整为同级酒店。',
-  };
-}
-
-export function calculateHotelRoomCount(
-  itinerary: Pick<ItineraryRecord, 'adults' | 'childrenCount' | 'leaderCount'>,
-) {
-  const hotelGuestCount = itinerary.adults + itinerary.childrenCount;
-  return Math.ceil(hotelGuestCount / 2) + itinerary.leaderCount;
-}
+type QuotePlan = Pick<
+  ItineraryRecord,
+  | 'paxTiers'
+  | 'childRate'
+  | 'hotelPlans'
+  | 'vehiclePlans'
+  | 'quote'
+  | 'dailyPlans'
+  | 'guidePlans'
+>;
 
 export function calculateItineraryQuote(
-  itinerary: Pick<
-    ItineraryRecord,
-    | 'adults'
-    | 'childrenCount'
-    | 'leaderCount'
-    | 'hotelPlans'
-    | 'vehiclePlans'
-    | 'quote'
-    | 'dailyPlans'
-    | 'guidePlans'
-  >,
-  dailyResourceCost: number,
-): ItineraryQuoteCalculation {
+  itinerary: QuotePlan,
+): PaxQuoteCalculation {
+  if (
+    itinerary.quote.chineseTip !== null &&
+    itinerary.quote.englishTip !== null
+  )
+    throw new BusinessException({
+      code: 'ITINERARY_INVALID',
+      message: '中文和第二语言小费只能填写一种',
+      status: 400,
+    });
   const guideCost = sumMoney(
     itinerary.guidePlans.map((plan) =>
       multiplyMoney(plan.dailyPrice, plan.serviceDays),
     ),
   );
-  const hotelGuestCount = itinerary.adults + itinerary.childrenCount;
-  const normalizedDailyResourceCost = roundMoney(dailyResourceCost);
-  const adultEquivalentCount =
-    itinerary.adults + (itinerary.childrenCount * CHILD_RATE) / 100;
-  const hotelRoomCount = calculateHotelRoomCount(itinerary);
-
-  return {
-    hotelGuestCount,
-    hotelRoomCount,
-    dailyResourceCost: normalizedDailyResourceCost,
-    guideCost,
-    options: itinerary.quote.options.map((option) =>
-      calculateQuoteOption(
-        option,
-        itinerary,
-        sumMoney([normalizedDailyResourceCost, guideCost]),
-        hotelRoomCount,
-        adultEquivalentCount,
-      ),
+  const dailyResourceCost = sumMoney(
+    itinerary.dailyPlans.flatMap((day) =>
+      day.items.map((item) => {
+        if (
+          item.unit === 'table' &&
+          !(item.dinerCount && item.dinerCount > 0)
+        ) {
+          throw new BusinessException({
+            code: 'ITINERARY_INVALID',
+            message: '请补充按桌餐食的每桌人数',
+            status: 400,
+          });
+        }
+        const unitCost =
+          item.unit === 'table'
+            ? roundMoney(item.unitCost / item.dinerCount!)
+            : item.unitCost;
+        return multiplyMoney(unitCost, item.quantity);
+      }),
     ),
-  };
-}
-
-function calculateQuoteOption(
-  option: ItineraryQuoteOption,
-  itinerary: Pick<
-    ItineraryRecord,
-    | 'adults'
-    | 'childrenCount'
-    | 'leaderCount'
-    | 'hotelPlans'
-    | 'vehiclePlans'
-    | 'dailyPlans'
-  >,
-  dailyResourceCost: number,
-  hotelRoomCount: number,
-  adultEquivalentCount: number,
-): ItineraryQuoteOptionCalculation {
-  const hotelPricing = calculateHotelPlanPricing(
-    itinerary,
-    option.hotelTier,
-    hotelRoomCount,
   );
-  const vehicleCost = calculateVehiclePlanCost(
-    getVehiclePlan(itinerary, option.vehicleTier),
+  const tipUnitPrice = roundMoney(
+    itinerary.quote.chineseTip ?? itinerary.quote.englishTip ?? 0,
   );
-  const commonGroupCost = roundMoney(dailyResourceCost + vehicleCost);
-  const baseGroupCost = roundMoney(commonGroupCost + hotelPricing.hotelCost);
-  const baseCostPerPerson = adultEquivalentCount
-    ? roundMoney(baseGroupCost / adultEquivalentCount)
-    : 0;
-  const suggestedAdultUnitPrice = calculateSuggestedAdultUnitPrice(
-    baseGroupCost,
-    adultEquivalentCount,
-  );
-  const adultUnitPrice =
-    option.adultUnitPrice === null
-      ? suggestedAdultUnitPrice
-      : Math.max(roundMoney(option.adultUnitPrice), 0);
-  const childUnitPrice = roundMoney((adultUnitPrice * CHILD_RATE) / 100);
-  const lines: ItineraryQuoteLine[] = [
-    createQuoteLine('adult', itinerary.adults, adultUnitPrice),
-    createQuoteLine('child', itinerary.childrenCount, childUnitPrice),
-  ];
-  const totalPrice = sumMoney(lines.map((line) => line.totalPrice));
-  const profit = roundMoney(totalPrice - baseGroupCost);
-
   return {
-    optionId: option.id,
-    hotelTier: option.hotelTier,
-    vehicleTier: option.vehicleTier,
-    hotelCost: hotelPricing.hotelCost,
-    vehicleCost,
-    commonGroupCost,
-    baseGroupCost,
-    baseCostPerPerson,
-    singleSupplementUnitCost: hotelPricing.singleSupplementUnitCost,
-    adultUnitPrice,
-    childUnitPrice,
-    totalPrice,
-    profit,
-    actualMarginRate: totalPrice ? (profit / totalPrice) * 100 : 0,
-    lines,
-  };
-}
-
-function calculateSuggestedAdultUnitPrice(
-  totalCost: number,
-  adultEquivalentCount: number,
-) {
-  if (!adultEquivalentCount) return 0;
-  const targetTotalPrice =
-    totalCost / (1 - DEFAULT_QUOTE_PROFIT_MARGIN_RATE / 100);
-  return Math.max(roundMoney(targetTotalPrice / adultEquivalentCount), 0);
-}
-
-function calculateHotelPlanPricing(
-  itinerary: Pick<ItineraryRecord, 'hotelPlans' | 'dailyPlans'>,
-  tier: ItineraryHotelTier,
-  hotelRoomCount: number,
-) {
-  const plan = getHotelPlan(itinerary, tier);
-  const destinationNights = calculateDestinationNights(itinerary);
-  const roomNightUnitCosts =
-    plan?.hotels.flatMap((hotel) =>
-      Array.from(
-        { length: destinationNights[hotel.destination] ?? 0 },
-        () => hotel.unitCost,
-      ),
-    ) ?? [];
-  const roomNightUnitCost = sumMoney(roomNightUnitCosts);
-  return {
-    hotelCost: multiplyMoney(roomNightUnitCost, hotelRoomCount),
-    singleSupplementUnitCost: roundMoney(roomNightUnitCost / 2),
-  };
-}
-
-function createQuoteLine(
-  type: ItineraryQuoteLine['type'],
-  quantity: number,
-  unitPrice: number,
-): ItineraryQuoteLine {
-  return {
-    type,
-    quantity,
-    unitPrice,
-    totalPrice: multiplyMoney(unitPrice, quantity),
+    pricingVersion: 2,
+    dailyResourceCost,
+    guideCost,
+    options: itinerary.quote.options.map((option) => {
+      const hotels =
+        itinerary.hotelPlans.find((plan) => plan.tier === option.hotelTier)
+          ?.hotels ?? [];
+      const roomCost = sumMoney(
+        itinerary.dailyPlans.map(
+          (day) =>
+            hotels.find(
+              (hotel) => hotel.destination === day.overnightDestination,
+            )?.unitCost ?? 0,
+        ),
+      );
+      const hotelUnitCost = roundMoney(roomCost / 2);
+      const vehicleTotal = roundMoney(
+        itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
+          ?.totalPrice ?? 0,
+      );
+      const guideServiceTotal = roundMoney(
+        option.guideServiceTotal ?? guideCost,
+      );
+      const staffRoomTotal = roundMoney(option.staffRoomTotal ?? 0);
+      return {
+        optionId: option.id,
+        hotelTier: option.hotelTier,
+        vehicleTier: option.vehicleTier,
+        hotelUnitCost,
+        vehicleTotal,
+        guideServiceTotal,
+        staffRoomTotal,
+        paxPrices: itinerary.paxTiers.map((pax) => {
+          const vehicleUnitCost = roundMoney(vehicleTotal / pax);
+          const guideServiceUnitCost = roundMoney(guideServiceTotal / pax);
+          const staffRoomUnitCost = roundMoney(staffRoomTotal / pax);
+          const baseCostPerPerson = sumMoney([
+            hotelUnitCost,
+            dailyResourceCost,
+            vehicleUnitCost,
+            guideServiceUnitCost,
+            staffRoomUnitCost,
+          ]);
+          const adultUnitPrice = roundMoney(
+            option.paxPrices.find((price) => price.pax === pax)
+              ?.adultUnitPrice ?? baseCostPerPerson,
+          );
+          const revenue = sumMoney([adultUnitPrice, tipUnitPrice]);
+          const profitPerPerson = roundMoney(revenue - baseCostPerPerson);
+          return {
+            pax,
+            vehicleUnitCost,
+            guideServiceUnitCost,
+            staffRoomUnitCost,
+            baseCostPerPerson,
+            adultUnitPrice,
+            childUnitPrice: roundMoney(
+              (adultUnitPrice * itinerary.childRate) / 100,
+            ),
+            leaderUnitPrice: hotelUnitCost,
+            singleSupplementUnitCost: hotelUnitCost,
+            tipUnitPrice,
+            profitPerPerson,
+            actualMarginRate: revenue
+              ? (profitPerPerson / revenue) * 100
+              : null,
+          };
+        }),
+      };
+    }),
   };
 }

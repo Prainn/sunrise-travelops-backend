@@ -5,7 +5,11 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 function key(value: unknown): string | undefined {
   if (!object(value)) return undefined;
-  const id = value.id ?? value.tier ?? value.destination;
+  const id =
+    value.id ??
+    value.tier ??
+    value.destination ??
+    (typeof value.pax === 'number' ? String(value.pax) : undefined);
   return typeof id === 'string' ? id : undefined;
 }
 /** Compare persisted versions; identify collection members by stable IDs rather than row positions. */
@@ -57,6 +61,16 @@ export function diffChanges(
   return [{ path, kind: 'changed', before, after }];
 }
 const MONEY_FIELDS = new Set([
+  'hotelUnitCost',
+  'vehicleTotal',
+  'guideServiceTotal',
+  'staffRoomTotal',
+  'vehicleUnitCost',
+  'guideServiceUnitCost',
+  'staffRoomUnitCost',
+  'leaderUnitPrice',
+  'tipUnitPrice',
+  'profitPerPerson',
   'referencePrice',
   'segmentTotal',
   'beforePrice',
