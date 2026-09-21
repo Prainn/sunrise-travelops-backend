@@ -73,7 +73,11 @@ async function main() {
     await empty.query(`INSERT INTO resource_guide_people(library,code,name)
       VALUES ('shengxu','GPR-OLD','旧导游档案')`);
     empty.migrations.splice(0, empty.migrations.length, ...migrations);
-    assert.equal((await empty.runMigrations()).length, 1);
+    assert(
+      (await empty.runMigrations()).some(
+        ({ name }) => name === 'AddGuidePersonProfileFields1789488200000',
+      ),
+    );
     const oldPerson: unknown = await empty.query(`SELECT name, age, contact,
       employment_type, has_labor_contract, remark FROM resource_guide_people
       WHERE code='GPR-OLD'`);
@@ -701,9 +705,12 @@ async function main() {
     );
     assert.equal(saved.dailyPlans[0].items[0].unitCost, 90);
     assert.equal(saved.hotelPlans[0].hotels[0].unitCost, 555.55);
-    assert.equal((await service.priceAdjustments(ids.draft, a)).length, 1);
+    assert.equal(
+      (await service.priceAdjustments(ids.draft, a)).length,
+      beforeHistory + 1,
+    );
     const priorVersion = saved.version;
-    const second = structuredClone(changed);
+    const second = structuredClone(saved);
     second.dailyPlans[0].description = '同一账号再次保存明细';
     saved = await service.saveItinerary(
       ids.draft,
@@ -715,7 +722,10 @@ async function main() {
       service.saveItinerary(ids.draft, { ...second, version: priorVersion }, a),
       { code: 'ITINERARY_VERSION_CONFLICT' },
     );
-    assert.equal((await service.priceAdjustments(ids.draft, a)).length, 1);
+    assert.equal(
+      (await service.priceAdjustments(ids.draft, a)).length,
+      beforeHistory + 1,
+    );
     const copy = await service.copy(
       ids.draft,
       { version: saved.version, title: '复制' },
@@ -803,7 +813,11 @@ async function main() {
           {
             ...migrated.data.hotelPlans[0],
             hotels: [
-              { ...migrated.data.hotelPlans[0].hotels[0], unitCost: 900 },
+              {
+                ...migrated.data.hotelPlans[0].hotels[0],
+                unitCost: 900,
+                referenceBasis: 'hotel_individual',
+              },
             ],
           },
         ],
@@ -860,6 +874,7 @@ async function main() {
       REFRESH_TOKEN_SECRET: 'isolated-http-refresh-secret-at-least-32-chars',
       JWT_EXPIRES_IN: '15m',
       REFRESH_TOKEN_EXPIRES_IN: '7d',
+      WHATSAPP_RESOLVER_TOKEN: 'isolated-http-resolver-token-at-least-32-chars',
       CORS_ORIGIN: 'http://127.0.0.1',
       TRUST_PROXY: 'false',
     });

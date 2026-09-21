@@ -266,7 +266,7 @@ export class ItineraryValidation {
         }
         requirePriceReason(
           selection.unitCost,
-          old && old.referenceBasis === selection.referenceBasis
+          old && (old.referenceBasis ?? 'unknown') === selection.referenceBasis
             ? old.unitCost
             : undefined,
           selection,

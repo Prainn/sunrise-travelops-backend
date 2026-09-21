@@ -59,7 +59,7 @@ function prices(data: ItineraryInput) {
         key: `hotel:${p.tier}:${h.destination}`,
         type: 'hotel',
         name: h.hotelName,
-        source: `${h.hotelId}:${h.referenceBasis}`,
+        source: `${h.hotelId}:${h.referenceBasis ?? 'unknown'}`,
         price: h.unitCost,
         ...h,
       })),
