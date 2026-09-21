@@ -75,7 +75,7 @@ docker compose ps
 docker compose stop dozzle
 ```
 
-ECS 的 8081 仍只绑定 localhost；外部访问由 `log.sunrisevacation.cn` 反向代理到 Compose 内网，并启用 Dozzle simple auth。部署和 DNS 说明见 workspace 的 `docs/deployment/ECS开发环境部署.md`。
+ECS 的 8081 仍只绑定 localhost；外部通过 `https://log.sunrisevacation.cn` 反向代理到 Compose 内网，并启用 Dozzle simple auth。部署和 DNS 说明见 workspace 的 `docs/deployment/ECS开发环境部署.md`。
 
 停止服务：
 
