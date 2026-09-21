@@ -230,9 +230,15 @@ class StatusTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(collector.notify(snapshot), 'unconfigured')
         config = {'STATUS_SMTP_HOST': 'smtp.example.test', 'STATUS_SMTP_FROM': 'status@example.test', 'STATUS_SMTP_TO': 'owner@example.test'}
+        with patch.dict(os.environ, config, clear=True), patch.object(smtplib, 'SMTP_SSL') as smtp:
+            self.assertEqual(collector.notify(snapshot), 'ready')
+            smtp.assert_not_called()
+        self.assertEqual(collector.read_json(self.base / 'notifications.json'), {
+            'incidents': {}, 'pendingServices': {'backend': 'down'}})
         with patch.dict(os.environ, config, clear=True), patch.object(smtplib, 'SMTP_SSL', side_effect=OSError('timeout')):
             self.assertEqual(collector.notify(snapshot), 'failed')
-        self.assertFalse((self.base / 'notifications.json').exists())
+        self.assertEqual(collector.read_json(self.base / 'notifications.json'), {
+            'incidents': {}, 'pendingServices': {'backend': 'down'}})
         smtp = MagicMock()
         with patch.dict(os.environ, config, clear=True), patch.object(smtplib, 'SMTP_SSL', return_value=smtp):
             self.assertEqual(collector.notify(snapshot), 'sent')
@@ -240,6 +246,17 @@ class StatusTests(unittest.TestCase):
             snapshot['services']['backend']['status'] = 'up'
             self.assertEqual(collector.notify(snapshot), 'sent')
         self.assertEqual(smtp.__enter__().send_message.call_count, 2)
+
+    def test_transient_service_failure_clears_without_email(self):
+        config = {'STATUS_SMTP_HOST': 'smtp.example.test', 'STATUS_SMTP_FROM': 'status@example.test', 'STATUS_SMTP_TO': 'owner@example.test'}
+        snapshot = {'services': {'backend': {'status': 'down'}}, 'deployments': {}}
+        with patch.dict(os.environ, config, clear=True), patch.object(smtplib, 'SMTP_SSL') as smtp:
+            self.assertEqual(collector.notify(snapshot), 'ready')
+            snapshot['services']['backend']['status'] = 'up'
+            self.assertEqual(collector.notify(snapshot), 'ready')
+        smtp.assert_not_called()
+        self.assertEqual(collector.read_json(self.base / 'notifications.json'), {
+            'incidents': {}, 'pendingServices': {}})
 
     def test_running_retry_does_not_claim_failure_recovered(self):
         collector.save(self.base / 'notifications.json', {'incidents': {'backend-deploy': 'failure:run:time'}}, 0o600)

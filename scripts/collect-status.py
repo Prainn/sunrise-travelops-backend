@@ -290,13 +290,27 @@ def notify(snapshot):
     if not all(os.environ.get(key) for key in required):
         return 'unconfigured'
     previous = read_json(PRIVATE / 'notifications.json')
-    incidents = {name: item['status'] for name, item in snapshot['services'].items() if item['status'] != 'up'}
+    previous_incidents = previous.get('incidents', {})
+    previous_pending = previous.get('pendingServices', {})
+    incidents = {}
+    pending_services = {}
+    for name, item in snapshot['services'].items():
+        status = item['status']
+        if status == 'up':
+            continue
+        if name in previous_incidents or previous_pending.get(name) == status:
+            incidents[name] = status
+        else:
+            pending_services[name] = status
     for name, item in snapshot['deployments'].items():
         if item['status'] in ('failure', 'cancelled', 'unknown'):
             incidents[name + '-deploy'] = item['status'] + ':' + (item['url'] or '') + ':' + (item['updatedAt'] or '')
-        elif item['status'] == 'running' and name + '-deploy' in previous.get('incidents', {}):
-            incidents[name + '-deploy'] = previous['incidents'][name + '-deploy']
-    if previous.get('incidents') == incidents or (not previous and not incidents):
+        elif item['status'] == 'running' and name + '-deploy' in previous_incidents:
+            incidents[name + '-deploy'] = previous_incidents[name + '-deploy']
+    notification_state = {'incidents': incidents, 'pendingServices': pending_services}
+    if previous_incidents == incidents:
+        if previous != notification_state and (previous or pending_services):
+            save(PRIVATE / 'notifications.json', notification_state, 0o600)
         return 'ready'
     message = EmailMessage()
     message['From'] = os.environ['STATUS_SMTP_FROM']
@@ -311,7 +325,7 @@ def notify(snapshot):
             if os.environ.get('STATUS_SMTP_USER'):
                 client.login(os.environ['STATUS_SMTP_USER'], os.environ['STATUS_SMTP_PASSWORD'])
             client.send_message(message)
-        save(PRIVATE / 'notifications.json', {'incidents': incidents}, 0o600)
+        save(PRIVATE / 'notifications.json', notification_state, 0o600)
         return 'sent'
     except (OSError, ValueError, KeyError, smtplib.SMTPException):
         return 'failed'  # Do not acknowledge; retry next collection.
