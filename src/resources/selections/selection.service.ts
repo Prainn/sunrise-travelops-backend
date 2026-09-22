@@ -48,6 +48,7 @@ export class SelectionService {
     const list = await qb
       .select('price.id', 'id')
       .addSelect('resource.id', 'resourceId')
+      .addSelect('resource.isStandardPrice', 'isStandardPrice')
       .addSelect('resource.name', 'resourceName')
       .addSelect(`resource.${city}`, 'city')
       .addSelect(

@@ -113,6 +113,8 @@ export class ItineraryEntity extends AuditedEntity {
   @Column({ name: 'pax_tiers', type: 'integer', array: true })
   paxTiers: number[];
   @Column({ name: 'child_rate', type: 'double precision' }) childRate: number;
+  @Column({ name: 'child_without_bed_rate', type: 'double precision' })
+  childWithoutBedRate: number;
   @VersionColumn() version: number;
 }
 export interface FieldChange {
@@ -178,7 +180,7 @@ export interface PdfData extends Omit<
 > {
   itinerary: Omit<
     CurrentPdfData['itinerary'],
-    'paxTiers' | 'childRate' | 'quote'
+    'paxTiers' | 'childRate' | 'childWithoutBedRate' | 'quote'
   > & {
     adults: number;
     childrenCount: number;

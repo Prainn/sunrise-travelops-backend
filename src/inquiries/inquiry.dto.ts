@@ -143,7 +143,7 @@ class ItemInput extends PriceInput {
   resourcePriceId: string | null;
   @IsString() @MaxLength(500) resourceName: string;
   @IsString() @MaxLength(500) priceName: string;
-  @IsNumber() @Min(0.000001) @Max(100000) quantity: number;
+  @IsInt() @Min(1) @Max(1) quantity: number;
   @IsOptional() @IsInt() @Min(1) @Max(10000) dinerCount: number | null;
   @IsString() @MaxLength(100) unit: string;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
@@ -389,6 +389,10 @@ export class ItineraryInput {
   @Max(10000, { each: true })
   paxTiers: number[];
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) childRate: number;
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  childWithoutBedRate: number;
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(365)

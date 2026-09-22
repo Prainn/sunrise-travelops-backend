@@ -25,6 +25,7 @@ export class SelectionQuery {
 }
 
 export class PriceOptionResponse {
+  isStandardPrice: boolean;
   id: string;
   resourceId: string;
   resourceName: string;

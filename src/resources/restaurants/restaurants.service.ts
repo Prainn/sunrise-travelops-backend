@@ -310,6 +310,7 @@ export class RestaurantsService {
       phone: entity.phone,
       address: entity.address,
       description: entity.description,
+      isStandardPrice: entity.isStandardPrice,
       remark: entity.remark,
       unit: entity.unit,
       status: entity.status,

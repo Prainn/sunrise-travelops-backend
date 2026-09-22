@@ -6,6 +6,7 @@ type QuotePlan = Pick<
   ItineraryRecord,
   | 'paxTiers'
   | 'childRate'
+  | 'childWithoutBedRate'
   | 'hotelPlans'
   | 'vehiclePlans'
   | 'quote'
@@ -158,6 +159,9 @@ export function calculateItineraryQuote(
             staffRoomUnitCost,
             baseCostPerPerson,
             adultUnitPrice,
+            childWithoutBedUnitPrice: roundMoney(
+              (adultUnitPrice * itinerary.childWithoutBedRate) / 100,
+            ),
             childUnitPrice: roundMoney(
               (adultUnitPrice * itinerary.childRate) / 100,
             ),

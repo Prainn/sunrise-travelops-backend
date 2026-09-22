@@ -335,6 +335,7 @@ export class AttractionsService {
       category: entity.category,
       restroomLocation: entity.restroomLocation,
       description: entity.description,
+      isStandardPrice: entity.isStandardPrice,
       remark: entity.remark,
       unit: entity.unit,
       status: entity.status,

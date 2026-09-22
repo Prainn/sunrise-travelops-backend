@@ -143,6 +143,18 @@ export class ApiExceptionFilter implements ExceptionFilter {
       driverError.code === '23505' &&
       typeof driverError.constraint === 'string'
     ) {
+      if (
+        [
+          'UQ_resource_attractions_standard_city',
+          'UQ_resource_restaurants_standard_city',
+        ].includes(driverError.constraint)
+      )
+        return {
+          status: HttpStatus.CONFLICT,
+          code: ErrorCode.RESOURCE_STANDARD_PRICE_EXISTS,
+          message: '该资源库城市已有标准价资源',
+          details: {},
+        };
       if (driverError.constraint === 'UQ_resource_guides_service')
         return {
           status: HttpStatus.CONFLICT,

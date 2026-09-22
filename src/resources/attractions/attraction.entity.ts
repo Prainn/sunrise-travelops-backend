@@ -29,6 +29,10 @@ import {
   'CHK_resource_attractions_category',
   "\"category\" IN ('scenic', 'performance', 'experience', 'transport', 'package')",
 )
+@Index('UQ_resource_attractions_standard_city', ['library', 'area'], {
+  unique: true,
+  where: '"deleted_at" IS NULL AND "is_standard_price"',
+})
 export class AttractionEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' }) area: string;
   @Column({ type: 'varchar', length: 20 }) category: AttractionCategory;
@@ -39,6 +43,8 @@ export class AttractionEntity extends TopLevelResourceEntity {
     default: '',
   })
   restroomLocation: string;
+  @Column({ name: 'is_standard_price', type: 'boolean', default: false })
+  isStandardPrice: boolean;
   @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;

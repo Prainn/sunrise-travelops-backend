@@ -151,6 +151,7 @@ export interface ItineraryPaxCalculation {
   baseCostPerPerson: number;
   adultUnitPrice: number;
   childUnitPrice: number;
+  childWithoutBedUnitPrice?: number;
   leaderUnitPrice: number;
   singleSupplementUnitCost: number;
   tipUnitPrice: number;
@@ -251,6 +252,7 @@ export interface ItineraryRecord {
   days: number;
   paxTiers: number[];
   childRate: number;
+  childWithoutBedRate: number;
   destinations: string[];
   hotelPlans: ItineraryHotelPlan[];
   vehiclePlans: ItineraryVehiclePlan[];

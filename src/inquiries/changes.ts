@@ -88,6 +88,7 @@ const MONEY_FIELDS = new Set([
   'chineseTip',
   'englishTip',
   'childUnitPrice',
+  'childWithoutBedUnitPrice',
   'hotelCost',
   'vehicleCost',
   'commonGroupCost',

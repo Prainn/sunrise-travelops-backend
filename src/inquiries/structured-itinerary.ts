@@ -179,8 +179,15 @@ export async function saveItineraryData(
 ) {
   const data = row.data;
   await manager.query(
-    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5 WHERE id=$1',
-    [row.id, data.title, data.startDate, data.paxTiers, data.childRate],
+    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5,child_without_bed_rate=$6 WHERE id=$1',
+    [
+      row.id,
+      data.title,
+      data.startDate,
+      data.paxTiers,
+      data.childRate,
+      data.childWithoutBedRate,
+    ],
   );
   const rows = itineraryRows(data);
   for (const table of Object.keys(ITINERARY_TABLES).reverse() as Table[]) {
@@ -233,6 +240,7 @@ export async function loadItineraryData(
     startDate: row.startDate,
     paxTiers: row.paxTiers,
     childRate: row.childRate,
+    childWithoutBedRate: row.childWithoutBedRate,
     destinations: rows.itinerary_destinations.map((r) => r.destination),
     dailyPlans: rows.itinerary_days.map((d) => ({
       ...omit(d, ['breakfast', 'lunch', 'dinner']),

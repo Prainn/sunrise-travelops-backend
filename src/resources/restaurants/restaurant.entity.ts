@@ -23,12 +23,18 @@ import {
     where: '"deleted_at" IS NULL',
   },
 )
+@Index('UQ_resource_restaurants_standard_city', ['library', 'city'], {
+  unique: true,
+  where: '"deleted_at" IS NULL AND "is_standard_price"',
+})
 export class RestaurantEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' }) city: string;
   @Column({ type: 'varchar', length: 100, default: '' }) cuisine: string;
   @Column({ type: 'varchar', length: 100, default: '' }) contact: string;
   @Column({ type: 'varchar', length: 50, default: '' }) phone: string;
   @Column({ type: 'varchar', length: 500, default: '' }) address: string;
+  @Column({ name: 'is_standard_price', type: 'boolean', default: false })
+  isStandardPrice: boolean;
   @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;

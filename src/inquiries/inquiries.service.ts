@@ -538,6 +538,7 @@ export class InquiriesService {
           startDate: data.startDate,
           paxTiers: data.paxTiers,
           childRate: data.childRate,
+          childWithoutBedRate: data.childWithoutBedRate,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
@@ -641,6 +642,7 @@ export class InquiriesService {
           startDate: data.startDate,
           paxTiers: data.paxTiers,
           childRate: data.childRate,
+          childWithoutBedRate: data.childWithoutBedRate,
           createdBy: actor.id,
           updatedBy: actor.id,
         }),
@@ -683,6 +685,7 @@ export class InquiriesService {
       });
       if (original) return original.snapshot;
       this.writable(inquiry, actor);
+      await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       return this.pdfSnapshot(inquiry, itinerary);
     });
@@ -705,6 +708,7 @@ export class InquiriesService {
       this.checkVersion(inquiry.version, input.inquiryVersion);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
+      await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       await assertItineraryLibrary(
         manager,

@@ -37,8 +37,8 @@ export async function saveFrozenDetails(
     );
     for (const [order, price] of option.paxPrices.entries()) {
       await manager.query(
-        `INSERT INTO quote_pax_prices(quote_id,option_id,position,pax,vehicle_unit_cost,guide_service_unit_cost,staff_room_unit_cost,base_cost_per_person,adult_unit_price,child_unit_price,leader_unit_price,single_supplement_unit_cost,tip_unit_price,profit_per_person,actual_margin_rate)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        `INSERT INTO quote_pax_prices(quote_id,option_id,position,pax,vehicle_unit_cost,guide_service_unit_cost,staff_room_unit_cost,base_cost_per_person,adult_unit_price,child_unit_price,leader_unit_price,single_supplement_unit_cost,tip_unit_price,profit_per_person,actual_margin_rate,child_without_bed_unit_price)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           id,
           option.optionId,
@@ -55,6 +55,7 @@ export async function saveFrozenDetails(
           price.tipUnitPrice,
           price.profitPerPerson,
           price.actualMarginRate,
+          price.childWithoutBedUnitPrice,
         ],
       );
     }

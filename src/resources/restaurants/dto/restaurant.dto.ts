@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsInt,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -26,6 +27,7 @@ export class CreateRestaurantDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) contact: string;
   @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
   @optionalTrimmedString @IsString() @MaxLength(500) address: string;
+  @IsOptional() @IsBoolean() isStandardPrice?: boolean;
   @IsOptional() @optionalTrimmedString @IsString() description?: string;
   @optionalTrimmedString @IsString() remark: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
@@ -76,6 +78,7 @@ export class RestaurantListItemResponse implements ResourceAuditResponse {
   phone: string;
   address: string;
   description: string;
+  isStandardPrice: boolean;
   remark: string;
   unit: string;
   status: string;

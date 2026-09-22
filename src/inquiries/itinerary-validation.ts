@@ -8,8 +8,14 @@ import { CityEntity } from '../resources/cities/city.entity';
 import { HotelEntity } from '../resources/hotels/hotel.entity';
 import { TransportEntity } from '../resources/transports/transport.entity';
 import { GuideEntity } from '../resources/guides/guide.entity';
-import { RestaurantPriceEntity } from '../resources/restaurants/restaurant.entity';
-import { AttractionPriceEntity } from '../resources/attractions/attraction.entity';
+import {
+  RestaurantEntity,
+  RestaurantPriceEntity,
+} from '../resources/restaurants/restaurant.entity';
+import {
+  AttractionEntity,
+  AttractionPriceEntity,
+} from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
 import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
@@ -38,6 +44,46 @@ export function dateAt(start: string, index: number) {
 }
 @Injectable()
 export class ItineraryValidation {
+  async assertUniqueResources(
+    manager: EntityManager,
+    plan: ItineraryInput,
+  ): Promise<void> {
+    const items = plan.dailyPlans.flatMap((day) => day.items);
+    const restaurants = items
+      .filter((item) => item.type === 'restaurant' && item.resourceId)
+      .map((item) => item.resourceId!);
+    const attractions = items
+      .filter((item) => item.type === 'attraction' && item.resourceId)
+      .map((item) => item.resourceId!);
+    const standard = new Set<string>();
+    if (restaurants.length)
+      for (const resource of await manager.find(RestaurantEntity, {
+        where: { id: In(restaurants), isStandardPrice: true },
+      }))
+        standard.add(`restaurant:${resource.id}`);
+    if (attractions.length)
+      for (const resource of await manager.find(AttractionEntity, {
+        where: { id: In(attractions), isStandardPrice: true },
+      }))
+        standard.add(`attraction:${resource.id}`);
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (item.quantity !== 1) invalid('每人使用次数必须为1');
+      const key = item.resourceId
+        ? `${item.type}:${item.resourceId}`
+        : `custom:${item.resourceName.trim().toLowerCase()}`;
+      if (standard.has(key)) continue;
+      if (seen.has(key))
+        throw new BusinessException({
+          code: 'ITINERARY_RESOURCE_DUPLICATE',
+          message: '行程中不可重复使用非标准价景点或餐食',
+          status: HttpStatus.BAD_REQUEST,
+          details: { resourceName: item.resourceName },
+        });
+      seen.add(key);
+    }
+  }
+
   async normalize(
     manager: EntityManager,
     input: ItineraryInput,
@@ -47,6 +93,7 @@ export class ItineraryValidation {
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
+    await this.assertUniqueResources(manager, plan);
     const previousDayCount = previous?.dailyPlans.length;
     if (
       plan.dailyPlans.length !== plannedDays &&
@@ -83,6 +130,20 @@ export class ItineraryValidation {
       day.dayNumber = index + 1;
       day.date = dateAt(plan.startDate, index);
       day.overnightDestination ??= null;
+      if (index > 0) {
+        const oldDay = previous?.dailyPlans.find(
+          (record) => record.id === day.id,
+        );
+        const oldPreviousDay =
+          oldDay &&
+          previous?.dailyPlans[previous.dailyPlans.indexOf(oldDay) - 1];
+        if (
+          !day.departure ||
+          (oldPreviousDay?.overnightDestination &&
+            day.departure === oldPreviousDay.overnightDestination)
+        )
+          day.departure = plan.dailyPlans[index - 1].overnightDestination ?? '';
+      }
       if (
         day.overnightDestination &&
         !plan.destinations.includes(day.overnightDestination)
