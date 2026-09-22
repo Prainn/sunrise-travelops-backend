@@ -478,7 +478,8 @@ async function main() {
     );
     const pricingPlan = structuredClone(migrated.data);
     pricingPlan.paxTiers = [10, 20];
-    pricingPlan.quote.guideServiceTotal = 1000;
+    pricingPlan.guidePlans[0].dailyPrice = 1000;
+    pricingPlan.guidePlans[0].serviceDays = 1;
     pricingPlan.quote.staffRoomCosts = [{ destination: '昆明', total: 400 }];
     pricingPlan.quote.options[0].paxPrices = [];
     pricingPlan.quote.options.push({
@@ -543,7 +544,7 @@ async function main() {
         [1036.81, 855.08],
       ],
     );
-    pricingPlan.quote.guideServiceTotal = null;
+    pricingPlan.guidePlans = [];
     pricingPlan.quote.staffRoomCosts[0].total = null;
     assert(
       calculateItineraryQuote(pricingPlan).options.every((option) =>
@@ -553,7 +554,6 @@ async function main() {
         ),
       ),
     );
-    assert.equal(migrated.data.quote.guideServiceTotal, 1499.99);
     assert.equal(migrated.data.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(migrated.data.hotelPlans[0].hotels[0].referencePrice, null);
     assert.deepEqual(

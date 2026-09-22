@@ -91,7 +91,6 @@ export const ITINERARY_TABLES = {
     mealOtherReason: 'text',
     attractionOtherCost: 'numeric?',
     attractionOtherReason: 'text',
-    guideServiceTotal: 'numeric?',
     chineseTip: 'numeric?',
     englishTip: 'numeric?',
     customerNotes: 'text',

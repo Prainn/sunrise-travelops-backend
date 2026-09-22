@@ -114,9 +114,6 @@ export function calculateItineraryQuote(
         itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
           ?.totalPrice ?? 0,
       );
-      const guideServiceTotal = roundMoney(
-        itinerary.quote.guideServiceTotal ?? 0,
-      );
       const staffRoomTotal = sumMoney(
         itinerary.quote.staffRoomCosts.map((cost) => cost.total ?? 0),
       );
@@ -127,11 +124,10 @@ export function calculateItineraryQuote(
         hotelCityCosts,
         hotelUnitCost,
         vehicleTotal,
-        guideServiceTotal,
         staffRoomTotal,
         paxPrices: itinerary.paxTiers.map((pax) => {
           const vehicleUnitCost = roundMoney(vehicleTotal / pax);
-          const guideServiceUnitCost = roundMoney(guideServiceTotal / pax);
+          const guideServiceUnitCost = roundMoney(guideCost / pax);
           const staffRoomUnitCost = roundMoney(staffRoomTotal / pax);
           const baseCostPerPerson = sumMoney([
             hotelUnitCost,

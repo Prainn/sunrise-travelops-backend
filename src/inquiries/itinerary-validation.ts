@@ -443,10 +443,6 @@ export class ItineraryValidation {
       )
     )
       invalid('司陪房城市不属于行程目的地');
-    plan.quote.guideServiceTotal =
-      plan.quote.guideServiceTotal == null
-        ? null
-        : roundMoney(plan.quote.guideServiceTotal);
     plan.quote.staffRoomCosts = plan.destinations.map((destination) => {
       const total = plan.quote.staffRoomCosts.find(
         (cost) => cost.destination === destination,

@@ -186,7 +186,6 @@ export interface PdfData extends Omit<
     quote: Omit<
       ItineraryRecord['quote'],
       | 'options'
-      | 'guideServiceTotal'
       | 'staffRoomCosts'
       | 'mealOtherCost'
       | 'mealOtherReason'

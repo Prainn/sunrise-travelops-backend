@@ -319,12 +319,6 @@ class QuoteInput {
   @MaxLength(1000)
   attractionOtherReason: string = '';
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
-  @Max(1e9)
-  guideServiceTotal: number | null;
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })

@@ -22,8 +22,8 @@ export async function saveFrozenDetails(
   );
   for (const [position, option] of calculation.options.entries()) {
     await manager.query(
-      `INSERT INTO quote_options(quote_id,option_id,position,hotel_tier,vehicle_tier,hotel_unit_cost,vehicle_total,guide_service_total,staff_room_total)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO quote_options(quote_id,option_id,position,hotel_tier,vehicle_tier,hotel_unit_cost,vehicle_total,staff_room_total)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         id,
         option.optionId,
@@ -32,7 +32,6 @@ export async function saveFrozenDetails(
         option.vehicleTier,
         option.hotelUnitCost,
         option.vehicleTotal,
-        option.guideServiceTotal,
         option.staffRoomTotal,
       ],
     );

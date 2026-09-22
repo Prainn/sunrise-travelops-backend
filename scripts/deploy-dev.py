@@ -27,6 +27,7 @@ BREAKING_MIGRATIONS = {
     'ConvertLynxVisitsToWhatsappRegistry1789521600000',
     'AddPaxTierQuotes1790006400000',
     'ShareItineraryStaffCosts1790006600000',
+    'RemoveGuideServiceTotal1790040600000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
