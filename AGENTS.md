@@ -45,7 +45,7 @@
 
 ## Testing / Verification
 
-- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：lint、全量 Jest、全部部署/监控脚本测试、build，与 CI 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
+- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（已删除的单元测试不再执行；保留的e2e和数据库集成脚本不包含在此入口），与 CI 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
 - 修改 migration 时，除 CI 空库与重复执行，还必须用隔离数据库里的代表性旧结构/旧数据验证升级、约束及关键业务读取；不得对业务库直接试验。没有可用隔离环境时明确报告，不跳过后声称完成。
 
 开发可按影响使用 `pnpm exec eslint <文件>`、`pnpm exec tsc --noEmit`、`pnpm exec jest --runInBand <测试文件>`；没有独立 type-check script。`pnpm build` 只构建，不能代替 verify:release。CI 另在 PostgreSQL 空库执行完整 migration 两次。

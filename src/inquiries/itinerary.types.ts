@@ -59,6 +59,14 @@ export interface ItineraryStaffRoomCost {
   total: number | null;
 }
 
+export interface ItineraryPaxOtherCost {
+  pax: number;
+  guideOtherCost: number | null;
+  guideOtherReason: string;
+  staffRoomOtherCost: number | null;
+  staffRoomOtherReason: string;
+}
+
 export interface ItineraryQuoteOption {
   id: string;
   hotelTier: ItineraryHotelTier;
@@ -71,6 +79,7 @@ export interface ItineraryQuoteSettings {
   mealOtherReason: string;
   attractionOtherCost: number | null;
   attractionOtherReason: string;
+  paxOtherCosts: ItineraryPaxOtherCost[];
   staffRoomCosts: ItineraryStaffRoomCost[];
   options: ItineraryQuoteOption[];
   /** Full-tour tip per adult/child, charged separately and included in profit. */

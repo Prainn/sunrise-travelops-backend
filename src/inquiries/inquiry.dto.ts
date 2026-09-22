@@ -297,6 +297,29 @@ class TransportFeeInput {
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitPrice:
     number | null;
 }
+class PaxOtherCostInput {
+  @IsInt() @Min(1) @Max(10000) pax: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  guideOtherCost: number | null = null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  guideOtherReason: string = '';
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  staffRoomOtherCost: number | null = null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  staffRoomOtherReason: string = '';
+}
 class QuoteInput {
   @IsOptional()
   @Type(() => Number)
@@ -318,6 +341,11 @@ class QuoteInput {
   @IsString()
   @MaxLength(1000)
   attractionOtherReason: string = '';
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => PaxOtherCostInput)
+  paxOtherCosts: PaxOtherCostInput[] = [];
 
   @IsArray()
   @ArrayMaxSize(100)

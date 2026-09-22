@@ -106,6 +106,13 @@ export const ITINERARY_TABLES = {
     destination: 'text',
     total: 'numeric?',
   },
+  itinerary_pax_other_costs: {
+    pax: 'integer',
+    guideOtherCost: 'numeric?',
+    guideOtherReason: 'text',
+    staffRoomOtherCost: 'numeric?',
+    staffRoomOtherReason: 'text',
+  },
   itinerary_pax_prices: {
     optionId: 'text',
     pax: 'integer',
@@ -155,6 +162,9 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     itinerary_shared_staff_room_costs: data.quote.staffRoomCosts.map(
       (cost) => ({ ...cost }),
     ),
+    itinerary_pax_other_costs: data.quote.paxOtherCosts.map((cost) => ({
+      ...cost,
+    })),
     itinerary_pax_prices: data.quote.options.flatMap((option) =>
       option.paxPrices.map((price) => ({ ...price, optionId: option.id })),
     ),
@@ -252,6 +262,7 @@ export async function loadItineraryData(
     quote: {
       ...rows.itinerary_quote_settings[0],
       staffRoomCosts: rows.itinerary_shared_staff_room_costs,
+      paxOtherCosts: rows.itinerary_pax_other_costs,
       options: rows.itinerary_quote_options.map((option) => ({
         ...option,
         paxPrices: rows.itinerary_pax_prices

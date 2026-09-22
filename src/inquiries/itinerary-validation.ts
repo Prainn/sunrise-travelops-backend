@@ -419,7 +419,11 @@ export class ItineraryValidation {
         overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
     });
-    for (const kind of ['meal', 'attraction'] as const) {
+    const otherCostKinds = [
+      { kind: 'meal', label: '餐食' },
+      { kind: 'attraction', label: '景点' },
+    ] as const;
+    for (const { kind, label } of otherCostKinds) {
       const amountKey = `${kind}OtherCost` as const;
       const reasonKey = `${kind}OtherReason` as const;
       plan.quote[amountKey] =
@@ -432,10 +436,44 @@ export class ItineraryValidation {
         (plan.quote[amountKey] ?? 0) > 0 &&
         !plan.quote[reasonKey]
       )
-        invalid(
-          kind === 'meal' ? '请填写餐食其它费用原因' : '请填写景点其它费用原因',
-        );
+        invalid(`请填写${label}其它费用原因`);
     }
+    unique(plan.quote.paxOtherCosts.map((cost) => String(cost.pax)));
+    if (
+      plan.quote.paxOtherCosts.some((cost) => !plan.paxTiers.includes(cost.pax))
+    )
+      invalid('其它费用档位不属于行程');
+    plan.quote.paxOtherCosts = plan.paxTiers.map((pax) => {
+      const existing = plan.quote.paxOtherCosts.find(
+        (cost) => cost.pax === pax,
+      );
+      const cost = {
+        pax,
+        guideOtherCost:
+          existing?.guideOtherCost == null
+            ? null
+            : roundMoney(existing.guideOtherCost),
+        guideOtherReason: (existing?.guideOtherReason ?? '').trim(),
+        staffRoomOtherCost:
+          existing?.staffRoomOtherCost == null
+            ? null
+            : roundMoney(existing.staffRoomOtherCost),
+        staffRoomOtherReason: (existing?.staffRoomOtherReason ?? '').trim(),
+      };
+      if (
+        checkReason &&
+        (cost.guideOtherCost ?? 0) > 0 &&
+        !cost.guideOtherReason
+      )
+        invalid(`请填写PAX ${pax}导游服务其它费用原因`);
+      if (
+        checkReason &&
+        (cost.staffRoomOtherCost ?? 0) > 0 &&
+        !cost.staffRoomOtherReason
+      )
+        invalid(`请填写PAX ${pax}司陪房其它费用原因`);
+      return cost;
+    });
     unique(plan.quote.staffRoomCosts.map((cost) => cost.destination));
     if (
       plan.quote.staffRoomCosts.some(

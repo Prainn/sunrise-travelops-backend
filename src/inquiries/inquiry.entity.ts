@@ -191,6 +191,7 @@ export interface PdfData extends Omit<
       | 'mealOtherReason'
       | 'attractionOtherCost'
       | 'attractionOtherReason'
+      | 'paxOtherCosts'
     > & {
       otherExpenses: number | null;
       options: Array<{

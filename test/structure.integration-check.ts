@@ -481,6 +481,22 @@ async function main() {
     pricingPlan.guidePlans[0].dailyPrice = 1000;
     pricingPlan.guidePlans[0].serviceDays = 1;
     pricingPlan.quote.staffRoomCosts = [{ destination: '昆明', total: 400 }];
+    pricingPlan.quote.paxOtherCosts = [
+      {
+        pax: 10,
+        guideOtherCost: 200,
+        guideOtherReason: '导游其它费用',
+        staffRoomOtherCost: 100,
+        staffRoomOtherReason: '司陪房其它费用',
+      },
+      {
+        pax: 20,
+        guideOtherCost: null,
+        guideOtherReason: '',
+        staffRoomOtherCost: null,
+        staffRoomOtherReason: '',
+      },
+    ];
     pricingPlan.quote.options[0].paxPrices = [];
     pricingPlan.quote.options.push({
       ...pricingPlan.quote.options[0],
@@ -517,6 +533,8 @@ async function main() {
     assert.equal(costs.mealCost, 66.68);
     assert.equal(costs.attractionCost, 51.12);
     assert.equal(costs.dailyResourceCost, 117.8);
+    assert.equal(costs.guideCost, 1000);
+    assert(costs.options.every((option) => option.staffRoomTotal === 400));
     assert.deepEqual(
       costs.options.map((option) =>
         option.paxPrices.map((row) => [
@@ -526,11 +544,11 @@ async function main() {
       ),
       [
         [
-          [100, 40],
+          [300, 140],
           [50, 20],
         ],
         [
-          [100, 40],
+          [300, 140],
           [50, 20],
         ],
       ],
@@ -540,12 +558,13 @@ async function main() {
         option.paxPrices.map((row) => row.baseCostPerPerson),
       ),
       [
-        [936.81, 805.08],
-        [1036.81, 855.08],
+        [1236.81, 805.08],
+        [1336.81, 855.08],
       ],
     );
     pricingPlan.guidePlans = [];
     pricingPlan.quote.staffRoomCosts[0].total = null;
+    pricingPlan.quote.paxOtherCosts = [];
     assert(
       calculateItineraryQuote(pricingPlan).options.every((option) =>
         option.paxPrices.every(

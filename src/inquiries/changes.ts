@@ -96,6 +96,8 @@ const MONEY_FIELDS = new Set([
   'dailyResourceCost',
   'mealOtherCost',
   'attractionOtherCost',
+  'guideOtherCost',
+  'staffRoomOtherCost',
   'mealCost',
   'attractionCost',
   'guideCost',
