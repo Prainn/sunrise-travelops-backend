@@ -39,6 +39,7 @@ export class AttractionEntity extends TopLevelResourceEntity {
     default: '',
   })
   restroomLocation: string;
+  @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;
   @OneToMany(() => AttractionPriceEntity, (price) => price.attraction)

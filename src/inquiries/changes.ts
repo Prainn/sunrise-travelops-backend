@@ -50,6 +50,9 @@ export function diffChanges(
         });
       return changes;
     }
+    // DTO instances and persisted plain objects carry the same audit content.
+    if (isDeepStrictEqual(structuredClone(before), structuredClone(after)))
+      return [];
     return [{ path, kind: 'changed', before, after }];
   }
   if (object(before) && object(after))

@@ -26,6 +26,7 @@ export class CreateRestaurantDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) contact: string;
   @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
   @optionalTrimmedString @IsString() @MaxLength(500) address: string;
+  @IsOptional() @optionalTrimmedString @IsString() description?: string;
   @optionalTrimmedString @IsString() remark: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
 }
@@ -74,6 +75,7 @@ export class RestaurantListItemResponse implements ResourceAuditResponse {
   contact: string;
   phone: string;
   address: string;
+  description: string;
   remark: string;
   unit: string;
   status: string;

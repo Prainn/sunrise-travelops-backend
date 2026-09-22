@@ -118,6 +118,7 @@ export class RestaurantsService {
       const entity = await repository.save(
         repository.create({
           ...input,
+          description: input.description ?? '',
           code,
           library: resourceLibrary(true)!,
           prices: [],
@@ -150,7 +151,11 @@ export class RestaurantsService {
       );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
-      Object.assign(entity, input, { id, updatedBy: actorId });
+      Object.assign(entity, input, {
+        id,
+        description: input.description ?? entity.description,
+        updatedBy: actorId,
+      });
       const saved = await repository.save(entity);
       const prices = await manager
         .getRepository(RestaurantPriceEntity)
@@ -304,6 +309,7 @@ export class RestaurantsService {
       contact: entity.contact,
       phone: entity.phone,
       address: entity.address,
+      description: entity.description,
       remark: entity.remark,
       unit: entity.unit,
       status: entity.status,

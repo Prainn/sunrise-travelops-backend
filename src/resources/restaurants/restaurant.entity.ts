@@ -29,6 +29,7 @@ export class RestaurantEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' }) contact: string;
   @Column({ type: 'varchar', length: 50, default: '' }) phone: string;
   @Column({ type: 'varchar', length: 500, default: '' }) address: string;
+  @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;
 

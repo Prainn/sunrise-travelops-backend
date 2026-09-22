@@ -38,6 +38,7 @@ export class CreateAttractionDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) area: string;
   @IsIn(ATTRACTION_CATEGORIES) category: AttractionCategory;
   @optionalTrimmedString @IsString() @MaxLength(500) restroomLocation: string;
+  @IsOptional() @optionalTrimmedString @IsString() description?: string;
   @optionalTrimmedString @IsString() remark: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
 }
@@ -104,6 +105,7 @@ export class AttractionListItemResponse implements ResourceAuditResponse {
   area: string;
   category: AttractionCategory;
   restroomLocation: string;
+  description: string;
   remark: string;
   unit: string;
   status: string;
