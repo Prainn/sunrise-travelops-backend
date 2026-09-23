@@ -394,7 +394,11 @@ export class ItineraryValidation {
           (sum, v) => sum + v.seats * v.quantity,
           0,
         );
-        if (hasStartDate && seats < guestCount)
+        if (
+          hasStartDate &&
+          (arrangement.vehicles.length > 0 || arrangement.totalPrice == null) &&
+          seats < guestCount
+        )
           invalid('Vehicle has insufficient seats');
       }
       const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
@@ -611,7 +615,10 @@ export class ItineraryValidation {
         vehicle.arrangements.length &&
         (vehicle.totalPrice === null ||
           vehicle.arrangements.some(
-            (a) => !a.startDate || !a.endDate || !a.vehicles.length,
+            (a) =>
+              !a.startDate ||
+              !a.endDate ||
+              (!a.vehicles.length && a.totalPrice == null),
           ))
       )
         issues.push('vehicleDays');
