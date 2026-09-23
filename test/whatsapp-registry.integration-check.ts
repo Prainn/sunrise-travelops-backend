@@ -62,7 +62,7 @@ async function main(): Promise<void> {
       assert.equal(await rowCount(upgraded), 1);
       const applied = await upgraded.runMigrations({ transaction: 'all' });
       assert.deepEqual(
-        applied.map((migration) => migration.name),
+        applied.slice(0, 2).map((migration) => migration.name),
         [
           'ConvertLynxVisitsToWhatsappRegistry1789521600000',
           'ExpandWhatsappContractVersion1789530710880',

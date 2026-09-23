@@ -476,6 +476,19 @@ async function main() {
       db.manager,
       await db.manager.findOneByOrFail(ItineraryEntity, { id: ids.draft }),
     );
+    // Keep the migrated legacy snapshot for migration assertions. New saves must
+    // submit one use per person and distinct custom restaurant names.
+    const editablePlan = structuredClone(migrated.data);
+    editablePlan.dailyPlans.forEach((day, index) => {
+      day.items.forEach((item) => {
+        item.quantity = 1;
+        item.totalCost = item.unitCost;
+        if (!item.resourceId) {
+          item.resourceName = `历史自定义餐厅-${index + 1}`;
+          item.adjustmentReason = '历史自定义餐';
+        }
+      });
+    });
     const pricingPlan = structuredClone(migrated.data);
     pricingPlan.paxTiers = [10, 20];
     pricingPlan.guidePlans[0].dailyPrice = 1000;
@@ -818,8 +831,9 @@ async function main() {
         'SELECT count(*)::int n FROM itinerary_price_adjustments',
       )
     )[0].n;
-    const changed = structuredClone(migrated.data);
+    const changed = structuredClone(editablePlan);
     changed.dailyPlans[0].items[0].unitCost = 90;
+    changed.dailyPlans[0].items[0].adjustmentReason = '';
     await assert.rejects(
       service.saveItinerary(ids.draft, { ...changed, version: 1 }, a),
     );
@@ -967,15 +981,15 @@ async function main() {
       withResourceScope(lxActor, null, () => agencies.get(ids.agency)),
     );
     await assert.rejects(
-      validation.normalize(db.manager, migrated.data, undefined, 3, 'shared'),
+      validation.normalize(db.manager, editablePlan, undefined, 3, 'shared'),
     );
-    for (const day of migrated.data.dailyPlans)
+    for (const day of editablePlan.dailyPlans)
       for (const item of day.items)
         if (!item.resourceId) item.adjustmentReason = '历史自定义餐';
     const normalized = await validation.normalize(
       db.manager,
       {
-        ...migrated.data,
+        ...editablePlan,
         hotelPlans: [
           {
             ...migrated.data.hotelPlans[0],
@@ -990,7 +1004,7 @@ async function main() {
         ],
         guidePlans: [],
         vehiclePlans: [],
-        dailyPlans: migrated.data.dailyPlans,
+        dailyPlans: editablePlan.dailyPlans,
       },
       undefined,
       3,

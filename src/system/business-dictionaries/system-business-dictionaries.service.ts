@@ -40,7 +40,7 @@ export class SystemBusinessDictionariesService {
       code: input.code,
       name: input.name,
       englishName: input.englishName,
-      builtIn: false,
+      builtIn: input.builtIn ?? false,
       items: [],
       createdBy: actorId,
       updatedBy: actorId,

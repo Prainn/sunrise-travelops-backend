@@ -322,7 +322,17 @@ export class UserManagementService {
       });
     await this.dataSource.transaction(async (manager) => {
       for (const id of [...new Set(ids)].sort()) {
-        await this.requireUser(id, actor, manager, true);
+        const user = await this.requireUser(id, actor, manager, true);
+        if (
+          actor.scope !== 'headquarters' &&
+          actor.roles.includes('BUSINESS_MANAGER') &&
+          user.identities.some(
+            (identity) =>
+              identity.scope === actor.scope &&
+              identity.roles.some((role) => role.code === 'BUSINESS_MANAGER'),
+          )
+        )
+          denied('业务负责人不能删除其他业务负责人');
         await this.assertNoUnfinished(id, manager);
         await manager.delete(UserIdentityEntity, { userId: id });
         await manager.update(UserEntity, id, { updatedBy: actor.id });

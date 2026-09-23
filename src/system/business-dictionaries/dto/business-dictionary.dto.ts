@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -45,6 +46,14 @@ export class BusinessDictionaryTypeInputDto {
   @Matches(/^[a-z][a-zA-Z0-9-]*$/)
   @MaxLength(100)
   code: string;
+
+  @ApiPropertyOptional({
+    description: 'Built-in categories cannot be deleted',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  builtIn?: boolean;
 }
 
 export class BusinessDictionaryCodeParamDto {
