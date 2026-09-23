@@ -146,8 +146,12 @@ export class UserManagementService {
     actor: AuthenticatedUser,
     manager: EntityManager,
   ) {
-    if (new Set(input.map((i) => i.scope)).size !== input.length)
-      denied('同一账号每个范围只允许一个身份');
+    if (input.length !== 1)
+      throw new BusinessException({
+        code: 'VALIDATION_ERROR',
+        message: '一个账号只能有一个登录范围和部门',
+        status: HttpStatus.BAD_REQUEST,
+      });
     const result: Array<{ input: IdentityInput; roles: RoleEntity[] }> = [];
     for (const identity of input) {
       if (actor.scope !== 'headquarters' && identity.scope !== actor.scope)

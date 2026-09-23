@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 """Root-owned deployment entry point, callable only through the restricted gateway."""
+from contextlib import contextmanager
+import select
+import signal
 import fcntl
 from datetime import datetime, timezone
 import gzip
@@ -43,6 +46,75 @@ for (const file of fs.readdirSync('/app/dist/migrations').filter(f => f.endsWith
 }
 console.log(JSON.stringify(result));
 """
+
+
+# Uploads are cancellable and do not hold the activation lock. Once activation
+# starts, finish the bounded operation (or its rollback) even if SSH disconnects.
+def upload_signal(signum, _frame):
+    raise RuntimeError('Upload cancelled by signal ' + str(signum))
+
+
+def receive(stream, output, expected, limit, total_timeout=300, idle_timeout=30):
+    if not 0 < expected <= limit:
+        raise ValueError('Invalid upload size')
+    started = last_data = last_report = time.monotonic()
+    total = 0
+    fd = stream.fileno()
+    print(f'Upload: expected {expected} bytes; deadline {total_timeout}s, idle {idle_timeout}s',
+          file=sys.stderr, flush=True)
+    while True:
+        now = time.monotonic()
+        if now - started >= total_timeout or now - last_data >= idle_timeout:
+            raise TimeoutError(f'Upload timed out: {total}/{expected} bytes; application unchanged')
+        if now - last_report >= 10:
+            rate = total / max(now - started, 0.001)
+            print(f'Upload: {total}/{expected} bytes ({total * 100 / expected:.1f}%), '
+                  f'average {rate / 1024:.1f} KiB/s', file=sys.stderr, flush=True)
+            last_report = now
+        if not select.select([fd], [], [], min(1, total_timeout - (now - started),
+                                              idle_timeout - (now - last_data)))[0]:
+            continue
+        block = os.read(fd, 64 * 1024)
+        if not block:
+            if total != expected:
+                raise ValueError(f'Incomplete upload: {total}/{expected} bytes; application unchanged')
+            break
+        total += len(block)
+        if total > expected:
+            raise ValueError('Upload exceeds declared size')
+        output.write(block)
+        last_data = time.monotonic()
+    output.seek(0)
+    print(f'Upload complete: {total} bytes in {time.monotonic() - started:.1f}s',
+          file=sys.stderr, flush=True)
+
+
+@contextmanager
+def deployment_lock():
+    with (STATE / '.deploy.lock').open('a') as lock:
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Another deployment holds the activation lock for over 60s')
+                time.sleep(0.2)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def finish_activation():
+    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, signal.SIG_IGN)
+    try:
+        print('Activation: lock acquired; completing deployment or rollback after disconnect',
+              file=sys.stderr, flush=True)
+    except OSError:
+        pass
 
 
 def run(command, env=None, input_file=None):
@@ -290,18 +362,14 @@ def bootstrap():
     return {'current': release_id, 'image': image}
 
 
-def upload(release_id, allow_migrations):
+def upload(release_id, allow_migrations, expected):
     if not re.fullmatch(r'[0-9a-f]{40}-[0-9]+-[0-9]+', release_id):
         raise ValueError('Invalid CI release ID')
+    previous_release = read_state()['current']
     # Stream to disk; only the trusted Docker daemon reads the image archive.
     with tempfile.TemporaryFile(dir=STATE) as compressed:
-        total = 0
-        while block := sys.stdin.buffer.read(1024 * 1024):
-            total += len(block)
-            if total > 1024 * 1024 * 1024:
-                raise ValueError('Compressed image exceeds 1 GiB')
-            compressed.write(block)
-        compressed.seek(0)
+        receive(sys.stdin.buffer, compressed, expected, 1024 * 1024 * 1024)
+        print('Image: decompressing and loading', file=sys.stderr, flush=True)
         with tempfile.TemporaryFile(dir=STATE) as archive:
             with gzip.GzipFile(fileobj=compressed) as source:
                 shutil.copyfileobj(source, archive)
@@ -314,36 +382,78 @@ def upload(release_id, allow_migrations):
         raise ValueError('Expected a Linux AMD64 image')
     if info['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
         raise ValueError('Image revision does not match the requested commit')
-    return publish(release_id, info['Id'], allow_migrations)
+    with deployment_lock():
+        if read_state()['current'] != previous_release:
+            raise ValueError('Current release changed during upload; preflight and retry')
+        finish_activation()
+        return publish(release_id, info['Id'], allow_migrations)
+
+
+def preflight(sha, allow_migrations):
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        raise ValueError('Invalid commit')
+    # Small manifest only; timeout also covers a client that never closes stdin.
+    signal.alarm(30)
+    try:
+        raw = sys.stdin.buffer.read(65537)
+    finally:
+        signal.alarm(0)
+    if len(raw) > 65536:
+        raise ValueError('Migration manifest exceeds 64 KiB')
+    target = json.loads(raw)
+    if not isinstance(target, dict) or not target or any(
+        not re.fullmatch(r'[A-Za-z0-9_]+', name) or not isinstance(digest, str)
+        or not re.fullmatch(r'[0-9a-f]{64}', digest) for name, digest in target.items()
+    ):
+        raise ValueError('Invalid migration manifest')
+    with deployment_lock():
+        state = read_state()
+        database = applied()
+        pending = sorted(target.keys() - set(database))
+        # Validate history/rollback compatibility even before reporting a blocked release.
+        if set(pending) & BREAKING_MIGRATIONS:
+            return {'ready': False, 'pending': pending, 'reason': 'maintenance_required'}
+        check_schema(target, state['migration_history'], database,
+                     state['compatible_migrations'], True)
+        if pending and not allow_migrations:
+            return {'ready': False, 'pending': pending, 'reason': 'migration_confirmation_required'}
+        if state['current'].startswith(sha + '-') and not pending:
+            return {'ready': False, 'pending': [], 'reason': 'already_deployed'}
+        return {'ready': True, 'pending': pending}
 
 
 def main():
     os.umask(0o077)
     STATE.mkdir(exist_ok=True)
     (STATE / 'releases').mkdir(exist_ok=True)
+    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT, signal.SIGALRM):
+        signal.signal(signum, upload_signal)
     args = sys.argv[1:]
-    with (STATE / '.deploy.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        if args == ['bootstrap']:
-            result = bootstrap()
-        elif args == ['status']:
-            state = read_state()
-            result = {'current': state['current'], 'previous': state['previous'],
-                      'releases': [{'release': p.stem, 'status': json.loads(p.read_text())['status']}
-                                   for p in sorted((STATE / 'releases').glob('*.json'))]}
-        elif args in [['cleanup-plan'], ['cleanup']]:
-            info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-dev-api-1']))[0]
-            if (info['Image'] != release(read_state()['current'])['image']
-                    or info['State'].get('Health', {}).get('Status') != 'healthy'):
-                raise ValueError('Current API must be verified and healthy before cleanup')
-            result = cleanup_plan() if args == ['cleanup-plan'] else cleanup()
-        elif len(args) == 3 and args[0] == 'deploy' and args[2] in ['true', 'false']:
-            result = upload(args[1], args[2] == 'true')
-        elif len(args) == 2 and args[0] == 'rollback':
-            result = rollback(args[1])
-        else:
-            raise ValueError('Invalid deployment command')
-        print(json.dumps(result))
+    if args == ['status']:
+        state = read_state()
+        result = {'current': state['current'], 'previous': state['previous'],
+                  'releases': [{'release': p.stem, 'status': json.loads(p.read_text())['status']}
+                               for p in sorted((STATE / 'releases').glob('*.json'))]}
+    elif len(args) == 3 and args[0] == 'preflight' and args[2] in ['true', 'false']:
+        result = preflight(args[1], args[2] == 'true')
+    elif len(args) == 4 and args[0] == 'deploy' and args[2] in ['true', 'false']:
+        result = upload(args[1], args[2] == 'true', int(args[3]))
+    else:
+        with deployment_lock():
+            finish_activation()
+            if args == ['bootstrap']:
+                result = bootstrap()
+            elif args in [['cleanup-plan'], ['cleanup']]:
+                info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-dev-api-1']))[0]
+                if (info['Image'] != release(read_state()['current'])['image']
+                        or info['State'].get('Health', {}).get('Status') != 'healthy'):
+                    raise ValueError('Current API must be verified and healthy before cleanup')
+                result = cleanup_plan() if args == ['cleanup-plan'] else cleanup()
+            elif len(args) == 2 and args[0] == 'rollback':
+                result = rollback(args[1])
+            else:
+                raise ValueError('Invalid deployment command')
+    print(json.dumps(result))
 
 
 if __name__ == '__main__':

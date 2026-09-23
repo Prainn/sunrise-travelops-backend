@@ -710,26 +710,57 @@ async function main() {
       'BUSINESS_MANAGER',
     );
     const adminUser = await createUser('sysadmin', 'headquarters', 1, 'ADMIN');
-    const exec = await management.create(
-      {
+    const exec = await createUser('boss', 'headquarters', 4, 'EXECUTIVE');
+    const multipleIdentities = {
+      username: 'invalid_mixed',
+      password: 'other-password',
+      nickname: '多部门账号',
+      avatar: '',
+      gender: 0,
+      mobile: '',
+      email: '',
+      status: 1,
+      identities: [
+        {
+          scope: 'headquarters' as const,
+          deptId: 4,
+          roleIds: [await role('EXECUTIVE')],
+        },
+        {
+          scope: 'linxi' as const,
+          deptId: 5,
+          roleIds: [await role('COORDINATOR')],
+        },
+      ],
+    };
+    await assert.rejects(
+      management.create(multipleIdentities, root),
+      /一个账号只能有一个登录范围和部门/,
+    );
+    await assert.rejects(
+      management.update(
+        exec.id,
+        { ...multipleIdentities, username: 'boss' },
+        root,
+      ),
+      /一个账号只能有一个登录范围和部门/,
+    );
+    assert.equal(
+      (await management.getFormData(exec.id, root)).identities.length,
+      1,
+    );
+    // Historical mixed identities remain readable; seed that legacy state directly.
+    await db.manager.save(
+      UserIdentityEntity,
+      db.manager.create(UserIdentityEntity, {
+        userId: exec.id,
         username: 'boss',
-        password: 'other-password',
-        nickname: '总经理',
-        avatar: '',
-        gender: 0,
-        mobile: '',
-        email: '',
-        status: 1,
-        identities: [
-          {
-            scope: 'headquarters',
-            deptId: 4,
-            roleIds: [await role('EXECUTIVE')],
-          },
-          { scope: 'linxi', deptId: 5, roleIds: [await role('COORDINATOR')] },
+        scope: 'linxi',
+        deptId: 5,
+        roles: [
+          await db.manager.findOneByOrFail(RoleEntity, { code: 'COORDINATOR' }),
         ],
-      },
-      root,
+      }),
     );
     const system = await current(adminUser.id, 'headquarters');
     const executive = await current(exec.id, 'headquarters');
