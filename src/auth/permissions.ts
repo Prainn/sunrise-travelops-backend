@@ -28,6 +28,7 @@ export const INQUIRY_PERMISSIONS = [
 ] as const;
 
 export const ADMIN_PERMISSIONS = [
+  'sys:operation-log:list',
   'sys:user:list',
   'sys:user:create',
   'sys:user:update',
@@ -64,6 +65,7 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:operation-log:list': '查看操作日志',
   'sys:user:list': '查看用户',
   'sys:user:create': '新增用户',
   'sys:user:update': '修改用户',

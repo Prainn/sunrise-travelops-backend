@@ -71,6 +71,10 @@ async function main() {
       ),
     );
     await empty.runMigrations();
+    assert.deepEqual(
+      await empty.query("SELECT name FROM roles WHERE code='ADMIN'"),
+      [{ name: '系统管理部' }],
+    );
     await empty.query(`INSERT INTO resource_guide_people(library,code,name)
       VALUES ('shengxu','GPR-OLD','旧导游档案')`);
     empty.migrations.splice(0, empty.migrations.length, ...migrations);
@@ -92,6 +96,14 @@ async function main() {
         remark: null,
       },
     ]);
+    assert.deepEqual(
+      await empty.query("SELECT name FROM roles WHERE code='ADMIN'"),
+      [{ name: '系统管理员' }],
+    );
+    assert.deepEqual(
+      await empty.query('SELECT name FROM departments WHERE id=1'),
+      [{ name: '系统管理部' }],
+    );
     assert.equal((await empty.runMigrations()).length, 0);
   } finally {
     await empty.destroy();
@@ -465,6 +477,10 @@ async function main() {
       (await db.runMigrations()).some(
         ({ name }) => name === 'ShareItineraryStaffCosts1790006600000',
       ),
+    );
+    assert.deepEqual(
+      await db.query("SELECT name FROM roles WHERE code='ADMIN'"),
+      [{ name: '系统管理员' }],
     );
     // Leave the representative plan with its original hotel/vehicle combination.
     await db.query(

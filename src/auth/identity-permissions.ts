@@ -8,7 +8,9 @@ const userPermissions = ADMIN_PERMISSIONS.filter((p) =>
   p.startsWith('sys:user:'),
 );
 const reads = [
-  ...ADMIN_PERMISSIONS.filter((p) => p.endsWith(':list')),
+  ...ADMIN_PERMISSIONS.filter(
+    (p) => p.endsWith(':list') && p !== 'sys:operation-log:list',
+  ),
   'itinerary:download',
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {

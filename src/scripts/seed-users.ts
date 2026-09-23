@@ -27,7 +27,7 @@ const roleDefinitions = Object.entries(ROLE_PERMISSIONS).map(
     name: (
       {
         ROOT: '超级管理员',
-        ADMIN: '系统管理部',
+        ADMIN: '系统管理员',
         EXECUTIVE: '总经办',
         BUSINESS_MANAGER: '业务部门负责人',
         COORDINATOR: '计调',

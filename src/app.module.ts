@@ -20,6 +20,8 @@ import { RolesModule } from './roles/roles.module';
 import { ResourcesModule } from './resources/resources.module';
 import { SystemModule } from './system/system.module';
 import { UsersModule } from './users/users.module';
+import { OperationLogsModule } from './operation-logs/operation-logs.module';
+import { OperationLogInterceptor } from './operation-logs/operation-log.interceptor';
 
 @Module({
   imports: [
@@ -37,6 +39,7 @@ import { UsersModule } from './users/users.module';
     AuthModule,
     InquiriesModule,
     UsersModule,
+    OperationLogsModule,
     RolesModule,
     ResourcesModule,
     SystemModule,
@@ -49,6 +52,7 @@ import { UsersModule } from './users/users.module';
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: HttpLogContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: OperationLogInterceptor },
   ],
 })
 export class AppModule {}
