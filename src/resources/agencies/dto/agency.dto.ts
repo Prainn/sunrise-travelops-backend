@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsIn,
   MaxLength,
   Min,
   MinLength,
@@ -20,6 +21,9 @@ import {
 export class AgencyQueryDto extends ResourceQueryDto {}
 
 export class CreateAgencyDto extends ResourceInputDto {
+  @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
+    'shengxu' | 'linxi' | 'website';
+  @IsUUID() coordinatorId: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
   @optionalTrimmedString @IsString() @MaxLength(100) countryOrRegion: string;
   @optionalTrimmedString
@@ -61,6 +65,8 @@ export class AgencyContactResponse implements ResourceAuditResponse {
 }
 
 export class AgencyListItemResponse implements ResourceAuditResponse {
+  businessUnit: 'shengxu' | 'linxi' | 'website' | null;
+  coordinatorId: string | null;
   library: 'shengxu' | 'shared';
   id: string;
   version: number;

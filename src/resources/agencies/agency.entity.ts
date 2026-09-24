@@ -20,6 +20,12 @@ import {
   where: '"deleted_at" IS NULL',
 })
 export class AgencyEntity extends TopLevelResourceEntity {
+  @Column({ name: 'business_unit', type: 'text', nullable: true })
+  businessUnit: 'shengxu' | 'linxi' | 'website' | null;
+
+  @Column({ name: 'coordinator_id', type: 'uuid', nullable: true })
+  coordinatorId: string | null;
+
   @Column({ type: 'varchar', length: 100, default: '' })
   city: string;
 

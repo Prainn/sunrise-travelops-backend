@@ -107,6 +107,10 @@ export class SelectionService {
     }
     if (kind === 'agencies' && query.code)
       qb.andWhere('resource.code = :code', { code: query.code });
+    if (kind === 'agencies' && query.businessUnit)
+      qb.andWhere('resource.businessUnit = :businessUnit', {
+        businessUnit: query.businessUnit,
+      });
     const total = await qb.getCount();
     qb.select('resource.id', 'id').addSelect('resource.name', 'name');
     if (kind === 'hotels') {

@@ -8,6 +8,9 @@ import { ResourceValidationService } from '../common/resource-validation.service
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
+import { AuthenticatedUser } from '../../auth/auth.types';
+import { UserEntity, UserStatus } from '../../users/user.entity';
+import { BusinessUnit, libraryFor } from '../../users/user-identity.entity';
 import { PageResult } from '../../common/types/page-result';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code';
@@ -50,6 +53,71 @@ export class AgenciesService {
     private readonly validation: ResourceValidationService,
   ) {}
 
+  async coordinators(businessUnit: BusinessUnit, actor: AuthenticatedUser) {
+    if (
+      !['shengxu', 'linxi', 'website'].includes(businessUnit) ||
+      (actor.scope !== 'headquarters' && actor.scope !== businessUnit)
+    )
+      throw new BusinessException({
+        code: ErrorCode.AUTH_FORBIDDEN,
+        message: 'Business unit is not available',
+        status: HttpStatus.FORBIDDEN,
+      });
+    const users = await this.dataSource.manager
+      .createQueryBuilder(UserEntity, 'user')
+      .innerJoin('user.identities', 'identity')
+      .innerJoin('identity.roles', 'role')
+      .where('user.status = :status', { status: UserStatus.Enabled })
+      .andWhere('user.isSuperuser = false')
+      .andWhere('identity.scope = :businessUnit', { businessUnit })
+      .andWhere("role.code = 'COORDINATOR' AND role.isEnabled = true")
+      .orderBy('user.nickname', 'ASC')
+      .getMany();
+    return users.map(({ id, nickname, username }) => ({ id, name: nickname, username }));
+  }
+
+  private async requireCoordinator(
+    coordinatorId: string,
+    businessUnit: BusinessUnit,
+    manager: DataSource['manager'],
+  ) {
+    const coordinator = await manager
+      .createQueryBuilder(UserEntity, 'user')
+      .innerJoin('user.identities', 'identity')
+      .innerJoin('identity.roles', 'role')
+      .where('user.id = :coordinatorId', { coordinatorId })
+      .andWhere('user.status = :status', { status: UserStatus.Enabled })
+      .andWhere('user.isSuperuser = false')
+      .andWhere('identity.scope = :businessUnit', { businessUnit })
+      .andWhere("role.code = 'COORDINATOR' AND role.isEnabled = true")
+      .getOne();
+    if (!coordinator)
+      throw new BusinessException({
+        code: ErrorCode.INQUIRY_OWNER_INVALID,
+        message: 'Coordinator is not available for this business unit',
+        status: HttpStatus.BAD_REQUEST,
+      });
+  }
+
+  private agencyBusinessUnit(
+    input: CreateAgencyDto,
+    actor: AuthenticatedUser,
+    library: 'shengxu' | 'shared',
+  ): BusinessUnit {
+    const businessUnit = actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
+    if (
+      !businessUnit ||
+      (input.businessUnit && input.businessUnit !== businessUnit) ||
+      libraryFor(businessUnit) !== library
+    )
+      throw new BusinessException({
+        code: ErrorCode.AUTH_FORBIDDEN,
+        message: 'Business unit does not match agency library',
+        status: HttpStatus.FORBIDDEN,
+      });
+    return businessUnit;
+  }
+
   async list(
     query: AgencyQueryDto,
   ): Promise<PageResult<AgencyListItemResponse>> {
@@ -63,6 +131,10 @@ export class AgenciesService {
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
     scopeResources(builder, 'agency');
+    if (query.businessUnit)
+      builder.andWhere('agency.businessUnit = :businessUnit', {
+        businessUnit: query.businessUnit,
+      });
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -101,8 +173,10 @@ export class AgenciesService {
 
   async create(
     input: CreateAgencyDto,
-    actorId: string,
+    actor: AuthenticatedUser,
   ): Promise<AgencyDetailResponse> {
+    const library = resourceLibrary(true)!;
+    const businessUnit = this.agencyBusinessUnit(input, actor, library);
     await this.validation.validateCity(
       input.city,
       undefined,
@@ -110,16 +184,18 @@ export class AgenciesService {
     );
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
+      await this.requireCoordinator(input.coordinatorId, businessUnit, manager);
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'AGY'));
       await ensureCodeAvailable(repository, code);
       const entity = repository.create({
         ...input,
+        businessUnit,
         code,
-        library: resourceLibrary(true)!,
+        library,
         contacts: [],
-        createdBy: actorId,
-        updatedBy: actorId,
+        createdBy: actor.id,
+        updatedBy: actor.id,
       });
       return this.getResponse(await repository.save(entity), []);
     });
@@ -128,7 +204,7 @@ export class AgenciesService {
   async update(
     id: string,
     input: UpdateAgencyDto,
-    actorId: string,
+    actor: AuthenticatedUser,
   ): Promise<AgencyDetailResponse> {
     assertMatchingId(input.id, id);
     return this.dataSource.transaction(async (manager) => {
@@ -139,6 +215,14 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      const businessUnit = this.agencyBusinessUnit(input, actor, entity.library);
+      if (entity.businessUnit && entity.businessUnit !== businessUnit)
+        throw new BusinessException({
+          code: ErrorCode.AUTH_FORBIDDEN,
+          message: 'Agency business unit cannot be changed',
+          status: HttpStatus.FORBIDDEN,
+        });
+      await this.requireCoordinator(input.coordinatorId, businessUnit, manager);
       await this.validation.validateCity(
         input.city,
         entity.city,
@@ -146,7 +230,7 @@ export class AgenciesService {
       );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
-      Object.assign(entity, input, { id, updatedBy: actorId });
+      Object.assign(entity, input, { id, businessUnit, updatedBy: actor.id });
       const saved = await repository.save(entity);
       const contacts = await manager
         .getRepository(AgencyContactEntity)
@@ -323,6 +407,8 @@ export class AgenciesService {
     return {
       ...auditResponse(entity),
       library: entity.library,
+      businessUnit: entity.businessUnit,
+      coordinatorId: entity.coordinatorId,
       code: entity.code,
       name: entity.name,
       city: entity.city,

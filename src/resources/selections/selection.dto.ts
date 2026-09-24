@@ -11,6 +11,8 @@ import {
   AttractionPriceResponse,
 } from '../attractions/dto/attraction.dto';
 export class SelectionQuery {
+  @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
+    'shengxu' | 'linxi' | 'website';
   @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @Type(() => Number) @IsInt() @Min(1) page = 1;
   @Type(() => Number) @IsInt() @Min(1) @Max(50) pageSize = 10;

@@ -219,8 +219,6 @@ export class InquiriesService {
         { status: UserStatus.Enabled },
       );
     if (scope) qb.andWhere('identity.scope=:scope', { scope });
-    if (!actor.admin && actor.scope !== 'headquarters')
-      qb.andWhere('u.id=:id', { id: actor.id });
     return (await qb.orderBy('u.nickname', 'ASC').getMany()).map((u) => ({
       id: u.id,
       name: u.nickname,
@@ -233,8 +231,9 @@ export class InquiriesService {
     manager: EntityManager,
     scope: BusinessUnit,
     transfer = false,
+    linkedAgency = false,
   ) {
-    if (!actor.admin && id !== actor.id)
+    if (!actor.admin && id !== actor.id && !linkedAgency)
       fail('INQUIRY_OWNER_INVALID', HttpStatus.FORBIDDEN);
     const user = await manager.findOne(UserEntity, {
       where: { id, status: UserStatus.Enabled },
@@ -320,17 +319,25 @@ export class InquiriesService {
         (input.businessUnit && input.businessUnit !== businessUnit)
       )
         invalid('Business unit required');
+      const agency = await manager.findOneBy(AgencyEntity, {
+        id: input.agencyId,
+        library: libraryFor(businessUnit),
+      });
       if (
-        actor.scope !== 'headquarters' &&
-        input.ownerId &&
-        input.ownerId !== actor.id
+        !agency ||
+        agency.status !== ResourceStatus.Enabled ||
+        agency.businessUnit !== businessUnit ||
+        !agency.coordinatorId ||
+        (input.ownerId && input.ownerId !== agency.coordinatorId)
       )
-        fail('INQUIRY_OWNER_INVALID', HttpStatus.FORBIDDEN);
+        fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
       const owner = await this.owner(
-        actor.scope === 'headquarters' ? (input.ownerId ?? actor.id) : actor.id,
+        agency.coordinatorId,
         actor,
         manager,
         businessUnit,
+        false,
+        true,
       );
       const row = await manager.save(
         InquiryEntity,

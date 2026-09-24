@@ -29,6 +29,7 @@ import {
 } from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import { AgenciesService } from './agencies.service';
+import { BusinessUnit } from '../../users/user-identity.entity';
 import {
   AgencyContactResponse,
   AgencyDetailResponse,
@@ -49,10 +50,19 @@ export class AgenciesController {
   constructor(private readonly service: AgenciesService) {}
   @Get()
   @Permissions('resource:agency:list')
-  @ApiOperation({ summary: 'List travel agencies' })
-  @ApiPaginatedResponse(AgencyListItemResponse, 'Paginated travel agency list')
+  @ApiOperation({ summary: 'List organizing agencies' })
+  @ApiPaginatedResponse(AgencyListItemResponse, 'Paginated organizing agency list')
   list(@Query() query: AgencyQueryDto) {
     return this.service.list(query);
+  }
+  @Get('coordinators')
+  @Permissions('resource:agency:list')
+  @ApiOperation({ summary: 'List coordinators for an organizing agency' })
+  coordinators(
+    @Query('businessUnit') businessUnit: BusinessUnit,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.coordinators(businessUnit, user);
   }
   @Get(':agencyId/contacts')
   @Permissions('resource:agency:list')
@@ -102,14 +112,14 @@ export class AgenciesController {
   }
   @Get(':id')
   @Permissions('resource:agency:list')
-  @ApiOperation({ summary: 'Get a travel agency' })
+  @ApiOperation({ summary: 'Get an organizing agency' })
   @ApiSuccessResponse({ type: AgencyDetailResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
   @Post()
   @Permissions('resource:agency:create')
-  @ApiOperation({ summary: 'Create a travel agency' })
+  @ApiOperation({ summary: 'Create an organizing agency' })
   @ApiSuccessResponse({
     status: HttpStatus.CREATED,
     type: AgencyDetailResponse,
@@ -118,23 +128,23 @@ export class AgenciesController {
     @Body() input: CreateAgencyDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.create(input, user.id);
+    return this.service.create(input, user);
   }
   @Put(':id')
   @Permissions('resource:agency:update')
-  @ApiOperation({ summary: 'Update a travel agency' })
+  @ApiOperation({ summary: 'Update an organizing agency' })
   @ApiSuccessResponse({ type: AgencyDetailResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateAgencyDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.update(id, input, user.id);
+    return this.service.update(id, input, user);
   }
   @Delete()
   @Permissions('resource:agency:delete')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete travel agencies' })
+  @ApiOperation({ summary: 'Delete organizing agencies' })
   @ApiNoContentResponse()
   delete(
     @Query() query: BatchIdsQueryDto,
