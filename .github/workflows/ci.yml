@@ -1,50 +1,22 @@
-name: Backend CI and deploy
-
+name: Verify backend
 on:
-  push:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      operation:
-        description: Deploy main or roll back a verified release
-        type: choice
-        options: [deploy, rollback]
-        default: deploy
-      release:
-        description: Rollback release ID, or previous
-        type: string
-        default: previous
-      migrations_compatible:
-        description: I reviewed pending migrations and confirmed compatibility with the previous application
-        type: boolean
-        default: false
-
+    branches: [main, dev]
+  push:
+    branches: [main]
 permissions:
   contents: read
-
-concurrency:
-  group: backend-ci-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   verify:
-    if: inputs.operation != 'rollback'
+    name: verify-backend
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      deploy_application: ${{ steps.scope.outputs.deploy_application }}
-      deploy_ready: ${{ steps.preflight.outputs.ready }}
     services:
       postgres:
         image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: ci-only
-          POSTGRES_DB: travelops_ci
+        env: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: ci-only, POSTGRES_DB: travelops_ci}
         ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres -d travelops_ci"
-          --health-interval 5s --health-timeout 3s --health-retries 20
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       DATABASE_HOST: 127.0.0.1
       DATABASE_PORT: '5432'
@@ -53,132 +25,20 @@ jobs:
       DATABASE_NAME: travelops_ci
       DATABASE_SSL: 'false'
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Determine application deployment scope
-        id: scope
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BEFORE_SHA: ${{ github.event.before }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          deploy_application=true
-          if [[ "$EVENT_NAME" == push && "$BEFORE_SHA" != 0000000000000000000000000000000000000000 ]]; then
-            changed=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA")
-            if printf '%s\n' "$changed" | grep -qE '^(scripts/collect-status\.py|ops/status\.env\.example|status/(index\.html|status\.css|status\.mjs))$' && ! printf '%s\n' "$changed" | grep -qvE '^(scripts/collect-status\.py|ops/status\.env\.example|status/(index\.html|status\.css|status\.mjs)|\.github/workflows/ci\.yml)$'; then
-              deploy_application=false
-            fi
-          fi
-          echo "deploy_application=$deploy_application" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24.20.0'
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 11.22.0
-          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.20.0'
+          cache: pnpm
+      - run: python3 scripts/test_deploy.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify:release
-      - name: Verify empty database migrations and repeat execution
+      - name: Empty database migrations and repeat execution
         run: |
           node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
           node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
-
-      - name: Check server migrations before image build and upload
-        id: preflight
-        if: >-
-          github.ref == 'refs/heads/main' &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-          steps.scope.outputs.deploy_application == 'true'
-        env:
-          DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEV_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS }}
-          MIGRATIONS_COMPATIBLE: ${{ inputs.migrations_compatible && 'true' || 'false' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          install -d -m 700 "$RUNNER_TEMP/backend-preflight"
-          trap 'rm -rf "$RUNNER_TEMP/backend-preflight"' EXIT
-          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/backend-preflight/key"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/backend-preflight/known_hosts"
-          chmod 600 "$RUNNER_TEMP/backend-preflight/key"
-          node scripts/migration-manifest.cjs > "$RUNNER_TEMP/backend-preflight/manifest.json"
-          timeout 90 ssh -T -i "$RUNNER_TEMP/backend-preflight/key" \
-            -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            -o "UserKnownHostsFile=$RUNNER_TEMP/backend-preflight/known_hosts" \
-            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=2 \
-            "$DEPLOY_USER@$DEPLOY_HOST" "preflight $GITHUB_SHA $MIGRATIONS_COMPATIBLE" \
-            < "$RUNNER_TEMP/backend-preflight/manifest.json" > "$RUNNER_TEMP/backend-preflight/result.json"
-          python3 - "$RUNNER_TEMP/backend-preflight/result.json" <<'PYCODE'
-          import json, os, sys
-          result = json.load(open(sys.argv[1]))
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write('ready=' + str(result['ready']).lower() + '\n')
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('Backend preflight: ' + json.dumps(result) + '\n')
-              if result.get('reason') == 'migration_confirmation_required':
-                  summary.write('Application NOT deployed. Review the listed migrations, then run this workflow on main with migrations_compatible=true. No image was built or uploaded.\n')
-              elif result.get('reason') == 'maintenance_required':
-                  summary.write('Application NOT deployed. Destructive migrations require a separate maintenance plan; compatibility confirmation cannot bypass this gate.\n')
-          if not result['ready'] and result.get('reason') != 'already_deployed':
-              print('::warning::Application not deployed: ' + result['reason'] + '; see preflight summary')
-          PYCODE
-
-  deploy:
-    needs: verify
-    if: >-
-      !cancelled() && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      ((needs.verify.result == 'success' && needs.verify.outputs.deploy_application == 'true' && needs.verify.outputs.deploy_ready == 'true') ||
-       (inputs.operation == 'rollback' && needs.verify.result == 'skipped'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Build immutable AMD64 image
-        if: inputs.operation != 'rollback'
-        shell: bash
-        run: |
-          set -euo pipefail
-          image="sunrise-travelops-api:sha-${GITHUB_SHA}"
-          docker build --platform linux/amd64 --label "org.opencontainers.image.revision=${GITHUB_SHA}" -t "$image" .
-          docker save "$image" | gzip > "$RUNNER_TEMP/backend-image.tar.gz"
-      - name: Publish or roll back and verify
-        env:
-          DEPLOY_HOST: ${{ secrets.DEV_DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEV_DEPLOY_USER }}
-          DEPLOY_KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEV_DEPLOY_KNOWN_HOSTS }}
-          OPERATION: ${{ inputs.operation || 'deploy' }}
-          ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
-          MIGRATIONS_COMPATIBLE: ${{ inputs.migrations_compatible && 'true' || 'false' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          : "${DEPLOY_HOST:?Missing DEV_DEPLOY_HOST}"
-          : "${DEPLOY_USER:?Missing DEV_DEPLOY_USER}"
-          : "${DEPLOY_KEY:?Missing DEV_DEPLOY_SSH_KEY}"
-          : "${DEPLOY_KNOWN_HOSTS:?Missing DEV_DEPLOY_KNOWN_HOSTS}"
-          install -d -m 700 "$RUNNER_TEMP/backend-deploy"
-          trap 'rm -rf "$RUNNER_TEMP/backend-deploy" "$RUNNER_TEMP/backend-image.tar.gz"' EXIT
-          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/backend-deploy/key"
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/backend-deploy/known_hosts"
-          chmod 600 "$RUNNER_TEMP/backend-deploy/key"
-          ssh_args=(-T -i "$RUNNER_TEMP/backend-deploy/key" -o IdentitiesOnly=yes -o BatchMode=yes
-            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/backend-deploy/known_hosts"
-            -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          if [[ "$OPERATION" == rollback ]]; then
-            [[ "$ROLLBACK_RELEASE" =~ ^(previous|[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})$ ]]
-            ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "rollback $ROLLBACK_RELEASE"
-          else
-            release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "deploy $release_id $MIGRATIONS_COMPATIBLE $(stat -c %s "$RUNNER_TEMP/backend-image.tar.gz")" < "$RUNNER_TEMP/backend-image.tar.gz"
-          fi
-          ssh "${ssh_args[@]}" "$DEPLOY_USER@$DEPLOY_HOST" status | tee -a "$GITHUB_STEP_SUMMARY"

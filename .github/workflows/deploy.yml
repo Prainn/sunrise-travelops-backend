@@ -1,0 +1,94 @@
+name: Deploy backend
+run-name: ${{ inputs.operation || 'deploy' }} backend ${{ github.ref_name }} ${{ github.sha }} ${{ inputs.request_id }}
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Optional exact commit required by the local dev launcher
+        type: string
+        default: ''
+      request_id:
+        description: Local launcher request identifier
+        type: string
+        default: ''
+      operation:
+        description: Deploy this branch or roll back a retained verified release
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
+      release:
+        description: Rollback release ID, or previous
+        type: string
+        default: previous
+      reviewed_migrations:
+        description: Exact comma-separated pending migration names, reviewed as backward compatible
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: backend-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ready:
+    if: github.repository == 'Prainn/sunrise-travelops-backend' && (github.ref == 'refs/heads/dev' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require registered runner and branch protections before cutover
+        env:
+          READY: ${{ vars.SELF_HOSTED_READY }}
+        run: test "$READY" = true || { echo 'Self-hosted cutover not ready; registration and branch protections required'; exit 1; }
+  deploy:
+    needs: ready
+    runs-on: [self-hosted, Linux, X64, sunrise-backend]
+    timeout-minutes: 60
+    env:
+      DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      OPERATION: ${{ inputs.operation || 'deploy' }}
+      ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
+      REVIEWED_MIGRATIONS: ${{ inputs.reviewed_migrations || '' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
+      BUILDX_CONFIG: /opt/sunrise-ci/buildx
+      NODE_OPTIONS: --max-old-space-size=1400
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Serialized build, release or rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/sunrise-ci/node/bin:$PATH"
+          exec 9>/opt/sunrise-ci/build.lock
+          flock -w 2700 9
+          export SUNRISE_LOCK_HELD=1
+          test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"
+          # Re-read the branch after waiting; never activate an obsolete queued commit.
+          remote=$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)
+          test "$remote" = "$GITHUB_SHA" || { echo 'Branch advanced while queued; rerun its current commit'; exit 1; }
+          base="/opt/sunrise-travelops-$DEPLOY_ENV"
+          if [[ "$OPERATION" == rollback ]]; then
+            python3 scripts/deploy.py rollback "$ROLLBACK_RELEASE"
+            exit 0
+          fi
+          if python3 - "$base" "$GITHUB_SHA" <<'PYCODE'
+          import json, sys
+          from pathlib import Path
+          base, sha = Path(sys.argv[1]), sys.argv[2]
+          file = base / 'backend/state.json'
+          state = json.loads(file.read_text()) if file.exists() else {}
+          current = state.get('current', state.get('release', ''))
+          sys.exit(0 if current.startswith(sha + '-') else 1)
+          PYCODE
+          then
+            echo "This commit is already deployed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 scripts/test_deploy.py
+          release="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="sunrise-travelops-api:sha-$GITHUB_SHA"
+          docker buildx build --builder sunrise --load --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$image" .
+          python3 scripts/deploy.py deploy "$release" "$image"
+          python3 scripts/deploy.py status >> "$GITHUB_STEP_SUMMARY"

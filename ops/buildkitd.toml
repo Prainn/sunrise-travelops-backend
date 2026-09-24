@@ -1,0 +1,9 @@
+[worker.oci]
+  gc = true
+  reservedSpace = "512MB"
+  maxUsedSpace = "2GB"
+  minFreeSpace = "4GB"
+
+# Match the existing ECS Docker registry mirrors.
+[registry."docker.io"]
+  mirrors = ["docker.1ms.run", "docker.xuanyuan.me"]

@@ -1,25 +1,24 @@
 #!/usr/bin/python3
-"""Root-owned deployment entry point, callable only through the restricted gateway."""
-from contextlib import contextmanager
-import select
-import signal
-import fcntl
+"""Local release operations; called under the host build lock by trusted Actions."""
 from datetime import datetime, timezone
-import gzip
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
-import tempfile
+import signal
 import time
 import urllib.request
 
-BASE = Path('/opt/sunrise-travelops-dev')
+ENVIRONMENT = os.environ.get('DEPLOY_ENV', 'dev')
+if ENVIRONMENT not in ('dev', 'prod'):
+    raise ValueError('Invalid environment')
+BASE = Path('/opt/sunrise-travelops-' + ENVIRONMENT)
 STATE = BASE / 'backend'
-COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.dev.yml']
+COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.yml']
+if ENVIRONMENT == 'dev':
+    COMPOSE += ['-f', 'compose.dev.yml']
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
@@ -48,75 +47,6 @@ console.log(JSON.stringify(result));
 """
 
 
-# Uploads are cancellable and do not hold the activation lock. Once activation
-# starts, finish the bounded operation (or its rollback) even if SSH disconnects.
-def upload_signal(signum, _frame):
-    raise RuntimeError('Upload cancelled by signal ' + str(signum))
-
-
-def receive(stream, output, expected, limit, total_timeout=480, idle_timeout=30):
-    if not 0 < expected <= limit:
-        raise ValueError('Invalid upload size')
-    started = last_data = last_report = time.monotonic()
-    total = 0
-    fd = stream.fileno()
-    print(f'Upload: expected {expected} bytes; deadline {total_timeout}s, idle {idle_timeout}s',
-          file=sys.stderr, flush=True)
-    while True:
-        now = time.monotonic()
-        if now - started >= total_timeout or now - last_data >= idle_timeout:
-            raise TimeoutError(f'Upload timed out: {total}/{expected} bytes; application unchanged')
-        if now - last_report >= 10:
-            rate = total / max(now - started, 0.001)
-            print(f'Upload: {total}/{expected} bytes ({total * 100 / expected:.1f}%), '
-                  f'average {rate / 1024:.1f} KiB/s', file=sys.stderr, flush=True)
-            last_report = now
-        if not select.select([fd], [], [], min(1, total_timeout - (now - started),
-                                              idle_timeout - (now - last_data)))[0]:
-            continue
-        block = os.read(fd, 64 * 1024)
-        if not block:
-            if total != expected:
-                raise ValueError(f'Incomplete upload: {total}/{expected} bytes; application unchanged')
-            break
-        total += len(block)
-        if total > expected:
-            raise ValueError('Upload exceeds declared size')
-        output.write(block)
-        last_data = time.monotonic()
-    output.seek(0)
-    print(f'Upload complete: {total} bytes in {time.monotonic() - started:.1f}s',
-          file=sys.stderr, flush=True)
-
-
-@contextmanager
-def deployment_lock():
-    with (STATE / '.deploy.lock').open('a') as lock:
-        deadline = time.monotonic() + 60
-        while True:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise TimeoutError('Another deployment holds the activation lock for over 60s')
-                time.sleep(0.2)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-
-
-def finish_activation():
-    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
-        signal.signal(signum, signal.SIG_IGN)
-    try:
-        print('Activation: lock acquired; completing deployment or rollback after disconnect',
-              file=sys.stderr, flush=True)
-    except OSError:
-        pass
-
-
 def run(command, env=None, input_file=None):
     result = subprocess.run(command, cwd=BASE, env=env, stdin=input_file,
                             capture_output=True, text=True, timeout=300)
@@ -138,7 +68,10 @@ def now():
 
 
 def read_state():
-    return json.loads((STATE / 'state.json').read_text())
+    path = STATE / 'state.json'
+    if not path.exists() and ENVIRONMENT == 'prod':
+        return {'current': None, 'previous': None, 'migration_history': {}, 'compatible_migrations': []}
+    return json.loads(path.read_text())
 
 
 def release(release_id):
@@ -154,7 +87,7 @@ def migrations(image):
 
 def applied():
     return run(COMPOSE + ['exec', '-T', 'postgres', 'psql', '-U', 'travelops',
-                          '-d', 'travelops_dev', '-At', '-c',
+                          '-d', 'travelops_' + ENVIRONMENT, '-At', '-c',
                           'SELECT name FROM migrations ORDER BY id']).splitlines()
 
 
@@ -195,7 +128,7 @@ def activate(image):
     run(COMPOSE + ['up', '-d', '--no-deps', 'api'])
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-dev-api-1']))[0]
+        info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1']))[0]
         if info['Image'] == image and info['State'].get('Health', {}).get('Status') == 'healthy':
             break
         if info['State']['Status'] in ['exited', 'dead', 'restarting'] or info['State'].get('Health', {}).get('Status') == 'unhealthy':
@@ -203,19 +136,22 @@ def activate(image):
         time.sleep(3)
     else:
         raise RuntimeError('API did not become healthy within 90 seconds')
-    # Nginx resolves the api service address at reload; the recreated container may have a new IP.
-    run(COMPOSE + ['exec', '-T', 'nginx', 'nginx', '-t'])
-    run(COMPOSE + ['exec', '-T', 'nginx', 'nginx', '-s', 'reload'])
-    with urllib.request.urlopen('https://api-dev.sunrisevacation.cn/api/health', timeout=15) as response:
+    # Validate the shared ingress locally even before new public DNS/TLS is ready.
+    host = 'api-dev.sunrisevacation.cn' if ENVIRONMENT == 'dev' else 'api.sunrisevacation.cn'
+    request = urllib.request.Request('http://127.0.0.1:8089/api/health', headers={'Host': host})
+    with urllib.request.urlopen(request, timeout=15) as response:
         result = json.load(response)
     if result.get('status') != 'ok' or result.get('details', {}).get('postgres', {}).get('status') != 'up':
-        raise RuntimeError('Public API/PostgreSQL health check failed')
+        raise RuntimeError('Ingress API/PostgreSQL health check failed')
 
 
 def activate_or_restore(candidate, previous):
     try:
         activate(candidate)
     except Exception as failure:
+        if previous is None:
+            run(COMPOSE + ['stop', 'api'])
+            raise RuntimeError('Initial deployment failed; candidate API stopped') from failure
         try:
             activate(previous)
         except Exception as restore_failure:
@@ -239,6 +175,11 @@ def cleanup_plan():
     ids = run(['docker', 'ps', '-aq']).split()
     used = {item['Image'] for item in json.loads(run(['docker', 'inspect', *ids]))} if ids else set()
     protected.update(name for name, (record, _) in records.items() if record['image'] in used)
+    for environment in ('dev', 'prod'):
+        for record in Path('/opt/sunrise-travelops-' + environment + '/backend/releases').glob('*.json'):
+            info = json.loads(record.read_text())
+            if info.get('status') == 'verified':
+                used.add(info['image'])
     protected_images = used | {records[name][0]['image'] for name in protected}
     tags = run(['docker', 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}',
                 'sunrise-travelops-api']).splitlines()
@@ -256,7 +197,7 @@ def cleanup():
         run(['docker', 'image', 'rm', tag])  # No force: Docker also protects container references.
     for name in plan['removeRecords']:
         (STATE / 'releases' / (name + '.json')).unlink()
-    run(['docker', 'builder', 'prune', '--all', '--force', '--filter', 'until=168h'])
+    # BuildKit cache GC is bounded by the dedicated builder configuration.
     return plan
 
 
@@ -274,13 +215,14 @@ def publish(release_id, image, allow_migrations=False):
     if record_path.exists():
         raise ValueError('Release already exists; use a new run attempt')
     state = read_state()
-    previous = release(state['current'])
+    previous = release(state['current']) if state['current'] else None
     target = migrations(image)
     database = applied()
+    if previous is None and set(database) != set(target):
+        raise ValueError('Initial production database must be initialized before first release')
     # The current image can be an older rollback target; preserve the complete applied history separately.
     pending = check_schema(target, state['migration_history'], database,
                            state['compatible_migrations'], allow_migrations)
-    backup = run([str(BASE / 'backup.sh')])
     if pending:
         environment = os.environ.copy()
         environment['API_IMAGE'] = image
@@ -301,10 +243,10 @@ def publish(release_id, image, allow_migrations=False):
         state['last_migrated_at'] = now()
         save(STATE / 'state.json', state)
     record = {'release': release_id, 'image': image, 'migrations': target,
-              'previous': state['current'], 'backup': backup, 'status': 'pending'}
+              'previous': state['current'], 'status': 'pending'}
     save(record_path, record)
     try:
-        activate_or_restore(image, previous['image'])
+        activate_or_restore(image, previous['image'] if previous else None)
     except Exception:
         record['status'] = 'failed'
         save(record_path, record)
@@ -335,21 +277,20 @@ def rollback(target_id):
                  state['compatible_migrations'])
     # Ensure the immutable image still exists before touching the running service.
     run(['docker', 'image', 'inspect', target['image'], '--format', '{{.Id}}'])
-    backup = run([str(BASE / 'backup.sh')])
     activate_or_restore(target['image'], current['image'])
     state['previous'] = state['current']
     state['current'] = target_id
     state['last_deployed_at'] = now()
     save(STATE / 'state.json', state)
     cleanup_after_success()
-    return {'release': target_id, 'previous': state['previous'], 'verified': True, 'backup': backup}
+    return {'release': target_id, 'previous': state['previous'], 'verified': True}
 
 
 def bootstrap():
     if (STATE / 'state.json').exists():
         raise ValueError('Deployment state is already initialized')
     release_id = 'bootstrap-' + time.strftime('%Y%m%d%H%M%S')
-    image = run(['docker', 'inspect', 'sunrise-travelops-dev-api-1', '--format', '{{.Image}}'])
+    image = run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1', '--format', '{{.Image}}'])
     target = migrations(image)
     if set(applied()) != set(target):
         raise ValueError('Bootstrap image and database migrations do not match')
@@ -362,97 +303,39 @@ def bootstrap():
     return {'current': release_id, 'image': image}
 
 
-def upload(release_id, allow_migrations, expected):
-    if not re.fullmatch(r'[0-9a-f]{40}-[0-9]+-[0-9]+', release_id):
-        raise ValueError('Invalid CI release ID')
-    previous_release = read_state()['current']
-    # Stream to disk; only the trusted Docker daemon reads the image archive.
-    with tempfile.TemporaryFile(dir=STATE) as compressed:
-        receive(sys.stdin.buffer, compressed, expected, 1024 * 1024 * 1024)
-        print('Image: decompressing and loading', file=sys.stderr, flush=True)
-        with tempfile.TemporaryFile(dir=STATE) as archive:
-            with gzip.GzipFile(fileobj=compressed) as source:
-                shutil.copyfileobj(source, archive)
-            archive.seek(0)
-            run(['docker', 'load', '--quiet'], input_file=archive)
-    sha = release_id.split('-')[0]
-    tag = 'sunrise-travelops-api:sha-' + sha
-    info = json.loads(run(['docker', 'image', 'inspect', tag]))[0]
-    if info['Os'] != 'linux' or info['Architecture'] != 'amd64':
-        raise ValueError('Expected a Linux AMD64 image')
-    if info['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
-        raise ValueError('Image revision does not match the requested commit')
-    with deployment_lock():
-        if read_state()['current'] != previous_release:
-            raise ValueError('Current release changed during upload; preflight and retry')
-        finish_activation()
-        return publish(release_id, info['Id'], allow_migrations)
-
-
-def preflight(sha, allow_migrations):
-    if not re.fullmatch(r'[0-9a-f]{40}', sha):
-        raise ValueError('Invalid commit')
-    # Small manifest only; timeout also covers a client that never closes stdin.
-    signal.alarm(30)
-    try:
-        raw = sys.stdin.buffer.read(65537)
-    finally:
-        signal.alarm(0)
-    if len(raw) > 65536:
-        raise ValueError('Migration manifest exceeds 64 KiB')
-    target = json.loads(raw)
-    if not isinstance(target, dict) or not target or any(
-        not re.fullmatch(r'[A-Za-z0-9_]+', name) or not isinstance(digest, str)
-        or not re.fullmatch(r'[0-9a-f]{64}', digest) for name, digest in target.items()
-    ):
-        raise ValueError('Invalid migration manifest')
-    with deployment_lock():
-        state = read_state()
-        database = applied()
-        pending = sorted(target.keys() - set(database))
-        # Validate history/rollback compatibility even before reporting a blocked release.
-        if set(pending) & BREAKING_MIGRATIONS:
-            return {'ready': False, 'pending': pending, 'reason': 'maintenance_required'}
-        check_schema(target, state['migration_history'], database,
-                     state['compatible_migrations'], True)
-        if pending and not allow_migrations:
-            return {'ready': False, 'pending': pending, 'reason': 'migration_confirmation_required'}
-        if state['current'].startswith(sha + '-') and not pending:
-            return {'ready': False, 'pending': [], 'reason': 'already_deployed'}
-        return {'ready': True, 'pending': pending}
-
-
 def main():
     os.umask(0o077)
     STATE.mkdir(exist_ok=True)
     (STATE / 'releases').mkdir(exist_ok=True)
-    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT, signal.SIGALRM):
-        signal.signal(signum, upload_signal)
     args = sys.argv[1:]
     if args == ['status']:
         state = read_state()
-        result = {'current': state['current'], 'previous': state['previous'],
-                  'releases': [{'release': p.stem, 'status': json.loads(p.read_text())['status']}
-                               for p in sorted((STATE / 'releases').glob('*.json'))]}
-    elif len(args) == 3 and args[0] == 'preflight' and args[2] in ['true', 'false']:
-        result = preflight(args[1], args[2] == 'true')
-    elif len(args) == 4 and args[0] == 'deploy' and args[2] in ['true', 'false']:
-        result = upload(args[1], args[2] == 'true', int(args[3]))
+        print(json.dumps({'current': state['current'], 'previous': state['previous']}))
+        return
+    # Finish the bounded activation or restoration even if Actions is cancelled.
+    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, signal.SIG_IGN)
+    if os.environ.get('SUNRISE_LOCK_HELD') != '1':
+        raise ValueError('Run through the workflow holding /opt/sunrise-ci/build.lock')
+    if args == ['bootstrap']:
+        result = bootstrap()
+    elif len(args) == 2 and args[0] == 'rollback':
+        result = rollback(args[1])
+    elif len(args) == 3 and args[0] == 'deploy':
+        release_id, tag = args[1:]
+        info = json.loads(run(['docker', 'image', 'inspect', tag]))[0]
+        sha = release_id.split('-')[0]
+        if info['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
+            raise ValueError('Image does not match requested commit')
+        target = migrations(info['Id'])
+        state = read_state()
+        pending = set(target) - set(applied())
+        reviewed = set(filter(None, os.environ.get('REVIEWED_MIGRATIONS', '').split(',')))
+        if pending and pending != reviewed:
+            raise ValueError('Review compatibility and rerun with these exact pending migrations: ' + ','.join(sorted(pending)))
+        result = publish(release_id, info['Id'], bool(pending))
     else:
-        with deployment_lock():
-            finish_activation()
-            if args == ['bootstrap']:
-                result = bootstrap()
-            elif args in [['cleanup-plan'], ['cleanup']]:
-                info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-dev-api-1']))[0]
-                if (info['Image'] != release(read_state()['current'])['image']
-                        or info['State'].get('Health', {}).get('Status') != 'healthy'):
-                    raise ValueError('Current API must be verified and healthy before cleanup')
-                result = cleanup_plan() if args == ['cleanup-plan'] else cleanup()
-            elif len(args) == 2 and args[0] == 'rollback':
-                result = rollback(args[1])
-            else:
-                raise ValueError('Invalid deployment command')
+        raise ValueError('Expected status, bootstrap, deploy <release> <image>, or rollback <release|previous>')
     print(json.dumps(result))
 
 

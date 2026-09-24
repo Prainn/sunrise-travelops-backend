@@ -44,7 +44,7 @@ pnpm start:dev
 
 ## Docker Compose 启动
 
-以下为本地 Compose。ECS 开发环境使用 `compose.dev.yml`，部署与服务器管理员命令统一维护在 workspace 的 `docs/deployment/ECS开发环境部署.md`。
+以下为本地 Compose。ECS 双环境使用 `compose.yml`，dev 追加 `compose.dev.yml`，共享入口使用 `compose.ingress.yml`，部署与服务器管理员命令统一维护在 workspace 的 `docs/deployment/ECS开发环境部署.md`。
 
 ```bash
 docker compose up --build
@@ -75,7 +75,7 @@ docker compose ps
 docker compose stop dozzle
 ```
 
-ECS 的 8081 仍只绑定 localhost；外部通过 `https://log.sunrisevacation.cn` 反向代理到 Compose 内网，并启用 Dozzle simple auth。部署和 DNS 说明见 workspace 的 `docs/deployment/ECS开发环境部署.md`。
+ECS 的 8081 仍只绑定 localhost；dev 外部通过 `https://dev-log.sunrisevacation.cn`，prod 通过 `https://log.sunrisevacation.cn` 反向代理到各自 Dozzle，并启用 Dozzle simple auth。部署和 DNS 说明见 workspace 的 `docs/deployment/ECS开发环境部署.md`。
 
 停止服务：
 
