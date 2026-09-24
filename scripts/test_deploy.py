@@ -46,6 +46,13 @@ class ReleaseSafety(unittest.TestCase):
                 self.assertTrue(result['verified'])
                 run.assert_not_called()
 
+    def test_first_release_failure_stops_candidate_without_database_changes(self):
+        with patch.object(release, 'activate', side_effect=RuntimeError('unhealthy')), \
+             patch.object(release, 'run') as run:
+            with self.assertRaisesRegex(RuntimeError, 'candidate API stopped'):
+                release.activate_or_restore('candidate', None)
+            run.assert_called_once_with(release.COMPOSE + ['stop', 'api'])
+
 
 if __name__ == '__main__':
     unittest.main()

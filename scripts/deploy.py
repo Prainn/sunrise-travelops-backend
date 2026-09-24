@@ -68,7 +68,10 @@ def now():
 
 
 def read_state():
-    return json.loads((STATE / 'state.json').read_text())
+    path = STATE / 'state.json'
+    if not path.exists() and ENVIRONMENT == 'prod':
+        return {'current': None, 'previous': None, 'migration_history': {}, 'compatible_migrations': []}
+    return json.loads(path.read_text())
 
 
 def release(release_id):
@@ -146,6 +149,9 @@ def activate_or_restore(candidate, previous):
     try:
         activate(candidate)
     except Exception as failure:
+        if previous is None:
+            run(COMPOSE + ['stop', 'api'])
+            raise RuntimeError('Initial deployment failed; candidate API stopped') from failure
         try:
             activate(previous)
         except Exception as restore_failure:
@@ -209,9 +215,11 @@ def publish(release_id, image, allow_migrations=False):
     if record_path.exists():
         raise ValueError('Release already exists; use a new run attempt')
     state = read_state()
-    previous = release(state['current'])
+    previous = release(state['current']) if state['current'] else None
     target = migrations(image)
     database = applied()
+    if previous is None and set(database) != set(target):
+        raise ValueError('Initial production database must be initialized before first release')
     # The current image can be an older rollback target; preserve the complete applied history separately.
     pending = check_schema(target, state['migration_history'], database,
                            state['compatible_migrations'], allow_migrations)
@@ -238,7 +246,7 @@ def publish(release_id, image, allow_migrations=False):
               'previous': state['current'], 'status': 'pending'}
     save(record_path, record)
     try:
-        activate_or_restore(image, previous['image'])
+        activate_or_restore(image, previous['image'] if previous else None)
     except Exception:
         record['status'] = 'failed'
         save(record_path, record)
