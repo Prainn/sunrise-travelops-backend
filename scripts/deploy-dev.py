@@ -54,7 +54,7 @@ def upload_signal(signum, _frame):
     raise RuntimeError('Upload cancelled by signal ' + str(signum))
 
 
-def receive(stream, output, expected, limit, total_timeout=300, idle_timeout=30):
+def receive(stream, output, expected, limit, total_timeout=480, idle_timeout=30):
     if not 0 < expected <= limit:
         raise ValueError('Invalid upload size')
     started = last_data = last_report = time.monotonic()
