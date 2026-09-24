@@ -73,7 +73,11 @@ export class AgenciesService {
       .andWhere("role.code = 'COORDINATOR' AND role.isEnabled = true")
       .orderBy('user.nickname', 'ASC')
       .getMany();
-    return users.map(({ id, nickname, username }) => ({ id, name: nickname, username }));
+    return users.map(({ id, nickname, username }) => ({
+      id,
+      name: nickname,
+      username,
+    }));
   }
 
   private async requireCoordinator(
@@ -104,7 +108,8 @@ export class AgenciesService {
     actor: AuthenticatedUser,
     library: 'shengxu' | 'shared',
   ): BusinessUnit {
-    const businessUnit = actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
+    const businessUnit =
+      actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
     if (
       !businessUnit ||
       (input.businessUnit && input.businessUnit !== businessUnit) ||
@@ -215,7 +220,11 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      const businessUnit = this.agencyBusinessUnit(input, actor, entity.library);
+      const businessUnit = this.agencyBusinessUnit(
+        input,
+        actor,
+        entity.library,
+      );
       if (entity.businessUnit && entity.businessUnit !== businessUnit)
         throw new BusinessException({
           code: ErrorCode.AUTH_FORBIDDEN,

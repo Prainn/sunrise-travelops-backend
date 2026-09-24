@@ -51,7 +51,10 @@ export class AgenciesController {
   @Get()
   @Permissions('resource:agency:list')
   @ApiOperation({ summary: 'List organizing agencies' })
-  @ApiPaginatedResponse(AgencyListItemResponse, 'Paginated organizing agency list')
+  @ApiPaginatedResponse(
+    AgencyListItemResponse,
+    'Paginated organizing agency list',
+  )
   list(@Query() query: AgencyQueryDto) {
     return this.service.list(query);
   }

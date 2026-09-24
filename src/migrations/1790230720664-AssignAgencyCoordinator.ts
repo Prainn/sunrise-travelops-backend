@@ -25,7 +25,11 @@ export class AssignAgencyCoordinator1790230720664 implements MigrationInterface 
     await queryRunner.query(
       `ALTER TABLE "resource_agencies" DROP CONSTRAINT "CHK_resource_agencies_business_unit"`,
     );
-    await queryRunner.query(`ALTER TABLE "resource_agencies" DROP COLUMN "coordinator_id"`);
-    await queryRunner.query(`ALTER TABLE "resource_agencies" DROP COLUMN "business_unit"`);
+    await queryRunner.query(
+      `ALTER TABLE "resource_agencies" DROP COLUMN "coordinator_id"`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "resource_agencies" DROP COLUMN "business_unit"`,
+    );
   }
 }
