@@ -89,6 +89,7 @@ export class GuidePeopleService {
         code,
         gender: input.gender ?? 0,
         age: input.age ?? null,
+        language: nullableDocument(input.language),
         contact: nullableDocument(input.contact),
         employmentType: input.employmentType ?? null,
         hasLaborContract: input.hasLaborContract ?? null,
@@ -122,6 +123,10 @@ export class GuidePeopleService {
         code: entity.code,
         gender: input.gender ?? 0,
         age: input.age === undefined ? entity.age : input.age,
+        language:
+          input.language === undefined
+            ? entity.language
+            : nullableDocument(input.language),
         contact:
           input.contact === undefined
             ? entity.contact
@@ -179,6 +184,7 @@ export class GuidePeopleService {
       name: entity.name,
       gender: entity.gender,
       age: entity.age,
+      language: entity.language,
       contact: entity.contact,
       employmentType: entity.employmentType,
       hasLaborContract: entity.hasLaborContract,

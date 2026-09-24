@@ -41,6 +41,10 @@ export class CreateGuidePersonDto {
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @IsString()
+  language?: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true })
+  @IsOptional()
+  @IsString()
   contact?: string | null;
   @ApiPropertyOptional({
     type: String,
@@ -82,6 +86,8 @@ export class GuidePersonResponse implements ResourceAuditResponse {
   gender: number;
   @ApiProperty({ type: Number, nullable: true, minimum: 0 })
   age: number | null;
+  @ApiProperty({ type: String, nullable: true })
+  language: string | null;
   @ApiProperty({ type: String, nullable: true })
   contact: string | null;
   @ApiProperty({

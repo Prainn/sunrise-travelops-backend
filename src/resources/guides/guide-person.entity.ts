@@ -16,6 +16,7 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
 export class GuidePersonEntity extends TopLevelResourceEntity {
   @Column({ type: 'integer', default: 0 }) gender: number;
   @Column({ type: 'integer', nullable: true }) age: number | null;
+  @Column({ type: 'text', nullable: true }) language: string | null;
   @Column({ type: 'text', nullable: true }) contact: string | null;
   @Column({ name: 'employment_type', type: 'text', nullable: true })
   employmentType: 'full_time' | 'part_time' | null;
