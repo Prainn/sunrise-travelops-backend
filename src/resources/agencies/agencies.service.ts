@@ -101,6 +101,18 @@ export class AgenciesService {
         message: 'Coordinator is not available for this business unit',
         status: HttpStatus.BAD_REQUEST,
       });
+    return coordinator;
+  }
+
+  private async coordinatorNames(ids: (string | null)[]) {
+    const uniqueIds = [...new Set(ids.filter((id): id is string => !!id))];
+    if (!uniqueIds.length) return new Map<string, string>();
+    const users = await this.dataSource.manager.getRepository(UserEntity).find({
+      where: { id: In(uniqueIds) },
+      select: { id: true, nickname: true },
+      withDeleted: true,
+    });
+    return new Map(users.map((user) => [user.id, user.nickname]));
   }
 
   private agencyBusinessUnit(
@@ -149,8 +161,16 @@ export class AgenciesService {
     if (query.status)
       builder.andWhere('agency.status = :status', { status: query.status });
     const [entities, total] = await builder.getManyAndCount();
+    const coordinatorNames = await this.coordinatorNames(
+      entities.map((entity) => entity.coordinatorId),
+    );
     return {
-      list: entities.map((entity) => this.toListResponse(entity)),
+      list: entities.map((entity) =>
+        this.toListResponse(
+          entity,
+          coordinatorNames.get(entity.coordinatorId ?? '') ?? null,
+        ),
+      ),
       total,
       page,
       pageSize: query.pageSize,
@@ -169,8 +189,12 @@ export class AgenciesService {
         status: HttpStatus.NOT_FOUND,
       });
     assertResourceLibrary(entity);
+    const coordinatorNames = await this.coordinatorNames([entity.coordinatorId]);
     return {
-      ...this.toListResponse(entity),
+      ...this.toListResponse(
+        entity,
+        coordinatorNames.get(entity.coordinatorId ?? '') ?? null,
+      ),
       contactCount: entity.contacts.length,
       contacts: entity.contacts.map((item) => this.toContactResponse(item)),
     };
@@ -189,7 +213,11 @@ export class AgenciesService {
     );
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
-      await this.requireCoordinator(input.coordinatorId, businessUnit, manager);
+      const coordinator = await this.requireCoordinator(
+        input.coordinatorId,
+        businessUnit,
+        manager,
+      );
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'AGY'));
       await ensureCodeAvailable(repository, code);
@@ -202,7 +230,7 @@ export class AgenciesService {
         createdBy: actor.id,
         updatedBy: actor.id,
       });
-      return this.getResponse(await repository.save(entity), []);
+      return this.getResponse(await repository.save(entity), [], coordinator.nickname);
     });
   }
 
@@ -231,7 +259,11 @@ export class AgenciesService {
           message: 'Agency business unit cannot be changed',
           status: HttpStatus.FORBIDDEN,
         });
-      await this.requireCoordinator(input.coordinatorId, businessUnit, manager);
+      const coordinator = await this.requireCoordinator(
+        input.coordinatorId,
+        businessUnit,
+        manager,
+      );
       await this.validation.validateCity(
         input.city,
         entity.city,
@@ -244,7 +276,7 @@ export class AgenciesService {
       const contacts = await manager
         .getRepository(AgencyContactEntity)
         .findBy({ agencyId: id });
-      return this.getResponse(saved, contacts);
+      return this.getResponse(saved, contacts, coordinator.nickname);
     });
   }
 
@@ -404,20 +436,25 @@ export class AgenciesService {
   private getResponse(
     entity: AgencyEntity,
     contacts: AgencyContactEntity[],
+    coordinatorName: string,
   ): AgencyDetailResponse {
     assertResourceLibrary(entity);
     return {
-      ...this.toListResponse(entity),
+      ...this.toListResponse(entity, coordinatorName),
       contactCount: contacts.length,
       contacts: contacts.map((item) => this.toContactResponse(item)),
     };
   }
-  private toListResponse(entity: AgencyEntity): AgencyListItemResponse {
+  private toListResponse(
+    entity: AgencyEntity,
+    coordinatorName: string | null,
+  ): AgencyListItemResponse {
     return {
       ...auditResponse(entity),
       library: entity.library,
       businessUnit: entity.businessUnit,
       coordinatorId: entity.coordinatorId,
+      coordinatorName,
       code: entity.code,
       name: entity.name,
       city: entity.city,

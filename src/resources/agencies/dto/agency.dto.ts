@@ -67,6 +67,7 @@ export class AgencyContactResponse implements ResourceAuditResponse {
 export class AgencyListItemResponse implements ResourceAuditResponse {
   businessUnit: 'shengxu' | 'linxi' | 'website' | null;
   coordinatorId: string | null;
+  coordinatorName: string | null;
   library: 'shengxu' | 'shared';
   id: string;
   version: number;
