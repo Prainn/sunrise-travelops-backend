@@ -189,7 +189,9 @@ export class AgenciesService {
         status: HttpStatus.NOT_FOUND,
       });
     assertResourceLibrary(entity);
-    const coordinatorNames = await this.coordinatorNames([entity.coordinatorId]);
+    const coordinatorNames = await this.coordinatorNames([
+      entity.coordinatorId,
+    ]);
     return {
       ...this.toListResponse(
         entity,
@@ -230,7 +232,11 @@ export class AgenciesService {
         createdBy: actor.id,
         updatedBy: actor.id,
       });
-      return this.getResponse(await repository.save(entity), [], coordinator.nickname);
+      return this.getResponse(
+        await repository.save(entity),
+        [],
+        coordinator.nickname,
+      );
     });
   }
 
