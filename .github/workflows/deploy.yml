@@ -52,10 +52,8 @@ jobs:
       EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
       BUILDX_CONFIG: /opt/sunrise-ci/buildx
       NODE_OPTIONS: --max-old-space-size=1400
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
       - name: Serialized build, release or rollback
         shell: bash
         run: |
@@ -66,8 +64,18 @@ jobs:
           export SUNRISE_LOCK_HELD=1
           test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"
           # Re-read the branch after waiting; never activate an obsolete queued commit.
-          remote=$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)
+          remote=$(curl --fail --silent --show-error --retry 2 --connect-timeout 10 --max-time 60 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
           test "$remote" = "$GITHUB_SHA" || { echo 'Branch advanced while queued; rerun its current commit'; exit 1; }
+          source=$(mktemp -d "$RUNNER_TEMP/sunrise-source.XXXXXX")
+          trap 'rm -rf -- "$source"' EXIT
+          curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 120 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$GITHUB_SHA" -o "$source/repository.tgz"
+          tar -xzf "$source/repository.tgz" --strip-components=1 -C "$source"
+          rm "$source/repository.tgz"
+          cd "$source"
           base="/opt/sunrise-travelops-$DEPLOY_ENV"
           if [[ "$OPERATION" == rollback ]]; then
             python3 scripts/deploy.py rollback "$ROLLBACK_RELEASE"
