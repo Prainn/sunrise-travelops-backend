@@ -44,7 +44,7 @@ pnpm start:dev
 
 ## Docker Compose 启动
 
-以下为本地 Compose。ECS 双环境使用 `compose.yml`，dev 追加 `compose.dev.yml`，共享入口使用 `compose.ingress.yml`，部署与服务器管理员命令统一维护在 workspace 的 `docs/deployment/ECS开发环境部署.md`。
+以下为本地 Compose。ECS 双环境使用 `compose.ecs.yml`，dev 追加 `compose.dev.yml`，共享入口使用 `compose.ingress.yml`，部署与服务器管理员命令统一维护在 workspace 的 `docs/deployment/ECS开发环境部署.md`。
 
 ```bash
 docker compose up --build
