@@ -16,7 +16,7 @@ if ENVIRONMENT not in ('dev', 'prod'):
     raise ValueError('Invalid environment')
 BASE = Path('/opt/sunrise-travelops-' + ENVIRONMENT)
 STATE = BASE / 'backend'
-COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.yml']
+COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.ecs.yml']
 if ENVIRONMENT == 'dev':
     COMPOSE += ['-f', 'compose.dev.yml']
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
