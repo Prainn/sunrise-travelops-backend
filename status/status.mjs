@@ -21,7 +21,7 @@ export async function requestSnapshot(manual = false, fetcher = fetch) {
   }
   if (!response.ok) throw new Error('Status unavailable');
   const snapshot = await response.json();
-  if (!snapshot || snapshot.environment !== 'development' || !snapshot.services || !snapshot.deployments) throw new Error('Invalid snapshot');
+  if (!snapshot || !snapshot.environments?.dev || !snapshot.environments?.prod) throw new Error('Invalid snapshot');
   return { snapshot, notice: notice || (manual ? '即时检测已完成；各项结果及查询时间见下方。' : '') };
 }
 
@@ -41,7 +41,11 @@ function formatTime(value) {
 }
 
 function render(snapshot, unavailable = false) {
+  snapshot = snapshot?.environments?.[document.getElementById('environment').value];
   const stale = unavailable || isStale(snapshot);
+  const prod = document.getElementById('environment').value === 'prod';
+  document.querySelector('#frontend .endpoint').textContent = prod ? 'ops.sunrisevacation.cn' : 'ops-dev.sunrisevacation.cn';
+  document.querySelector('#backend .endpoint').textContent = prod ? 'api.sunrisevacation.cn' : 'api-dev.sunrisevacation.cn';
   const states = [];
   for (const name of ['frontend', 'backend', 'database']) {
     const data = snapshot?.services?.[name] || {};
@@ -58,7 +62,7 @@ function render(snapshot, unavailable = false) {
   for (const name of ['frontend', 'backend']) {
     const data = snapshot?.deployments?.[name] || {};
     const row = document.getElementById(`${name}-deploy`);
-    const deploymentStale = stale || isStale(data, Date.now(), 600000);
+    const deploymentStale = stale || isStale(data, Date.now(), 1200000);
     const status = displayStatus(data.status, deploymentStale, 'deployment');
     row.dataset.status = status;
     row.querySelector('.badge').textContent = `● ${labels[status]}`;
@@ -111,6 +115,7 @@ if (typeof document !== 'undefined') {
       button.textContent = '立即检测 ↻';
     }
   }
+  document.getElementById('environment').addEventListener('change', () => render(snapshot, unavailable));
   document.getElementById('refresh').addEventListener('click', () => refresh(true));
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   setInterval(refresh, 30000);

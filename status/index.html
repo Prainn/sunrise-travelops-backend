@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Sunrise TravelOps 开发环境服务与发布状态">
+  <meta name="description" content="Sunrise TravelOps 开发与生产环境服务及发布状态">
   <meta name="robots" content="noindex">
   <title>System status · Sunrise</title>
   <link rel="stylesheet" href="/status.css">
@@ -13,7 +13,7 @@
   <main>
     <header>
       <a class="brand" href="/" aria-label="Sunrise 状态首页"><span class="prompt">&gt;_</span> SUNRISE <span class="muted">/ STATUS</span></a>
-      <span class="environment">DEV ENVIRONMENT</span>
+      <label>环境 <select id="environment"><option value="dev">DEV 开发</option><option value="prod">PROD 生产</option></select></label>
     </header>
     <section class="overview" aria-labelledby="title">
       <p class="eyebrow">SYSTEM OBSERVABILITY</p>
@@ -40,12 +40,12 @@
       </article>
     </section>
     <section class="deployments" aria-labelledby="deploy-title">
-      <div class="section-title"><h2 id="deploy-title">最近发布</h2><span class="muted">GITHUB ACTIONS · MAIN</span></div>
+      <div class="section-title"><h2 id="deploy-title">最近发布</h2><span class="muted">GITHUB ACTIONS · DEV / MAIN</span></div>
       <div id="frontend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">前端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><div class="deploy-times"><span>流水线更新 <time class="run-time">—</time></span><span>Actions 查询 <time class="query-time">—</time></span></div><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
       <div id="backend-deploy" class="deploy-row" data-status="unknown"><span class="deploy-name">后端</span><span class="badge">● 未知</span><code class="sha">—</code><span class="stage">等待采集</span><div class="deploy-times"><span>流水线更新 <time class="run-time">—</time></span><span>Actions 查询 <time class="query-time">—</time></span></div><a hidden target="_blank" rel="noopener noreferrer">查看运行 ↗</a></div>
     </section>
     <footer><div><span class="muted">快照生成</span> <time id="checked">—</time><span id="freshness">等待数据</span></div></footer>
-    <p class="footnote">自动：服务探测 60 秒 / Actions 查询 5 分钟 / 快照读取 30 秒 · 手动：即时检测，全站间隔至少 60 秒 · 北京时间 UTC+8</p>
+    <p class="footnote">自动：服务探测 60 秒 / Actions 查询 10 分钟 / 快照读取 30 秒 · 手动：即时检测，全站间隔至少 60 秒 · 北京时间 UTC+8</p>
     <noscript><p>请启用 JavaScript 查看实时状态，或访问 <a href="/status.json">原始状态数据</a>。</p></noscript>
   </main>
 </body>

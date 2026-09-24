@@ -20,10 +20,9 @@ import urllib.request
 BASE = Path('/opt/sunrise-travelops-dev')
 PUBLIC = BASE / 'status'
 PRIVATE = BASE / 'status-state'
-COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.dev.yml']
 WORKFLOWS = {
-    'frontend': ('Prainn/sunrise-travelops-web', 'deploy-dev.yml'),
-    'backend': ('Prainn/sunrise-travelops-backend', 'ci.yml'),
+    'frontend': ('Prainn/sunrise-travelops-web', 'deploy.yml'),
+    'backend': ('Prainn/sunrise-travelops-backend', 'deploy.yml'),
 }
 RELEASE = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 GITHUB_LOCK = Lock()
@@ -77,16 +76,18 @@ def command(args):
                           timeout=10, check=True).stdout.strip()
 
 
-def frontend():
+def frontend(environment='dev'):
+    base = Path('/opt/sunrise-travelops-' + environment)
+    domain = 'ops-dev' if environment == 'dev' else 'ops'
     result = {'status': 'down', 'version': None, 'lastDeployedAt': None}
     try:
-        code, html = fetch('https://ops-dev.sunrisevacation.cn/')
-        marker_code, raw = fetch('https://ops-dev.sunrisevacation.cn/__deploy.json')
+        code, html = fetch('https://' + domain + '.sunrisevacation.cn/')
+        marker_code, raw = fetch('https://' + domain + '.sunrisevacation.cn/__deploy.json')
         marker = json.loads(raw)
         version = marker.get('release', '')
         if code == 200 and b'<html' in html.lower() and marker_code == 200 and RELEASE.fullmatch(version):
             result.update(status='up', version=version)
-        record = read_json(BASE / 'frontend/last-deployment.json')
+        record = read_json(base / 'frontend/last-deployment.json')
         if result['version'] == record.get('release') and record.get('verified') is True:
             result['lastDeployedAt'] = record.get('deployedAt')
     except (OSError, ValueError):
@@ -94,21 +95,23 @@ def frontend():
     return result
 
 
-def backend():
+def backend(environment='dev'):
+    base = Path('/opt/sunrise-travelops-' + environment)
+    domain = 'api-dev' if environment == 'dev' else 'api'
     result = {'status': 'down', 'version': None, 'lastDeployedAt': None}
     try:
-        code, raw = fetch('https://api-dev.sunrisevacation.cn/api/health')
+        code, raw = fetch('https://' + domain + '.sunrisevacation.cn/api/health')
         data = json.loads(raw)
         if code in (200, 503) and data.get('details', {}).get('api', {}).get('status') == 'up':
             result['status'] = 'up'
     except (OSError, ValueError):
         pass
-    state = read_json(BASE / 'backend/state.json')
+    state = read_json(base / 'backend/state.json')
     version = state.get('current', '')
     if RELEASE.fullmatch(version):
-        record = read_json(BASE / 'backend/releases' / (version + '.json'))
+        record = read_json(base / 'backend/releases' / (version + '.json'))
         try:
-            actual = command(['docker', 'inspect', 'sunrise-travelops-dev-api-1', '--format', '{{.Image}}'])
+            actual = command(['docker', 'inspect', 'sunrise-travelops-' + environment + '-api-1', '--format', '{{.Image}}'])
             if actual == record.get('image'):
                 result.update(version=version, lastDeployedAt=state.get('last_deployed_at'))
         except (OSError, subprocess.SubprocessError):
@@ -116,16 +119,17 @@ def backend():
     return result
 
 
-def database():
+def database(environment='dev'):
+    base = Path('/opt/sunrise-travelops-' + environment)
     result = {'status': 'down', 'version': None, 'lastDeployedAt': None, 'lastMigratedAt': None}
-    prefix = COMPOSE + ['exec', '-T', 'postgres', 'psql', '-U', 'travelops', '-d', 'travelops_dev',
+    prefix = ['docker', 'exec', 'sunrise-travelops-' + environment + '-postgres-1', 'psql', '-U', 'travelops', '-d', 'travelops_' + environment,
                         '-v', 'ON_ERROR_STOP=1', '-At', '-c']
     try:
         if command(prefix + ['SELECT 1']) != '1':
             return result
         result['status'] = 'up'
         result['version'] = command(prefix + ['SELECT name FROM migrations ORDER BY id DESC LIMIT 1']) or None
-        result['lastMigratedAt'] = read_json(BASE / 'backend/state.json').get('last_migrated_at')
+        result['lastMigratedAt'] = read_json(base / 'backend/state.json').get('last_migrated_at')
     except (OSError, subprocess.SubprocessError):
         pass
     return result
@@ -149,12 +153,13 @@ def github(path):
     return json.loads(raw)
 
 
-def deployment(service):
+def deployment(service, environment):
+    branch = 'dev' if environment == 'dev' else 'main'
     result = {'status': 'unknown', 'sha': None, 'updatedAt': None, 'url': None, 'failedStage': None, 'latestPush': None}
     repo, workflow = WORKFLOWS[service]
     try:
-        runs = github(repo + '/actions/workflows/' + workflow + '/runs?branch=main&per_page=100')['workflow_runs']
-        runs = [run for run in runs if run['head_branch'] == 'main' and run['event'] in ('push', 'workflow_dispatch')]
+        runs = github(repo + '/actions/workflows/' + workflow + '/runs?branch=' + branch + '&per_page=100')['workflow_runs']
+        runs = [run for run in runs if run['head_branch'] == branch and run['event'] in (('push', 'workflow_dispatch') if environment == 'dev' else ('workflow_dispatch',))]
         if not runs:
             return result
         pushes = [run for run in runs if run['event'] == 'push']
@@ -185,14 +190,14 @@ def deployment(service):
     return result
 
 
-def cached_deployment(service, force=False):
+def cached_deployment(service, environment, force=False):
     # Public GitHub API allows 60 unauthenticated requests/hour per source IP.
-    # Two workflows plus failed-job details stay below that at five-minute intervals.
-    path = PRIVATE / (service + '-actions.json')
+    # Four environment/workflow queries are cached for ten minutes.
+    path = PRIVATE / (environment + '-' + service + '-actions.json')
     cached = read_json(path)
-    if not force and 0 <= time.time() - cached.get('fetchedAt', 0) < 300:
+    if not force and 0 <= time.time() - cached.get('fetchedAt', 0) < 600:
         return cached['result']
-    result = deployment(service)
+    result = deployment(service, environment)
     result['checkedAt'] = utc_now()
     save(path, {'fetchedAt': time.time(), 'result': result}, 0o600)
     return result
@@ -208,13 +213,17 @@ def collect(force=False):
     PUBLIC.mkdir(exist_ok=True, mode=0o755)
     PRIVATE.mkdir(exist_ok=True, mode=0o700)
     PUBLIC.chmod(0o755)
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        probes = {name: pool.submit(probe_service, fn) for name, fn in
-                  [('frontend', frontend), ('backend', backend), ('database', database)]}
-        workflows = {name: pool.submit(cached_deployment, name, force) for name in WORKFLOWS}
-        snapshot = {'environment': 'development', 'staleAfterSeconds': 180,
-                    'services': {name: future.result() for name, future in probes.items()},
-                    'deployments': {name: future.result() for name, future in workflows.items()}}
+    environments = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for environment in ('dev', 'prod'):
+            probes = {name: pool.submit(probe_service, lambda fn=fn: fn(environment)) for name, fn in
+                      [('frontend', frontend), ('backend', backend), ('database', database)]}
+            workflows = {name: pool.submit(cached_deployment, name, environment, force) for name in WORKFLOWS}
+            environments[environment] = {
+                'checkedAt': utc_now(),
+                'services': {name: future.result() for name, future in probes.items()},
+                'deployments': {name: future.result() for name, future in workflows.items()}}
+    snapshot = {'environments': environments, 'staleAfterSeconds': 180}
     snapshot['checkedAt'] = utc_now()
     save(PUBLIC / 'status.json', snapshot, 0o644)
     return snapshot
@@ -233,10 +242,10 @@ def run_collection(manual=False):
             if remaining > 0:
                 raise RefreshRejected(429, 'refresh_cooldown', remaining)
             requests = github_requests()
-            # Reserve room for two workflow calls and up to two failed-job lookups.
-            if not os.environ.get('STATUS_GITHUB_TOKEN') and len(requests) > 44:
-                # Enough entries must expire to leave four requests available.
-                retry = github_retry_after(sorted(requests)[len(requests) - 45:])
+            # Reserve room for four workflow calls and four failed-job lookups.
+            if not os.environ.get('STATUS_GITHUB_TOKEN') and len(requests) > 40:
+                # Enough entries must expire to leave eight requests available.
+                retry = github_retry_after(sorted(requests)[len(requests) - 41:])
                 raise RefreshRejected(429, 'github_budget_exhausted', retry)
             save(PRIVATE / 'manual-refresh.json', {'startedAt': time.time()}, 0o600)
         return collect(force=manual)

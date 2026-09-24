@@ -45,7 +45,7 @@
 
 ## Testing / Verification
 
-- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（已删除的单元测试不再执行；保留的e2e和数据库集成脚本不包含在此入口），与 CI 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
+- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（已删除的单元测试不再执行；保留的e2e和数据库集成脚本不包含在此入口），与 CI 和 Docker build 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
 - 修改 migration 时，除 CI 空库与重复执行，还必须用隔离数据库里的代表性旧结构/旧数据验证升级、约束及关键业务读取；不得对业务库直接试验。没有可用隔离环境时明确报告，不跳过后声称完成。
 
 开发可按影响使用 `pnpm exec eslint <文件>`、`pnpm exec tsc --noEmit`、`pnpm exec jest --runInBand <测试文件>`；没有独立 type-check script。`pnpm build` 只构建，不能代替 verify:release。CI 另在 PostgreSQL 空库执行完整 migration 两次。
@@ -66,8 +66,12 @@
 - 优先直接查 Actions，不以邮箱是否收到通知判断成功；Gmail 仅辅助。任务结束时报告已部署/尚未部署/部署失败的真实状态。
 - 状态页和告警需实际验证异常、恢复、数据过期。未配置通知渠道或未投递验证，不得称“监控已上线”。AGENTS.md 是执行规则，不是后台监控服务。
 
-详细步骤：[ECS 环境](../docs/deployment/ECS开发环境部署.md)、[后端发布/回滚](../docs/deployment/后端自动部署.md)、[独立状态页](../docs/deployment/独立状态页.md)；执行入口为 `.github/workflows/ci.yml`、`scripts`、`ops`。
+详细步骤：[ECS 环境](../docs/deployment/ECS开发环境部署.md)、[后端发布/回滚](../docs/deployment/后端自动部署.md)、[独立状态页](../docs/deployment/独立状态页.md)；执行入口为 `.github/workflows/ci.yml`、`.github/workflows/deploy.yml`、`scripts/deploy.py`、`ops`。
 
 ## Documentation
 
 按根文档规则同步受影响合同及架构；涉及身份、结构化存储、冻结/调价约束时核对 [P0.1](../docs/requirements/P0.1-组织隔离与结构化业务.md)。环境发布结果留在部署/验证记录，不把动态在线 SHA、迁移执行状态或命令清单写入本文件。
+
+## Branch and Delivery
+
+日常修改在 dev；dev push 发布开发环境，main 必须 PR 且检查通过后手动发布 prod。公开仓库的 PR 检查不得进入 ECS self-hosted runner。根部署命令只用于 dev。基础设施切换完成前以 deployment 的实际记录为准，不能因配置已提交就宣称 runner 或分支保护已生效。

@@ -1,0 +1,24 @@
+[Unit]
+Description=Sunrise GitHub runner (%i)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=sunrise-runner
+Group=sunrise-ci
+WorkingDirectory=/opt/sunrise-ci/%i
+ExecStart=/opt/sunrise-ci/%i/bin/runsvc.sh
+Environment=PATH=/opt/sunrise-ci/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=BUILDX_CONFIG=/opt/sunrise-ci/buildx
+Restart=on-failure
+RestartSec=5
+KillMode=process
+TimeoutStopSec=300
+CPUQuota=100%
+MemoryHigh=1500M
+MemoryMax=1800M
+TasksMax=512
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

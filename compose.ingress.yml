@@ -1,0 +1,29 @@
+name: sunrise-travelops-ingress
+services:
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8089:8089"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro
+      - /opt/sunrise-travelops-dev/frontend:/srv/dev:ro
+      - /opt/sunrise-travelops-prod/frontend:/srv/prod:ro
+      - /opt/sunrise-travelops-dev/status:/usr/share/nginx/status:ro
+      - /run/sunrise-status:/run/sunrise-status:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /opt/sunrise-travelops-dev/acme:/var/www/acme:ro
+    networks: [dev, prod]
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+networks:
+  dev:
+    external: true
+    name: sunrise-travelops-dev_dev
+  prod:
+    external: true
+    name: sunrise-travelops-prod_app
