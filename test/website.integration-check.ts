@@ -1207,6 +1207,68 @@ async function main() {
           /Manual Hotel.*breakfast/.test(line),
         ),
       );
+      const explicitlyIncludedPlan = structuredClone(itinerary);
+      explicitlyIncludedPlan.days[0].endCityId = secondCityId;
+      explicitlyIncludedPlan.days[0].overnightCityId = secondCityId;
+      explicitlyIncludedPlan.days[0].hotels.forEach((hotel) => {
+        hotel.cityId = secondCityId;
+      });
+      explicitlyIncludedPlan.days[0].legs = [
+        {
+          id: randomUUID(),
+          routeId: null,
+          fromCityId: cityId,
+          toCityId: secondCityId,
+          mode: 'flight',
+          nameZh: '人工明确包含的机票',
+          nameEn: 'Explicitly included flight ticket',
+          feeState: 'INCLUDED',
+        },
+      ];
+      explicitlyIncludedPlan.days[0].items.find(
+        (item) => item.attractionId === componentId,
+      )!.feeState = 'INCLUDED';
+      explicitlyIncludedPlan.days[1].departCityId = secondCityId;
+      explicitlyIncludedPlan.days[1].endCityId = secondCityId;
+      const explicitlyIncludedPreview = buildWebsitePreview(
+        inquiry,
+        explicitlyIncludedPlan,
+        config,
+      );
+      assert.equal(
+        explicitlyIncludedPreview.issues.filter(
+          ({ severity }) => severity === 'ERROR',
+        ).length,
+        0,
+      );
+      assert(
+        explicitlyIncludedPreview.english.inclusions.some((line) =>
+          line.includes('Explicitly included flight ticket'),
+        ),
+      );
+      assert(
+        explicitlyIncludedPreview.chinese.inclusions.some((line) =>
+          line.includes('人工明确包含的机票'),
+        ),
+      );
+      assert(
+        explicitlyIncludedPreview.english.inclusions.some((line) =>
+          line.includes('Lake shuttle'),
+        ),
+      );
+      assert(
+        explicitlyIncludedPreview.chinese.inclusions.some((line) =>
+          line.includes('湖区接驳车'),
+        ),
+      );
+      assert.match(
+        explicitlyIncludedPreview.english.exclusions[0],
+        /do not apply.*explicitly listed as included/,
+      );
+      assert.match(
+        explicitlyIncludedPreview.chinese.exclusions[0],
+        /明确列入.*包含项.*除外/,
+      );
       assert.equal(
         (
           await request(

@@ -684,6 +684,11 @@ export function buildWebsitePreview(
     }
     exclusions.add(
       language === 'en'
+        ? 'The following default exclusions do not apply to items explicitly listed as included in this quotation.'
+        : '以下默认不含项目中，已明确列入本报价包含项的项目除外。',
+    );
+    exclusions.add(
+      language === 'en'
         ? 'International and domestic flights, travel insurance and personal expenses.'
         : '国际及国内机票、旅游保险和个人消费。',
     );
