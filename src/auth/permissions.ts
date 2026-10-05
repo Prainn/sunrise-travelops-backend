@@ -27,6 +27,21 @@ export const INQUIRY_PERMISSIONS = [
   ...RESOURCE_TYPES.map((resource) => `resource:${resource}:list`),
 ] as const;
 
+export const WEBSITE_PERMISSIONS = [
+  'website:inquiry:list',
+  'website:inquiry:create',
+  'website:inquiry:update',
+  'website:inquiry:transfer',
+  'website:inquiry:archive',
+  'website:itinerary:list',
+  'website:itinerary:create',
+  'website:itinerary:update',
+  'website:itinerary:confirm',
+  'website:itinerary:download',
+  'website:config:list',
+  'website:config:update',
+] as const;
+
 export const ADMIN_PERMISSIONS = [
   'sys:operation-log:list',
   'sys:user:list',
@@ -128,4 +143,16 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'itinerary:price': '编辑行程报价',
   'itinerary:pdf': '确认报价并生成 PDF',
   'itinerary:download': '下载已有冻结报价',
+  'website:inquiry:list': '查看独立站询盘',
+  'website:inquiry:create': '创建独立站询盘',
+  'website:inquiry:update': '修改独立站询盘',
+  'website:inquiry:transfer': '转交独立站询盘',
+  'website:inquiry:archive': '归档独立站询盘',
+  'website:itinerary:list': '查看独立站行程',
+  'website:itinerary:create': '创建独立站行程',
+  'website:itinerary:update': '修改独立站行程',
+  'website:itinerary:confirm': '确认独立站报价',
+  'website:itinerary:download': '下载独立站冻结报价',
+  'website:config:list': '查看独立站配置',
+  'website:config:update': '维护独立站配置',
 };

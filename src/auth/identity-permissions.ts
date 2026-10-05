@@ -2,6 +2,7 @@ import {
   ADMIN_PERMISSIONS,
   INQUIRY_PERMISSIONS,
   RESOURCE_PERMISSIONS,
+  WEBSITE_PERMISSIONS,
 } from './permissions';
 import { LoginScope } from '../users/user-identity.entity';
 const userPermissions = ADMIN_PERMISSIONS.filter((p) =>
@@ -40,6 +41,34 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   RESOURCE_MANAGER: ['sys:business-dictionary:list', ...RESOURCE_PERMISSIONS],
 };
+
+const websiteReads = [
+  'website:inquiry:list',
+  'website:itinerary:list',
+  'website:itinerary:download',
+  'website:config:list',
+];
+const websiteCoordinatorPermissions = [
+  ...websiteReads,
+  'website:inquiry:create',
+  'website:inquiry:update',
+  'website:itinerary:create',
+  'website:itinerary:update',
+  'website:itinerary:confirm',
+];
+const WEBSITE_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
+  ROOT: WEBSITE_PERMISSIONS,
+  ADMIN: [...websiteReads, 'website:config:update'],
+  EXECUTIVE: websiteReads,
+  BUSINESS_MANAGER: [
+    ...websiteCoordinatorPermissions,
+    'website:inquiry:transfer',
+    'website:inquiry:archive',
+  ],
+  COORDINATOR: websiteCoordinatorPermissions,
+  RESOURCE_MANAGER: ['website:config:list', 'website:config:update'],
+};
+
 export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
@@ -50,10 +79,17 @@ export function effectivePermissions(
       : ['BUSINESS_MANAGER', 'COORDINATOR', 'RESOURCE_MANAGER'];
   const selected = roles.filter((role) => allowedRoles.includes(role));
   if (scope === 'headquarters' && selected.includes('ROOT'))
-    return [...ROLE_PERMISSIONS.ROOT];
+    return [...ROLE_PERMISSIONS.ROOT, ...WEBSITE_ROLE_PERMISSIONS.ROOT];
   if (scope === 'headquarters' && selected.includes('EXECUTIVE'))
-    return [...reads];
+    return [...reads, ...websiteReads];
   return [
-    ...new Set(selected.flatMap((role) => ROLE_PERMISSIONS[role] ?? [])),
+    ...new Set(
+      selected.flatMap((role) => [
+        ...(ROLE_PERMISSIONS[role] ?? []),
+        ...(scope === 'website' || scope === 'headquarters'
+          ? (WEBSITE_ROLE_PERMISSIONS[role] ?? [])
+          : []),
+      ]),
+    ),
   ].sort();
 }
