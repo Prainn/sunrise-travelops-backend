@@ -1091,6 +1091,143 @@ async function main() {
       ).hotelPlans[0].hotels[0].unitCost,
       900,
     );
+    // Exercise both daily resource price queries and preserve their snapshots/errors.
+    const restaurantId = randomUUID();
+    const restaurantPriceId = randomUUID();
+    const attractionId = randomUUID();
+    const attractionPriceId = randomUUID();
+    await db.query(
+      `INSERT INTO resource_restaurants(id,library,code,name,city,unit)
+       VALUES ($1,'shengxu','RES-901','验证餐厅','昆明','table')`,
+      [restaurantId],
+    );
+    await db.query(
+      `INSERT INTO resource_restaurant_prices(id,restaurant_id,menu_name,unit,price,diner_count)
+       VALUES ($1,$2,'验证桌餐','table',100,8)`,
+      [restaurantPriceId, restaurantId],
+    );
+    await db.query(
+      `INSERT INTO resource_attractions(id,library,code,name,area,category,unit)
+       VALUES ($1,'shengxu','ATT-901','验证景点','昆明','scenic','person')`,
+      [attractionId],
+    );
+    await db.query(
+      `INSERT INTO resource_attraction_prices(id,attraction_id,item_type,item_name,unit,rack_price,settlement_price)
+       VALUES ($1,$2,'ticket','验证门票','person',50,40)`,
+      [attractionPriceId, attractionId],
+    );
+    const dailyResourcePlan = structuredClone(normalized);
+    dailyResourcePlan.hotelPlans = [];
+    dailyResourcePlan.vehiclePlans = [];
+    dailyResourcePlan.guidePlans = [];
+    for (const day of dailyResourcePlan.dailyPlans) day.items = [];
+    dailyResourcePlan.dailyPlans[0].meals.lunch = true;
+    for (const resource of [
+      {
+        type: 'restaurant' as const,
+        resourceId: restaurantId,
+        resourcePriceId: restaurantPriceId,
+        resourceName: '验证餐厅',
+        priceName: '验证桌餐',
+        unit: 'table',
+        unitCost: 100,
+        dinerCount: 8,
+        totalCost: 12.5,
+        table: 'resource_restaurants',
+        error: 'Invalid restaurant price',
+      },
+      {
+        type: 'attraction' as const,
+        resourceId: attractionId,
+        resourcePriceId: attractionPriceId,
+        resourceName: '验证景点',
+        priceName: '验证门票',
+        unit: 'person',
+        unitCost: 40,
+        dinerCount: null,
+        totalCost: 40,
+        table: 'resource_attractions',
+        error: 'Invalid attraction price',
+      },
+    ]) {
+      const resourceInput = structuredClone(dailyResourcePlan);
+      resourceInput.dailyPlans[0].items = [
+        {
+          ...normalized.dailyPlans[0].items[0],
+          id: 'daily-resource-check',
+          type: resource.type,
+          resourceId: resource.resourceId,
+          resourcePriceId: resource.resourcePriceId,
+          resourceName: '客户端资源名称',
+          priceName: '客户端价格名称',
+          unit: 'personMeal',
+          unitCost: resource.unitCost,
+          totalCost: 0,
+          dinerCount: 9,
+          referencePrice: 1,
+          referenceBasis: 'unknown',
+          adjustmentReason: '',
+          mealSlot: resource.type === 'restaurant' ? 'lunch' : undefined,
+        },
+      ];
+      const validateResource = (
+        input = resourceInput,
+        previous = dailyResourcePlan,
+        library: 'shengxu' | 'shared' = 'shengxu',
+        checkReason = true,
+      ) =>
+        validation.normalize(
+          db.manager,
+          input,
+          previous,
+          3,
+          library,
+          checkReason,
+        );
+      const validated = await validateResource();
+      const item = validated.dailyPlans[0].items[0];
+      assert.equal(item.resourceName, resource.resourceName);
+      assert.equal(item.priceName, resource.priceName);
+      assert.equal(item.unit, resource.unit);
+      assert.equal(item.dinerCount, resource.dinerCount);
+      assert.equal(item.referencePrice, resource.unitCost);
+      assert.equal(item.referenceBasis, 'resource_price');
+      assert.equal(item.totalCost, resource.totalCost);
+      const error = { code: 'ITINERARY_INVALID', message: resource.error };
+      const wrongParent = structuredClone(resourceInput);
+      wrongParent.dailyPlans[0].items[0].resourceId = randomUUID();
+      await assert.rejects(validateResource(wrongParent), error);
+      await assert.rejects(
+        validateResource(resourceInput, dailyResourcePlan, 'shared'),
+        error,
+      );
+      const repriced = structuredClone(resourceInput);
+      repriced.dailyPlans[0].items[0].unitCost += 1;
+      await assert.rejects(validateResource(repriced), {
+        code: 'ITINERARY_INVALID',
+        message: '调整价格必须填写本次原因',
+      });
+      assert.equal(
+        (await validateResource(repriced, dailyResourcePlan, 'shengxu', false))
+          .dailyPlans[0].items[0].unitCost,
+        resource.unitCost + 1,
+      );
+      await db.query(
+        `UPDATE ${resource.table} SET name='已改名资源', status='disabled' WHERE id=$1`,
+        [resource.resourceId],
+      );
+      await assert.rejects(validateResource(), error);
+      assert.deepEqual(
+        (await validateResource(resourceInput, validated)).dailyPlans[0]
+          .items[0],
+        item,
+      );
+      await db.query(
+        `UPDATE ${resource.table} SET status='enabled', deleted_at=now() WHERE id=$1`,
+        [resource.resourceId],
+      );
+      await assert.rejects(validateResource(), error);
+    }
     // Real controller/guard/interceptor integration against the same disposable database.
     Object.assign(process.env, {
       ENV_FILE: '/dev/null',
@@ -1568,8 +1705,11 @@ async function main() {
       const sharedAgencyResponse = await request(
         'POST',
         '/resources/agencies',
-        websiteResources,
+        root,
         {
+          library: 'shared',
+          businessUnit: 'linxi',
+          coordinatorId: lx.id,
           name: '共享旅行社',
           city: '昆明',
           countryOrRegion: '',

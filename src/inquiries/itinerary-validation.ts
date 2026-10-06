@@ -84,6 +84,78 @@ export class ItineraryValidation {
     }
   }
 
+  private async validateDailyItem(
+    manager: EntityManager,
+    item: ItineraryInput['dailyPlans'][number]['items'][number],
+    oldItem: ItineraryInput['dailyPlans'][number]['items'][number] | undefined,
+    library: ResourceLibrary | undefined,
+    checkReason: boolean,
+  ): Promise<void> {
+    if (oldItem)
+      Object.assign(item, {
+        resourceName: oldItem.resourceName,
+        priceName: oldItem.priceName,
+        unit: oldItem.unit,
+        dinerCount: oldItem.dinerCount ?? item.dinerCount ?? null,
+        referencePrice: oldItem.referencePrice ?? null,
+        referenceBasis: oldItem.referenceBasis ?? 'unknown',
+      });
+    else {
+      const isRestaurant = item.type === 'restaurant';
+      const relation = isRestaurant ? 'restaurant' : 'attraction';
+      const price = await manager.findOne<
+        RestaurantPriceEntity | AttractionPriceEntity
+      >(isRestaurant ? RestaurantPriceEntity : AttractionPriceEntity, {
+        where: {
+          id: item.resourcePriceId!,
+          [`${relation}Id`]: item.resourceId!,
+        },
+        relations: { [relation]: true },
+      });
+      const resource =
+        price && ('restaurant' in price ? price.restaurant : price.attraction);
+      if (
+        !price ||
+        !resource ||
+        resource.deletedAt ||
+        resource.status !== ResourceStatus.Enabled ||
+        (library && resource.library !== library)
+      )
+        invalid(
+          isRestaurant
+            ? 'Invalid restaurant price'
+            : 'Invalid attraction price',
+        );
+      const priceFields =
+        'menuName' in price
+          ? {
+              priceName: price.menuName,
+              dinerCount:
+                price.unit === 'table'
+                  ? (price.dinerCount ?? item.dinerCount ?? null)
+                  : null,
+              referencePrice: Number(price.price),
+            }
+          : {
+              priceName: price.itemName,
+              referencePrice: Number(price.settlementPrice),
+            };
+      Object.assign(item, {
+        resourceName: resource.name,
+        unit: price.unit,
+        referenceBasis: 'resource_price',
+        ...priceFields,
+      });
+    }
+    requirePriceReason(
+      item.unitCost,
+      oldItem?.unitCost,
+      item,
+      oldItem,
+      checkReason,
+    );
+  }
+
   async normalize(
     manager: EntityManager,
     input: ItineraryInput,
@@ -189,59 +261,15 @@ export class ItineraryValidation {
         item.priceName = '';
         item.referencePrice = null;
         item.referenceBasis = 'unknown';
-      } else if (old)
-        Object.assign(item, {
-          resourceName: old.resourceName,
-          priceName: old.priceName,
-          unit: old.unit,
-          dinerCount: old.dinerCount ?? item.dinerCount ?? null,
-          referencePrice: old.referencePrice ?? null,
-          referenceBasis: old.referenceBasis ?? 'unknown',
-        });
-      else if (item.type === 'restaurant') {
-        const price = await manager.findOne(RestaurantPriceEntity, {
-          where: { id: item.resourcePriceId!, restaurantId: item.resourceId! },
-          relations: { restaurant: true },
-        });
-        if (
-          !price?.restaurant ||
-          price.restaurant.deletedAt ||
-          price.restaurant.status !== ResourceStatus.Enabled ||
-          (library && price.restaurant.library !== library)
-        )
-          invalid('Invalid restaurant price');
-        Object.assign(item, {
-          resourceName: price.restaurant.name,
-          priceName: price.menuName,
-          unit: price.unit,
-          dinerCount:
-            price.unit === 'table'
-              ? (price.dinerCount ?? item.dinerCount ?? null)
-              : null,
-          referencePrice: Number(price.price),
-          referenceBasis: 'resource_price',
-        });
-      } else {
-        const price = await manager.findOne(AttractionPriceEntity, {
-          where: { id: item.resourcePriceId!, attractionId: item.resourceId! },
-          relations: { attraction: true },
-        });
-        if (
-          !price?.attraction ||
-          price.attraction.deletedAt ||
-          price.attraction.status !== ResourceStatus.Enabled ||
-          (library && price.attraction.library !== library)
-        )
-          invalid('Invalid attraction price');
-        Object.assign(item, {
-          resourceName: price.attraction.name,
-          priceName: price.itemName,
-          unit: price.unit,
-          referencePrice: Number(price.settlementPrice),
-          referenceBasis: 'resource_price',
-        });
-      }
-      requirePriceReason(item.unitCost, old?.unitCost, item, old, checkReason);
+        requirePriceReason(
+          item.unitCost,
+          old?.unitCost,
+          item,
+          old,
+          checkReason,
+        );
+      } else
+        await this.validateDailyItem(manager, item, old, library, checkReason);
       if (
         item.unit === 'table' &&
         !(
