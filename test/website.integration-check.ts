@@ -52,6 +52,7 @@ const connection = {
   password: 'isolated-test-only',
 };
 const websiteMigrationName = 'CreateWebsiteBusiness1791187200000';
+const templateNameMigrationName = 'AddWebsiteTemplateNames1791273600000';
 
 async function main() {
   const admin = await new DataSource({
@@ -88,6 +89,7 @@ async function main() {
     try {
       const applied = await empty.runMigrations();
       assert(applied.some(({ name }) => name === websiteMigrationName));
+      assert(applied.some(({ name }) => name === templateNameMigrationName));
       assert.equal((await empty.runMigrations()).length, 0);
     } finally {
       await empty.destroy();
@@ -108,7 +110,9 @@ async function main() {
       ...allMigrations.filter(
         (migration) =>
           (migration.name ?? migration.constructor.name) !==
-          websiteMigrationName,
+            websiteMigrationName &&
+          (migration.name ?? migration.constructor.name) !==
+            templateNameMigrationName,
       ),
     );
     await db.runMigrations();
@@ -361,12 +365,139 @@ async function main() {
         ),
       });
     const legacyBefore = await readLegacy();
-    db.migrations.splice(0, db.migrations.length, ...allMigrations);
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...allMigrations.filter(
+        (migration) =>
+          (migration.name ?? migration.constructor.name) !==
+          templateNameMigrationName,
+      ),
+    );
     assert.deepEqual(
       (await db.runMigrations()).map(({ name }) => name),
       [websiteMigrationName],
     );
+
+    const legacyConfig = {
+      version: 1001,
+      cities: [],
+      attractions: [],
+      routes: [],
+      patterns: [],
+      skeletons: [],
+      templates: [
+        {
+          id: randomUUID(),
+          status: 'enabled',
+          code: 'legacy-arrival',
+          zh: '既有中文。',
+          en: 'Existing English.',
+        },
+        {
+          id: randomUUID(),
+          status: 'disabled',
+          name: '已有模版名称',
+          code: 'legacy-departure',
+          zh: '既有离开文案。',
+          en: 'Existing departure copy.',
+        },
+      ],
+    };
+    const currentLegacyConfig = {
+      ...legacyConfig,
+      version: 1002,
+      templates: [{ ...legacyConfig.templates[0], id: randomUUID() }],
+    };
+    for (const oldConfig of [legacyConfig, currentLegacyConfig]) {
+      await db.query(
+        'INSERT INTO website_config_versions(version,config) VALUES($1,$2::jsonb)',
+        [oldConfig.version, JSON.stringify(oldConfig)],
+      );
+    }
+    await db.query('UPDATE website_config_current SET version=1002 WHERE id=1');
+    const oldInquiryId = randomUUID();
+    const oldItineraryId = randomUUID();
+    const oldQuotationId = randomUUID();
+    const frozenOutput = {
+      title: '既有冻结内容',
+      itinerary: [],
+      inclusions: ['Existing included service.'],
+      exclusions: [],
+      hotelOptions: [],
+      quotation: [],
+      notes: [],
+    };
+    const frozenBefore: WebsiteQuotation = {
+      id: oldQuotationId,
+      code: 'WQT-NAME-MIGRATION',
+      itineraryId: oldItineraryId,
+      sourceVersion: 1,
+      inquiryVersion: 1,
+      configVersion: 1001,
+      schemaVersion: 1,
+      validationVersion: 1,
+      issues: [],
+      english: frozenOutput,
+      chinese: { ...frozenOutput, inclusions: ['既有包含服务。'] },
+      confirmedAt: '2026-10-05T00:00:00.000Z',
+      confirmedBy: root.nickname,
+      acknowledgedWarnings: [],
+    };
+    await db.query(
+      `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,status)
+       VALUES($1,'WIN-NAME-MIGRATION','旧模版迁移',1,'迁移验证',$2,'sunrise','quoted')`,
+      [oldInquiryId, root.id],
+    );
+    await db.query(
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,config_version,status)
+       VALUES($1,$2,'WIT-NAME-MIGRATION','既有冻结行程',1,1001,'quoted')`,
+      [oldItineraryId, oldInquiryId],
+    );
+    await db.query(
+      `INSERT INTO website_quotations(id,itinerary_id,code,snapshot,confirmed_by)
+       VALUES($1,$2,'WQT-NAME-MIGRATION',$3::jsonb,$4)`,
+      [oldQuotationId, oldItineraryId, JSON.stringify(frozenBefore), root.id],
+    );
+    db.migrations.splice(0, db.migrations.length, ...allMigrations);
+    assert.deepEqual(
+      (await db.runMigrations()).map(({ name }) => name),
+      [templateNameMigrationName],
+    );
     assert.equal((await db.runMigrations()).length, 0);
+    const upgradedConfigs = await db.query<Array<{ config: WebsiteConfig }>>(
+      'SELECT config FROM website_config_versions WHERE version IN (1001,1002) ORDER BY version',
+    );
+    assert.deepEqual(upgradedConfigs[0].config, {
+      ...legacyConfig,
+      templates: [
+        { ...legacyConfig.templates[0], name: 'legacy-arrival' },
+        legacyConfig.templates[1],
+      ],
+    });
+    assert.deepEqual(upgradedConfigs[1].config, {
+      ...currentLegacyConfig,
+      templates: [
+        { ...currentLegacyConfig.templates[0], name: 'legacy-arrival' },
+      ],
+    });
+    assert.deepEqual(
+      (
+        await db.query<Array<{ snapshot: unknown }>>(
+          'SELECT snapshot FROM website_quotations WHERE id=$1',
+          [oldQuotationId],
+        )
+      )[0].snapshot,
+      frozenBefore,
+    );
+    await db.query('DELETE FROM website_quotations WHERE id=$1', [
+      oldQuotationId,
+    ]);
+    await db.query('DELETE FROM website_itineraries WHERE id=$1', [
+      oldItineraryId,
+    ]);
+    await db.query('DELETE FROM website_inquiries WHERE id=$1', [oldInquiryId]);
+    await db.query('UPDATE website_config_current SET version=0 WHERE id=1');
     assert.deepEqual(await readLegacy(), legacyBefore);
 
     Object.assign(process.env, {
@@ -459,6 +590,7 @@ async function main() {
       const templateFixture = (code: string, zh: string, en: string) => ({
         id: randomUUID(),
         status: 'enabled' as const,
+        name: `模版 ${code}`,
         code,
         zh,
         en,
@@ -468,6 +600,12 @@ async function main() {
       );
       assert.equal(initialConfig.version, 0);
       assert.deepEqual(initialConfig.cities, []);
+      assert.deepEqual(
+        await data<WebsiteConfig>(
+          await request('GET', '/website/config?version=1001', resource),
+        ),
+        upgradedConfigs[0].config,
+      );
       const authoredConfig: WebsiteConfig = {
         version: initialConfig.version,
         cities: [
@@ -609,10 +747,44 @@ async function main() {
           ),
         ],
       };
+      for (const invalidName of [
+        undefined,
+        null,
+        '',
+        '   ',
+        '名'.repeat(151),
+      ]) {
+        const invalidConfig = structuredClone(authoredConfig);
+        const invalidTemplate = invalidConfig.templates[0] as unknown as {
+          name?: unknown;
+        };
+        invalidTemplate.name = invalidName;
+        const rejected = await request(
+          'PUT',
+          '/website/config',
+          resource,
+          invalidConfig,
+        );
+        assert.equal(rejected.status, 400, await rejected.clone().text());
+        assert.equal(
+          ((await rejected.json()) as { code: string }).code,
+          'VALIDATION_ERROR',
+        );
+      }
+      authoredConfig.templates[0].name = '  抵达文案模版  ';
+      authoredConfig.templates[1].name = '名'.repeat(150);
       let config = await data<WebsiteConfig>(
         await request('PUT', '/website/config', resource, authoredConfig),
       );
       assert.equal(config.version, 1);
+      assert.equal(config.templates[0].name, '抵达文案模版');
+      assert.equal(config.templates[1].name, '名'.repeat(150));
+      assert.deepEqual(
+        await data<WebsiteConfig>(
+          await request('GET', '/website/config', resource),
+        ),
+        config,
+      );
       for (const reader of [owner, manager, executive]) {
         assert.equal(
           (await request('PUT', '/website/config', reader, config)).status,
@@ -1328,6 +1500,9 @@ async function main() {
         );
       }
       const changedConfig = structuredClone(config);
+      changedConfig.templates.find(
+        (item) => item.code === 'private-driver',
+      )!.name = '车辆服务模版新名称';
       changedConfig.templates.find(
         (item) => item.code === 'private-driver',
       )!.en = 'Changed future vehicle wording.';

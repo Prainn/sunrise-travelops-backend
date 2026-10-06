@@ -50,6 +50,7 @@ export interface WebsiteSkeleton extends ConfigBase {
   days: Array<{ cityId: string; patternId: string | null }>;
 }
 export interface WebsiteTemplate extends ConfigBase {
+  name: string;
   code: string;
   zh: string;
   en: string;

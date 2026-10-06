@@ -354,6 +354,7 @@ export class WebsiteTemplateDto
   extends ConfigBaseDto
   implements WebsiteTemplate
 {
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) name: string;
   @IsString() @MinLength(1) @MaxLength(100) code: string;
   @IsString() @MinLength(1) @MaxLength(20000) zh: string;
   @IsString() @MinLength(1) @MaxLength(20000) en: string;
