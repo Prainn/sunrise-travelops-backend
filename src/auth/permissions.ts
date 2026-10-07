@@ -6,6 +6,7 @@ const RESOURCE_TYPES = [
   'attraction',
   'transport',
   'guide',
+  'flight',
 ] as const;
 
 export const RESOURCE_PERMISSIONS = RESOURCE_TYPES.flatMap((resource) => [
@@ -132,6 +133,10 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'resource:guide:create': '新增导游价格',
   'resource:guide:update': '修改导游价格',
   'resource:guide:delete': '删除导游价格',
+  'resource:flight:list': '查看航班信息',
+  'resource:flight:create': '新增航班信息',
+  'resource:flight:update': '修改航班信息',
+  'resource:flight:delete': '删除航班信息',
   'inquiry:list': '查看询盘',
   'inquiry:create': '创建询盘',
   'inquiry:update': '修改询盘',

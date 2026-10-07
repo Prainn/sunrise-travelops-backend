@@ -37,6 +37,9 @@ import { TransportsService } from './transports/transports.service';
 import { CityEntity } from './cities/city.entity';
 import { CitiesController } from './cities/cities.controller';
 import { CitiesService } from './cities/cities.service';
+import { FlightEntity } from './flights/flight.entity';
+import { FlightsController } from './flights/flights.controller';
+import { FlightsService } from './flights/flights.service';
 
 const entities = [
   CityEntity,
@@ -50,6 +53,7 @@ const entities = [
   TransportEntity,
   GuideEntity,
   GuidePersonEntity,
+  FlightEntity,
   BusinessDictionaryTypeEntity,
   BusinessDictionaryItemEntity,
 ];
@@ -66,6 +70,7 @@ const entities = [
     TransportsController,
     GuidesController,
     GuidePeopleController,
+    FlightsController,
   ],
   exports: [AgenciesService],
   providers: [
@@ -80,6 +85,7 @@ const entities = [
     TransportsService,
     GuidesService,
     GuidePeopleService,
+    FlightsService,
   ],
 })
 export class ResourcesModule {}
