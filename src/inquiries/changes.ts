@@ -51,8 +51,7 @@ export function diffChanges(
       return changes;
     }
     // DTO instances and persisted plain objects carry the same audit content.
-    if (isDeepStrictEqual(structuredClone(before), structuredClone(after)))
-      return [];
+    if (isDeepStrictEqual(before, after)) return [];
     return [{ path, kind: 'changed', before, after }];
   }
   if (object(before) && object(after))
@@ -110,13 +109,21 @@ export function moneyResponse(value: unknown, field = ''): unknown {
   if (typeof value === 'number' && MONEY_FIELDS.has(field))
     return value.toFixed(2);
   if (Array.isArray(value)) return value.map((item) => moneyResponse(item));
-  if (object(value))
+  if (object(value)) {
+    const changeField =
+      typeof value.path === 'string' ? value.path.split('.').at(-1) : undefined;
     return Object.fromEntries(
       Object.entries(value).map(([name, item]) => [
         name,
-        moneyResponse(item, name),
+        moneyResponse(
+          item,
+          (name === 'before' || name === 'after') && changeField
+            ? changeField
+            : name,
+        ),
       ]),
     );
+  }
   return value;
 }
 
@@ -125,25 +132,41 @@ export function contextualChanges(
   before: unknown,
   after: unknown,
 ): FieldChange[] {
+  const changes = diffChanges(before, after);
+  if (!changes.length) return changes;
   const readArray = (value: unknown, name: string): unknown[] =>
     object(value) && Array.isArray(value[name])
       ? (value[name] as unknown[])
       : [];
-  const find = (name: string, id: string) =>
-    [...readArray(after, name), ...readArray(before, name)].find(
-      (item) => key(item) === id,
-    );
-  return diffChanges(before, after).map((change) => {
+  const index = (values: unknown[]) => {
+    const map = new Map<string | undefined, unknown>();
+    for (const value of values) {
+      const id = key(value);
+      if (!map.has(id)) map.set(id, value);
+    }
+    return map;
+  };
+  // Preserve find's first match: current days win, deleted days use the old version.
+  const dayMap = index([
+    ...readArray(after, 'dailyPlans'),
+    ...readArray(before, 'dailyPlans'),
+  ]);
+  const itemMaps = new Map(
+    [...dayMap].map(([id, day]) => [id, index(readArray(day, 'items'))]),
+  );
+  // Only current quote options supplied context before this optimization.
+  const optionMap = index(
+    readArray(object(after) ? after.quote : undefined, 'options'),
+  );
+  return changes.map((change) => {
     const context: NonNullable<FieldChange['context']> = {};
     const dayId = change.path.match(/dailyPlans\[([^\]]+)\]/)?.[1];
     if (dayId) {
-      const day = find('dailyPlans', dayId);
+      const day = dayMap.get(dayId);
       if (object(day) && typeof day.dayNumber === 'number')
         context.dayNumber = day.dayNumber;
       const itemId = change.path.match(/items\[([^\]]+)\]/)?.[1];
-      const item = itemId
-        ? readArray(day, 'items').find((item) => key(item) === itemId)
-        : undefined;
+      const item = itemId ? itemMaps.get(dayId)?.get(itemId) : undefined;
       if (object(item) && typeof item.resourceName === 'string')
         context.name = item.resourceName;
     }
@@ -155,15 +178,11 @@ export function contextualChanges(
     if (hotelTier) context.hotelTier = hotelTier;
     const vehicleTier = change.path.match(/vehiclePlans\[([^\]]+)\]/)?.[1];
     if (vehicleTier) context.vehicleTier = vehicleTier;
-    if (object(after) && object(after.quote)) {
-      const optionId = change.path.match(/options\[([^\]]+)\]/)?.[1];
-      const option = readArray(after.quote, 'options').find(
-        (item) => key(item) === optionId,
-      );
-      if (object(option)) {
-        context.hotelTier = String(option.hotelTier);
-        context.vehicleTier = String(option.vehicleTier);
-      }
+    const optionId = change.path.match(/options\[([^\]]+)\]/)?.[1];
+    const option = optionMap.get(optionId);
+    if (object(option)) {
+      context.hotelTier = String(option.hotelTier);
+      context.vehicleTier = String(option.vehicleTier);
     }
     return { ...change, context };
   });

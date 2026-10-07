@@ -20,7 +20,16 @@ import { InquiriesService } from '../src/inquiries/inquiries.service';
 import { calculateItineraryQuote } from '../src/inquiries/quote-pricing';
 import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
 import { InquiryQuery } from '../src/inquiries/inquiry.dto';
-import { ItineraryEntity, PdfData } from '../src/inquiries/inquiry.entity';
+import {
+  type FieldChange,
+  ItineraryEntity,
+  PdfData,
+} from '../src/inquiries/inquiry.entity';
+import {
+  contextualChanges,
+  diffChanges,
+  moneyResponse,
+} from '../src/inquiries/changes';
 import { loadItineraryData } from '../src/inquiries/structured-itinerary';
 import { AgenciesService } from '../src/resources/agencies/agencies.service';
 import {
@@ -43,7 +52,124 @@ const connection = {
   username: 'postgres',
   password: 'isolated-test-only',
 };
+function checkAuditChanges() {
+  const before = {
+    dailyPlans: [
+      {
+        id: 'day-1',
+        dayNumber: 1,
+        items: [
+          { id: 'meal-1', resourceName: '原餐厅', unitCost: 10, quantity: 1 },
+          {
+            id: 'meal-removed',
+            resourceName: '删除餐厅',
+            unitCost: 8,
+            quantity: 1,
+          },
+        ],
+      },
+      { id: 'day-removed', dayNumber: 2, items: [] },
+    ],
+    hotelPlans: [
+      { tier: 'hotel-tier', hotels: [{ destination: '昆明', unitCost: 100 }] },
+    ],
+    vehiclePlans: [{ tier: 'standard', totalPrice: 1000 }],
+    guidePlans: [{ destination: '昆明', dailyPrice: 200 }],
+    quote: {
+      options: [
+        {
+          id: 'option-1',
+          hotelTier: 'hotel-tier',
+          vehicleTier: 'standard',
+          paxPrices: [{ pax: 10, adultUnitPrice: 500 }],
+        },
+        {
+          id: 'option-removed',
+          hotelTier: 'old-tier',
+          vehicleTier: 'vip',
+          paxPrices: [],
+        },
+      ],
+    },
+    childRate: 70,
+  };
+  const after = structuredClone(before);
+  after.dailyPlans.pop();
+  after.dailyPlans[0].items.pop();
+  Object.assign(after.dailyPlans[0].items[0], {
+    resourceName: '新餐厅',
+    unitCost: 12.5,
+    quantity: 2,
+  });
+  after.hotelPlans[0].hotels[0].unitCost = 110;
+  after.vehiclePlans[0].totalPrice = 1100;
+  after.guidePlans[0].dailyPrice = 220;
+  after.quote.options.pop();
+  after.quote.options[0].paxPrices[0].adultUnitPrice = 600;
+  after.childRate = 65;
+  const changes = contextualChanges(before, after);
+  const change = (path: string) => {
+    const found = changes.find((item) => item.path === path);
+    assert.ok(found, path);
+    return found;
+  };
+  const pricePath = 'dailyPlans[day-1].items[meal-1].unitCost';
+  assert.deepEqual(change(pricePath).context, { dayNumber: 1, name: '新餐厅' });
+  assert.deepEqual(change('dailyPlans[day-removed]').context, { dayNumber: 2 });
+  // A removed item in a retained day did not use its old name as context.
+  assert.deepEqual(change('dailyPlans[day-1].items[meal-removed]').context, {
+    dayNumber: 1,
+  });
+  assert.deepEqual(
+    change('hotelPlans[hotel-tier].hotels[昆明].unitCost').context,
+    { destination: '昆明', hotelTier: 'hotel-tier' },
+  );
+  assert.deepEqual(change('vehiclePlans[standard].totalPrice').context, {
+    vehicleTier: 'standard',
+  });
+  assert.deepEqual(change('guidePlans[昆明].dailyPrice').context, {
+    destination: '昆明',
+  });
+  assert.deepEqual(
+    change('quote.options[option-1].paxPrices[10].adultUnitPrice').context,
+    { hotelTier: 'hotel-tier', vehicleTier: 'standard' },
+  );
+  assert.deepEqual(change('quote.options[option-removed]').context, {});
+  const response = moneyResponse(changes) as FieldChange[];
+  assert.deepEqual(
+    response.find((item) => item.path === pricePath),
+    {
+      ...change(pricePath),
+      before: '10.00',
+      after: '12.50',
+    },
+  );
+  for (const path of ['dailyPlans[day-1].items[meal-1].quantity', 'childRate'])
+    assert.deepEqual(
+      response.find((item) => item.path === path),
+      change(path),
+    );
+  assert.equal(change(pricePath).before, 10);
+  assert.equal(change(pricePath).after, 12.5);
+  assert.deepEqual(
+    moneyResponse(diffChanges(undefined, { unitCost: 12.5, quantity: 2 })),
+    [
+      {
+        path: '',
+        kind: 'added',
+        before: null,
+        after: { unitCost: '12.50', quantity: 2 },
+      },
+    ],
+  );
+  assert.deepEqual(
+    moneyResponse(diffChanges({ unitCost: null }, { unitCost: 0 })),
+    [{ path: 'unitCost', kind: 'changed', before: null, after: '0.00' }],
+  );
+  assert.deepEqual(contextualChanges(before, structuredClone(before)), []);
+}
 async function main() {
+  checkAuditChanges();
   const admin = await new DataSource({
     ...connection,
     database: 'travel_refactor_test',
@@ -728,8 +854,6 @@ async function main() {
     const adminUser = await createUser('sysadmin', 'headquarters', 1, 'ADMIN');
     const exec = await createUser('boss', 'headquarters', 4, 'EXECUTIVE');
     const multipleIdentities = {
-      username: 'invalid_mixed',
-      password: 'other-password',
       nickname: '多部门账号',
       avatar: '',
       gender: 0,
@@ -750,15 +874,18 @@ async function main() {
       ],
     };
     await assert.rejects(
-      management.create(multipleIdentities, root),
+      management.create(
+        {
+          ...multipleIdentities,
+          username: 'invalid_mixed',
+          password: 'other-password',
+        },
+        root,
+      ),
       /一个账号只能有一个登录范围和部门/,
     );
     await assert.rejects(
-      management.update(
-        exec.id,
-        { ...multipleIdentities, username: 'boss' },
-        root,
-      ),
+      management.update(exec.id, multipleIdentities, root),
       /一个账号只能有一个登录范围和部门/,
     );
     assert.equal(
@@ -920,6 +1047,20 @@ async function main() {
       a,
     );
     assert.equal(saved.dailyPlans[0].items[0].unitCost, 90);
+    const [savedLog] = await db.query<Array<{ changes: FieldChange[] }>>(
+      "SELECT changes FROM inquiry_logs WHERE target_id=$1 AND action='itinerary_saved' ORDER BY occurred_at DESC,id DESC LIMIT 1",
+      [ids.draft],
+    );
+    const savedPriceChange = savedLog.changes.find((change) =>
+      change.path.endsWith('.unitCost'),
+    );
+    assert.ok(savedPriceChange);
+    assert.equal(savedPriceChange.before, 85.12);
+    assert.equal(savedPriceChange.after, 90);
+    assert.deepEqual(savedPriceChange.context, {
+      dayNumber: 1,
+      name: saved.dailyPlans[0].items[0].resourceName,
+    });
     assert.equal(saved.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(
       (
@@ -1290,6 +1431,17 @@ async function main() {
         assert.equal(response.status, 200, await response.clone().text());
         return ((await response.json()) as { data: T }).data;
       };
+      const logs = await httpData<{ list: { changes: FieldChange[] }[] }>(
+        await request('GET', `/inquiry-logs?inquiryId=${ids.inquiry}`, root),
+      );
+      const httpPriceChange = logs.list
+        .flatMap((log) => log.changes)
+        .find((change) => change.path === savedPriceChange.path);
+      assert.deepEqual(httpPriceChange, {
+        ...savedPriceChange,
+        before: '85.12',
+        after: '90.00',
+      });
       for (const reader of [system, executive]) {
         assert.equal(
           (await request('POST', '/inquiries', reader, {})).status,

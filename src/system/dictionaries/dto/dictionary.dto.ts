@@ -44,9 +44,11 @@ export class DictionaryItemQueryDto extends PaginationQueryDto {
 }
 
 export class DictionaryTypeInputDto {
+  /** @deprecated 从 toDictionaryTypeInput 省略 id，更新使用路径 ID。 */
   @ApiPropertyOptional({
     format: 'uuid',
-    description: 'Accepted on update for compatibility with frontend form data',
+    deprecated: true,
+    description: '当前前端更新仍发送；迁移时省略 id，使用路径 ID',
   })
   @IsOptional()
   @IsUUID('4')
@@ -80,16 +82,20 @@ export class DictionaryTypeInputDto {
 }
 
 export class DictionaryItemInputDto {
+  /** @deprecated 从 toDictionaryItemInput 省略 id，更新使用路径 ID。 */
   @ApiPropertyOptional({
     format: 'uuid',
-    description: 'Accepted on update for compatibility with frontend form data',
+    deprecated: true,
+    description: '当前前端更新仍发送；迁移时省略 id，使用路径 ID',
   })
   @IsOptional()
   @IsUUID('4')
   id?: string;
 
+  /** @deprecated 从 toDictionaryItemInput 省略 dictCode，创建和更新均使用路径编码。 */
   @ApiPropertyOptional({
-    description: 'Accepted for compatibility; the path remains authoritative',
+    deprecated: true,
+    description: '当前前端仍发送；迁移时省略 dictCode，使用路径编码',
     example: 'gender',
   })
   @IsOptional()

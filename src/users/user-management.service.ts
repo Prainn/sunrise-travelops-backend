@@ -265,11 +265,7 @@ export class UserManagementService {
   async update(id: string, input: UpdateUserDto, actor: AuthenticatedUser) {
     return this.dataSource.transaction(async (manager) => {
       const user = await this.requireUser(id, actor, manager, true);
-      if (
-        (input.id && input.id !== id) ||
-        (input.username && input.username !== user.username)
-      )
-        denied('账号 ID 和登录名不能变更');
+      if (input.id && input.id !== id) denied('账号 ID 和登录名不能变更');
       if (id === actor.id && input.status === 0) denied('不能停用当前账号');
       const grants = await this.identities(input.identities, actor, manager);
       const removedScopes = user.identities

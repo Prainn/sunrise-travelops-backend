@@ -86,7 +86,12 @@ export class IdentityInput {
 }
 
 class UserEditableFieldsDto {
-  @ApiPropertyOptional({ format: 'uuid' })
+  /** @deprecated 从 toUserInput 省略顶层 id，更新使用路径 ID；identities[].id 仍须保留。 */
+  @ApiPropertyOptional({
+    format: 'uuid',
+    deprecated: true,
+    description: '当前前端更新仍发送；迁移时省略顶层 id，使用路径 ID',
+  })
   @IsOptional()
   @IsUUID('4')
   id?: string;
@@ -153,16 +158,7 @@ export class CreateUserDto extends UserEditableFieldsDto {
   password?: string;
 }
 
-export class UpdateUserDto extends UserEditableFieldsDto {
-  @ApiPropertyOptional({
-    example: 'operations_li',
-    description: 'Optional compatibility field; it cannot be changed',
-  })
-  @IsOptional()
-  @Transform(trim)
-  @Matches(/^[a-z][a-z0-9_.-]{2,79}$/)
-  username?: string;
-}
+export class UpdateUserDto extends UserEditableFieldsDto {}
 
 export class ResetUserPasswordDto {
   @ApiProperty({ minLength: 6, maxLength: 128 })
