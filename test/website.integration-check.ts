@@ -702,7 +702,7 @@ async function main() {
           templateFixture(
             'hotel-substitution',
             '客满时安排同等级酒店。',
-            'Equivalent hotels if fully booked.',
+            'If the selected hotel is fully booked, another hotel of the same category will be arranged subject to actual availability.',
           ),
           templateFixture('no-shopping', '无购物。', 'NO SHOPPING.'),
           templateFixture(
@@ -727,8 +727,8 @@ async function main() {
           ),
           templateFixture(
             'hsr-second-class',
-            '高铁二等座。',
-            'Second-class high-speed rail ticket.',
+            '乘坐高铁前往{city}，包含二等座车票。',
+            'Take the high-speed rail to {city}; a second-class seat is included.',
           ),
           templateFixture(
             'restaurant-recommendation',

@@ -22,6 +22,23 @@ export const WEBSITE_VEHICLES = {
   '18_seat': { seats: 18, en: '18-seat vehicle', zh: '18座车' },
 } as const;
 
+const TEMPLATE_VARIABLES = new Map<string, readonly string[]>([
+  ['arrival-basic', ['city']],
+  ['departure-basic', ['city']],
+  ['overnight', ['city']],
+  ['guide', ['language', 'service_scope']],
+  ['private-driver', []],
+  ['hsr-second-class', ['city']],
+  ['hotel-breakfast', ['hotel']],
+  ['first-entry-ticket', ['attraction']],
+  ['included-service', ['service']],
+  ['restaurant-recommendation', ['restaurant_or_meal']],
+  ['optional-not-included', ['component']],
+  ['hotel-substitution', []],
+  ['peak-season', []],
+  ['no-shopping', []],
+]);
+
 function invalid(message: string): never {
   throw new BusinessException({
     code: ErrorCode.VALIDATION_ERROR,
@@ -58,20 +75,13 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
   for (const template of config.templates) {
     if (codes.has(template.code)) invalid('标准文案编码不可重复');
     codes.add(template.code);
-    const variables = `${template.zh} ${template.en}`.matchAll(/\{([^{}]+)\}/g);
-    for (const match of variables) {
-      if (
-        ![
-          'city',
-          'attraction',
-          'language',
-          'service_scope',
-          'hotel',
-          'service',
-          'restaurant_or_meal',
-          'component',
-        ].includes(match[1])
-      )
+    const variables = TEMPLATE_VARIABLES.get(template.code) ?? [
+      'city',
+      'attraction',
+    ];
+    const matches = `${template.zh} ${template.en}`.matchAll(/\{([^{}]+)\}/g);
+    for (const match of matches) {
+      if (!variables.includes(match[1]))
         invalid(`文案 ${template.code} 使用了未支持的变量 ${match[1]}`);
     }
   }
@@ -607,7 +617,9 @@ export function buildWebsitePreview(
         const name = language === 'en' ? leg.nameEn : leg.nameZh;
         let line = serviceLine(name, leg.feeState);
         if (leg.feeState === 'INCLUDED' && leg.mode === 'hsr') {
-          const included = template('hsr-second-class');
+          const included = template('hsr-second-class', {
+            city: city(leg.toCityId),
+          });
           if (included) inclusions.add(included);
         }
         if (leg.mode === 'private_vehicle' && leg.feeState === 'INCLUDED') {
@@ -691,6 +703,11 @@ export function buildWebsitePreview(
       language === 'en'
         ? 'International and domestic flights, travel insurance and personal expenses.'
         : '国际及国内机票、旅游保险和个人消费。',
+    );
+    exclusions.add(
+      language === 'en'
+        ? 'Lunch and dinner, unless explicitly included in this quotation.'
+        : '午餐和晚餐（本报价明确包含的餐食除外）。',
     );
     const optional = template('optional-not-included', {
       component:
