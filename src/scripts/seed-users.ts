@@ -203,6 +203,7 @@ async function seed(): Promise<void> {
         user.passwordHash = await argon2.hash(password);
         user.status = UserStatus.Enabled;
         user.nickname = input.nickname;
+        user.englishName ??= input.username;
         user.avatar = input.avatar;
         user.gender = input.gender;
         user.mobile = input.mobile;

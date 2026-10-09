@@ -65,6 +65,7 @@ export interface WebsiteConfig {
   templates: WebsiteTemplate[];
 }
 export interface WebsiteInquiryInput {
+  countryItemId: string;
   customerName: string;
   plannedDays: number;
   requirements: string;
@@ -81,6 +82,9 @@ export interface WebsiteInquiryInput {
   lostReason: string;
 }
 export interface WebsiteInquiry extends WebsiteInquiryInput {
+  hasActiveTour: boolean;
+  countryCode: string | null;
+  countryOrRegion: string;
   id: string;
   code: string;
   ownerId: string;

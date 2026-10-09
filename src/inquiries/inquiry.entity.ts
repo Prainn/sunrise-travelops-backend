@@ -21,6 +21,8 @@ export interface InquiryData {
   contactName: string;
   email: string;
   phone: string;
+  countryItemId: string | null;
+  countryCode: string | null;
   countryOrRegion: string;
   sourceChannel: string;
   originalMessage: string;
@@ -50,6 +52,10 @@ export class InquiryEntity extends AuditedEntity {
   contactName: InquiryData['contactName'];
   @Column({ name: 'email', type: 'text' }) email: InquiryData['email'];
   @Column({ name: 'phone', type: 'text' }) phone: InquiryData['phone'];
+  @Column({ name: 'country_item_id', type: 'uuid', nullable: true })
+  countryItemId: InquiryData['countryItemId'];
+  @Column({ name: 'country_code', type: 'varchar', length: 3, nullable: true })
+  countryCode: InquiryData['countryCode'];
   @Column({ name: 'country_or_region', type: 'text' })
   countryOrRegion: InquiryData['countryOrRegion'];
   @Column({ name: 'source_channel', type: 'text' })
@@ -73,6 +79,8 @@ export class InquiryEntity extends AuditedEntity {
       contactName: this.contactName,
       email: this.email,
       phone: this.phone,
+      countryItemId: this.countryItemId,
+      countryCode: this.countryCode,
       countryOrRegion: this.countryOrRegion,
       sourceChannel: this.sourceChannel,
       originalMessage: this.originalMessage,
@@ -90,6 +98,8 @@ export class InquiryEntity extends AuditedEntity {
     this.contactName = value.contactName;
     this.email = value.email;
     this.phone = value.phone;
+    this.countryItemId = value.countryItemId;
+    this.countryCode = value.countryCode;
     this.countryOrRegion = value.countryOrRegion;
     this.sourceChannel = value.sourceChannel;
     this.originalMessage = value.originalMessage;
@@ -228,4 +238,8 @@ export class ItineraryQuoteEntity {
   dailyResourceCost: number;
   @Column({ name: 'guide_cost', type: 'numeric' }) guideCost: number;
   @Column({ type: 'jsonb' }) snapshot: CurrentPdfData;
+  @Column({ name: 'first_downloaded_at', type: 'timestamptz', nullable: true })
+  firstDownloadedAt: Date | null;
+  @Column({ name: 'first_downloaded_by', type: 'uuid', nullable: true })
+  firstDownloadedBy: string | null;
 }

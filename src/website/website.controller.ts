@@ -1,4 +1,5 @@
 import {
+  HttpCode,
   Body,
   Controller,
   Get,
@@ -167,6 +168,15 @@ export class WebsiteController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.confirm(id, input, user);
+  }
+  @Post('itineraries/:id/download-click')
+  @HttpCode(200)
+  @Permissions('website:itinerary:download')
+  downloadClick(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.recordDownload(id, user);
   }
   @Get('itineraries/:id/quotation')
   @Permissions('website:itinerary:download')

@@ -73,8 +73,12 @@ function fixture() {
     })),
   };
   const inquiry: WebsiteInquiry = {
+    hasActiveTour: false,
     id: randomUUID(),
     code: 'WIQ-TEST',
+    countryItemId: randomUUID(),
+    countryCode: 'CHN',
+    countryOrRegion: '中国',
     ownerId: randomUUID(),
     owner: 'Test',
     customerName: 'Test',

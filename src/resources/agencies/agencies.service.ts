@@ -1,3 +1,4 @@
+import { requireDictionaryItem } from '../../common/dictionary-items';
 import {
   assertResourceLibrary,
   resourceLibrary,
@@ -296,8 +297,16 @@ export class AgenciesService {
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'AGY'));
       await ensureCodeAvailable(repository, code);
+      const country = input.countryItemId
+        ? await requireDictionaryItem(
+            manager,
+            'country-region',
+            input.countryItemId,
+          )
+        : { name: '' };
       const entity = repository.create({
         ...input,
+        countryOrRegion: country.name,
         parentId: parent?.id ?? null,
         parent,
         name: this.agencyName(input.name, parent),
@@ -364,8 +373,24 @@ export class AgenciesService {
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       const previousName = entity.name;
+      const countryItemId =
+        input.countryItemId === undefined
+          ? entity.countryItemId
+          : input.countryItemId;
+      const country =
+        entity.countryItemId === countryItemId
+          ? { name: entity.countryOrRegion }
+          : countryItemId
+            ? await requireDictionaryItem(
+                manager,
+                'country-region',
+                countryItemId,
+              )
+            : { name: '' };
       Object.assign(entity, input, {
         id,
+        countryOrRegion: country.name,
+        countryItemId: countryItemId ?? null,
         businessUnit,
         parentId: parent?.id ?? null,
         parent,
@@ -602,6 +627,7 @@ export class AgenciesService {
       code: entity.code,
       name: entity.name,
       city: entity.city,
+      countryItemId: entity.countryItemId,
       countryOrRegion: entity.countryOrRegion,
       email: entity.email,
       status: entity.status,

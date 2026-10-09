@@ -2,6 +2,7 @@ import {
   ADMIN_PERMISSIONS,
   INQUIRY_PERMISSIONS,
   RESOURCE_PERMISSIONS,
+  TOUR_PERMISSIONS,
   WEBSITE_PERMISSIONS,
 } from './permissions';
 import { LoginScope } from '../users/user-identity.entity';
@@ -13,9 +14,15 @@ const reads = [
     (p) => p.endsWith(':list') && p !== 'sys:operation-log:list',
   ),
   'itinerary:download',
+  'tour:list',
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
-  ROOT: [...ADMIN_PERMISSIONS, 'inquiry:transfer', 'itinerary:download'],
+  ROOT: [
+    ...ADMIN_PERMISSIONS,
+    'inquiry:transfer',
+    'itinerary:download',
+    'tour:list',
+  ],
   EXECUTIVE: reads,
   ADMIN: [
     ...ADMIN_PERMISSIONS.filter(
@@ -24,6 +31,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'inquiry:list',
     'itinerary:list',
     'itinerary:download',
+    'tour:list',
   ],
   BUSINESS_MANAGER: [
     'sys:business-dictionary:list',
@@ -33,11 +41,13 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'inquiry:archive',
     'inquiry:transfer',
     'itinerary:download',
+    ...TOUR_PERMISSIONS,
   ],
   COORDINATOR: [
     'sys:business-dictionary:list',
     ...INQUIRY_PERMISSIONS,
     'itinerary:download',
+    ...TOUR_PERMISSIONS,
   ],
   RESOURCE_MANAGER: ['sys:business-dictionary:list', ...RESOURCE_PERMISSIONS],
 };

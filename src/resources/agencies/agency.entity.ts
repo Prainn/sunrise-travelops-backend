@@ -60,6 +60,9 @@ export class AgencyEntity extends TopLevelResourceEntity {
   })
   countryOrRegion: string;
 
+  @Column({ name: 'country_item_id', type: 'uuid', nullable: true })
+  countryItemId: string | null;
+
   @Column({ type: 'varchar', length: 254, default: '' })
   email: string;
 

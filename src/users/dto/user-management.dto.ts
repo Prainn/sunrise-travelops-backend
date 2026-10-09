@@ -103,6 +103,20 @@ class UserEditableFieldsDto {
   @MaxLength(100)
   nickname: string;
 
+  @ApiProperty({ example: 'Li Ming' })
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  englishName: string;
+
+  @ApiProperty({ example: 'LM' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @Matches(/^[A-Z0-9]{1,10}$/)
+  tourCode: string;
+
   @ApiPropertyOptional({ default: '' })
   @IsOptional()
   @Transform(trim)
@@ -209,6 +223,8 @@ export class UserItemResponse {
   id: string;
   username: string;
   nickname: string;
+  englishName: string;
+  tourCode: string | null;
   avatar: string;
   gender: number;
   mobile: string;

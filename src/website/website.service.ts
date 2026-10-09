@@ -4,6 +4,8 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { ErrorCodeValue } from '../common/constants/error-code';
+import { assertNoActiveTour } from '../common/tour-lock';
+import { requireDictionaryItem } from '../common/dictionary-items';
 import { nextBusinessCode } from '../common/business-code';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import type {
@@ -59,6 +61,8 @@ const resourceTables: Record<ResourceKind, string> = {
   transport: 'resource_transports',
 };
 const inquiryColumns = `i.id,i.code,i.customer_name AS "customerName",i.planned_days AS "plannedDays",
+  EXISTS(SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active') AS "hasActiveTour",
+  i.country_item_id AS "countryItemId",i.country_code AS "countryCode",i.country_or_region AS "countryOrRegion",
   i.requirements,i.owner_id AS "ownerId",i.owner,i.phone,i.email,i.start_date::text AS "startDate",i.pax,
   i.arrival_time AS "arrivalTime",i.departure_time AS "departureTime",i.destinations,
   i.internal_remark AS "internalRemark",i.lost_reason AS "lostReason",i.status,i.version,
@@ -99,9 +103,10 @@ export class WebsiteService {
       user.scope === 'headquarters' || user.roles.includes('BUSINESS_MANAGER')
     );
   }
-  private mutable(inquiry: WebsiteInquiry) {
+  private async mutable(inquiry: WebsiteInquiry, manager: EntityManager) {
     if (['lost', 'archived'].includes(inquiry.status))
       fail('INQUIRY_READ_ONLY', '已结束询盘只读', HttpStatus.CONFLICT);
+    await assertNoActiveTour(manager, 'website', inquiry.id);
   }
   private draft(itinerary: WebsiteItinerary) {
     if (itinerary.status !== 'draft')
@@ -478,12 +483,18 @@ export class WebsiteService {
         );
       const owner = await this.owner(manager, ownerId);
       await this.inquiryDestinations(manager, input);
+      const country = await requireDictionaryItem(
+        manager,
+        'country-region',
+        input.countryItemId,
+      );
       const id = randomUUID(),
         code = await nextBusinessCode(manager, 'WIQ');
       await manager.query(
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
-        phone,email,start_date,pax,arrival_time,departure_time,destinations,internal_remark,lost_reason,status)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'','new')`,
+        phone,email,start_date,pax,arrival_time,departure_time,destinations,internal_remark,lost_reason,status,
+        country_item_id,country_code,country_or_region)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'','new',$16,$17,$18)`,
         [
           id,
           code,
@@ -500,6 +511,9 @@ export class WebsiteService {
           input.departureTime,
           input.destinations,
           input.internalRemark,
+          country.id,
+          country.code,
+          country.name,
         ],
       );
       await this.log(manager, id, 'inquiry_created', id, user);
@@ -514,7 +528,7 @@ export class WebsiteService {
     this.permission(user, 'website:inquiry:update');
     return this.db.transaction(async (manager) => {
       const old = await this.inquiry(id, user, manager, true);
-      this.mutable(old);
+      await this.mutable(old, manager);
       this.version(old.version, input.version);
       if (input.ownerId && input.ownerId !== old.ownerId)
         invalid('负责人变更请使用转交操作');
@@ -524,8 +538,20 @@ export class WebsiteService {
       if (status === 'lost' && !input.lostReason.trim())
         invalid('请填写流失原因');
       await this.inquiryDestinations(manager, input, old);
+      const country =
+        old.countryItemId === input.countryItemId
+          ? {
+              id: old.countryItemId,
+              code: old.countryCode,
+              name: old.countryOrRegion,
+            }
+          : await requireDictionaryItem(
+              manager,
+              'country-region',
+              input.countryItemId,
+            );
       await manager.query(
-        `UPDATE website_inquiries SET customer_name=$2,planned_days=$3,requirements=$4,phone=$5,email=$6,
+        `UPDATE website_inquiries SET country_item_id=$15,country_code=$16,country_or_region=$17,customer_name=$2,planned_days=$3,requirements=$4,phone=$5,email=$6,
         start_date=$7,pax=$8,arrival_time=$9,departure_time=$10,destinations=$11,internal_remark=$12,lost_reason=$13,
         status=$14,version=version+1,updated_at=now() WHERE id=$1`,
         [
@@ -543,6 +569,9 @@ export class WebsiteService {
           input.internalRemark,
           input.lostReason,
           status,
+          country.id,
+          country.code,
+          country.name,
         ],
       );
       await this.log(
@@ -566,7 +595,7 @@ export class WebsiteService {
       // Account updates also lock users before checking outstanding inquiries.
       const owner = await this.owner(manager, input.ownerId);
       const old = await this.inquiry(id, user, manager, true);
-      this.mutable(old);
+      await this.mutable(old, manager);
       this.version(old.version, input.version);
       if (old.ownerId === owner.id) invalid('新负责人不能与当前负责人相同');
       await manager.query(
@@ -590,7 +619,7 @@ export class WebsiteService {
       const inquiry = await this.inquiry(id, user, manager, true);
       this.version(inquiry.version, version);
       if (inquiry.status === 'archived') return inquiry;
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       await manager.query(
         "UPDATE website_inquiries SET status='archived',version=version+1,updated_at=now() WHERE id=$1",
         [id],
@@ -783,7 +812,7 @@ export class WebsiteService {
     this.permission(user, 'website:itinerary:create');
     return this.db.transaction(async (manager) => {
       const inquiry = await this.inquiry(inquiryId, user, manager, true);
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       this.version(inquiry.version, input.inquiryVersion);
       return this.insertItinerary(
         manager,
@@ -837,7 +866,7 @@ export class WebsiteService {
         manager,
         true,
       );
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, input.version, true);
       return this.savePlan(
@@ -857,7 +886,7 @@ export class WebsiteService {
         manager,
         true,
       );
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       this.version(itinerary.version, version, true);
       const clone: WebsiteItineraryInput = {
         ...itinerary,
@@ -899,7 +928,7 @@ export class WebsiteService {
         manager,
         true,
       );
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, version, true);
       const config = await this.config(manager);
@@ -1005,7 +1034,7 @@ export class WebsiteService {
       );
       const existing = await this.frozen(manager, id);
       if (existing) return existing;
-      this.mutable(inquiry);
+      await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, input.version, true);
       this.version(inquiry.version, input.inquiryVersion);
@@ -1078,6 +1107,19 @@ export class WebsiteService {
       );
       return quotation;
     });
+  }
+  async recordDownload(id: string, user: AuthenticatedUser) {
+    this.permission(user, 'website:itinerary:download');
+    await this.itinerary(id, user);
+    const rows = await this.db.query<{ firstDownloadedAt: string }[]>(
+      `WITH updated AS (UPDATE website_quotations SET first_downloaded_at = COALESCE(first_downloaded_at, now()),
+       first_downloaded_by = COALESCE(first_downloaded_by, $2)
+       WHERE itinerary_id = $1 RETURNING first_downloaded_at AS "firstDownloadedAt") SELECT * FROM updated`,
+      [id, user.id],
+    );
+    if (!rows[0])
+      fail('PDF_NOT_READY', '该行程尚未确认报价', HttpStatus.CONFLICT);
+    return rows[0];
   }
   async quotation(id: string, user: AuthenticatedUser) {
     this.permission(user, 'website:itinerary:download');

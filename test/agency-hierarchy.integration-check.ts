@@ -38,6 +38,7 @@ const migrationName = 'AddAgencyHierarchy1791365557000';
 const databases = ['agency_hierarchy_empty', 'agency_hierarchy_old'];
 const admin = new DataSource({ ...connection, database: 'postgres' });
 let db: DataSource | undefined;
+let countryId = '';
 
 function source(database: string) {
   return new DataSource({
@@ -60,7 +61,7 @@ function input(
     coordinatorId,
     businessUnit: 'shengxu',
     city: '',
-    countryOrRegion: '中国',
+    countryItemId: countryId,
     email: '',
     remark: '',
     status: ResourceStatus.Enabled,
@@ -73,7 +74,7 @@ async function run() {
     for (const database of databases)
       await admin.query(`CREATE DATABASE "${database}"`);
     db = await source(databases[0]).initialize();
-    assert.equal((await db.runMigrations()).length, 51);
+    assert.equal((await db.runMigrations()).length, 53);
     assert.equal((await db.runMigrations()).length, 0);
     await db.destroy();
     db = await source(databases[1]).initialize();
@@ -81,7 +82,7 @@ async function run() {
       db.migrations.findIndex((migration) => migration.name === migrationName),
       1,
     );
-    assert.equal((await db.runMigrations()).length, 50);
+    assert.equal((await db.runMigrations()).length, 52);
     const [legacy] = await db.query<{ id: string }[]>(
       `INSERT INTO resource_agencies (code,name,library,business_unit)
        VALUES ('AGY-900','既有组团社','shengxu','shengxu') RETURNING id`,
@@ -96,6 +97,13 @@ async function run() {
     assert.equal(retained.code, 'AGY-900');
     assert.equal(retained.name, '既有组团社');
 
+    const [country] = await db.query<{ id: string }[]>(
+      `INSERT INTO system_business_dictionary_items (type_id, code, name, english_name)
+       SELECT id, 'CHN', '中国', 'People''s Republic of China' FROM system_business_dictionary_types
+       WHERE code = 'country-region' RETURNING id`,
+    );
+    countryId = country.id;
+
     const roles = db.getRepository(RoleEntity);
     await roles.upsert({ code: 'COORDINATOR', name: '计调', isEnabled: true }, [
       'code',
@@ -106,6 +114,7 @@ async function run() {
       userRepository.create({
         username: 'hierarchy-owner',
         nickname: '计调一',
+        englishName: 'hierarchy-owner',
         passwordHash: 'unused',
       }),
     );
@@ -113,6 +122,7 @@ async function run() {
       userRepository.create({
         username: 'hierarchy-other-owner',
         nickname: '计调二',
+        englishName: 'hierarchy-other-owner',
         passwordHash: 'unused',
       }),
     );

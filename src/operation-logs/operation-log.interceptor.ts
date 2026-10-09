@@ -31,6 +31,8 @@ const resources: Record<string, string> = {
   GuidesController: '导游服务价格',
   GuidePeopleController: '导游人员',
   FlightsController: '航班信息',
+  GuideLeavesController: '导游请假',
+  ToursController: '旅行团',
 };
 
 function actionFor(

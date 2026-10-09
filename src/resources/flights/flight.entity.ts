@@ -16,7 +16,27 @@ import { VersionedResourceEntity } from '../common/resource.entity';
     'departureTime',
     'arrivalTime',
   ],
-  { unique: true, where: '"deleted_at" IS NULL' },
+  {
+    unique: true,
+    where:
+      '"deleted_at" IS NULL AND ("departure_airport_id" IS NULL OR "arrival_airport_id" IS NULL)',
+  },
+)
+@Index(
+  'UQ_resource_flights_airport_schedule',
+  [
+    'library',
+    'departureAirportId',
+    'arrivalAirportId',
+    'flightNumber',
+    'departureTime',
+    'arrivalTime',
+  ],
+  {
+    unique: true,
+    where:
+      '"deleted_at" IS NULL AND "departure_airport_id" IS NOT NULL AND "arrival_airport_id" IS NOT NULL',
+  },
 )
 @Check('CHK_resource_flights_status', `"status" IN ('enabled','disabled')`)
 @Check(
@@ -34,6 +54,10 @@ export class FlightEntity extends VersionedResourceEntity {
   departureCity: string;
   @Column({ name: 'arrival_city', type: 'varchar', length: 150 })
   arrivalCity: string;
+  @Column({ name: 'departure_airport_id', type: 'uuid', nullable: true })
+  departureAirportId: string | null;
+  @Column({ name: 'arrival_airport_id', type: 'uuid', nullable: true })
+  arrivalAirportId: string | null;
   @Column({ name: 'flight_number', type: 'varchar', length: 20 })
   flightNumber: string;
   @Column({ name: 'departure_time', type: 'varchar', length: 5 })

@@ -832,6 +832,8 @@ async function main() {
           username,
           password: 'other-password',
           nickname: username,
+          englishName: username,
+          tourCode: 'T1',
           avatar: '',
           gender: 0,
           mobile: '',
@@ -854,6 +856,8 @@ async function main() {
     const adminUser = await createUser('sysadmin', 'headquarters', 1, 'ADMIN');
     const exec = await createUser('boss', 'headquarters', 4, 'EXECUTIVE');
     const multipleIdentities = {
+      englishName: 'Multi',
+      tourCode: 'MU',
       nickname: '多部门账号',
       avatar: '',
       gender: 0,
@@ -991,6 +995,7 @@ async function main() {
         ids.owner,
         {
           ...userForm,
+          tourCode: userForm.tourCode ?? 'T1',
           identities: userForm.identities.map((i) => ({
             ...i,
             deptId: i.deptId!,
@@ -1132,6 +1137,7 @@ async function main() {
       ids.owner,
       {
         ...userForm,
+        tourCode: userForm.tourCode ?? 'T1',
         identities: userForm.identities.map((i) => ({
           ...i,
           deptId: i.deptId!,

@@ -29,7 +29,7 @@ export class CreateAgencyDto extends ResourceInputDto {
     'shengxu' | 'linxi' | 'website';
   @IsUUID() coordinatorId: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) countryOrRegion: string;
+  @IsOptional() @IsUUID() countryItemId?: string | null;
   @optionalTrimmedString
   @ValidateIf((_input: CreateAgencyDto, value: unknown) => value !== '')
   @IsEmail()
@@ -85,6 +85,7 @@ export class AgencyListItemResponse implements ResourceAuditResponse {
   code: string;
   name: string;
   city: string;
+  countryItemId: string | null;
   countryOrRegion: string;
   email: string;
   status: string;

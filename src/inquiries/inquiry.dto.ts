@@ -37,6 +37,7 @@ export class VersionDto {
 export class InquiryInput {
   @IsUUID() agencyId: string;
   @IsUUID() contactId: string;
+  @IsUUID() countryItemId: string;
   @IsOptional() @IsUUID() ownerId?: string;
   @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
     'shengxu' | 'linxi' | 'website';

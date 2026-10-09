@@ -227,6 +227,8 @@ export class UserManagementService {
         manager.create(UserEntity, {
           username: input.username,
           nickname: input.nickname,
+          englishName: input.englishName,
+          tourCode: input.tourCode,
           avatar: input.avatar,
           gender: input.gender,
           mobile: input.mobile,
@@ -288,6 +290,8 @@ export class UserManagementService {
         await this.assertNoUnfinished(id, manager, removedScopes);
       Object.assign(user, {
         nickname: input.nickname,
+        englishName: input.englishName,
+        tourCode: input.tourCode,
         avatar: input.avatar,
         gender: input.gender,
         mobile: input.mobile,
@@ -364,6 +368,8 @@ export class UserManagementService {
       id: user.id,
       username: user.username,
       nickname: user.nickname,
+      englishName: user.englishName,
+      tourCode: user.tourCode,
       avatar: user.avatar,
       gender: user.gender,
       mobile: user.mobile,

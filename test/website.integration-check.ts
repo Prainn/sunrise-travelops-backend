@@ -52,6 +52,9 @@ const connection = {
   password: 'isolated-test-only',
 };
 const websiteMigrationName = 'CreateWebsiteBusiness1791187200000';
+const tourMigrationName = 'AddTourManagement1791452400000';
+const flightConstraintMigrationName =
+  'RefineTourFlightConstraints1791532800000';
 const templateNameMigrationName = 'AddWebsiteTemplateNames1791273600000';
 
 async function main() {
@@ -112,10 +115,40 @@ async function main() {
           (migration.name ?? migration.constructor.name) !==
             websiteMigrationName &&
           (migration.name ?? migration.constructor.name) !==
+            tourMigrationName &&
+          (migration.name ?? migration.constructor.name) !==
+            flightConstraintMigrationName &&
+          (migration.name ?? migration.constructor.name) !==
             templateNameMigrationName,
       ),
     );
     await db.runMigrations();
+    await db.query(
+      "ALTER TABLE users ADD COLUMN english_name varchar(100) NOT NULL DEFAULT 'legacy', ADD COLUMN tour_code varchar(10)",
+    );
+    await db.query(
+      `INSERT INTO system_business_dictionary_types (name, english_name, code, is_built_in)
+       VALUES ('国家和地区', 'Country and Region', 'country-region', true) ON CONFLICT (code) DO NOTHING`,
+    );
+    const [countryRow] = await db.query<{ id: string }[]>(
+      `INSERT INTO system_business_dictionary_items (type_id, code, name, english_name)
+       SELECT id, 'CHN', '中国', 'People''s Republic of China' FROM system_business_dictionary_types
+       WHERE code = 'country-region' RETURNING id`,
+    );
+    let countryItemId = countryRow.id;
+    // Old-data stage: the entity needs the inquiry country columns that the tour migration adds later.
+    await db.query(
+      'ALTER TABLE inquiries ADD COLUMN country_item_id uuid, ADD COLUMN country_code varchar(3)',
+    );
+    await db.query(
+      'ALTER TABLE resource_agencies ADD COLUMN country_item_id uuid',
+    );
+    await db.query(
+      'CREATE TABLE tours (source_module varchar, inquiry_id uuid, status varchar)',
+    );
+    await db.query(
+      'ALTER TABLE itinerary_quotes ADD COLUMN first_downloaded_at timestamptz, ADD COLUMN first_downloaded_by uuid',
+    );
 
     const passwordHash = await argon2.hash('isolated-fixture-password');
     const auth = new AuthService(
@@ -245,6 +278,7 @@ async function main() {
       {
         agencyId,
         contactId,
+        countryItemId,
         plannedDays: 1,
         sourceChannel: 'Email',
         originalMessage: '保留霖熹既有功能',
@@ -364,7 +398,27 @@ async function main() {
           legacyActor,
         ),
       });
+    await db.query(
+      'UPDATE inquiries SET country_item_id = NULL, country_code = NULL',
+    );
     const legacyBefore = await readLegacy();
+    await db.query(
+      'ALTER TABLE inquiries DROP COLUMN country_item_id, DROP COLUMN country_code',
+    );
+    await db.query('ALTER TABLE resource_agencies DROP COLUMN country_item_id');
+    await db.query('DROP TABLE tours');
+    await db.query(
+      'ALTER TABLE itinerary_quotes DROP COLUMN first_downloaded_at, DROP COLUMN first_downloaded_by',
+    );
+    await db.query(
+      'ALTER TABLE users DROP COLUMN english_name, DROP COLUMN tour_code',
+    );
+    await db.query(
+      "DELETE FROM system_business_dictionary_items WHERE code = 'CHN'",
+    );
+    await db.query(
+      "DELETE FROM system_business_dictionary_types WHERE code = 'country-region'",
+    );
     db.migrations.splice(
       0,
       db.migrations.length,
@@ -376,7 +430,12 @@ async function main() {
     );
     assert.deepEqual(
       (await db.runMigrations()).map(({ name }) => name),
-      [websiteMigrationName],
+      [websiteMigrationName, tourMigrationName, flightConstraintMigrationName],
+    );
+    [{ id: countryItemId }] = await db.query<{ id: string }[]>(
+      `INSERT INTO system_business_dictionary_items (type_id, code, name, english_name)
+       SELECT id, 'CHN', '中国', 'People''s Republic of China' FROM system_business_dictionary_types
+       WHERE code = 'country-region' RETURNING id`,
     );
 
     const legacyConfig = {
@@ -840,6 +899,7 @@ async function main() {
       );
 
       const inquiryInput: WebsiteInquiryInput = {
+        countryItemId,
         customerName: '测试直客',
         plannedDays: 2,
         requirements: '昆明两天，无日期及人数',
@@ -1600,6 +1660,8 @@ async function main() {
         .getRepository(RoleEntity)
         .findOneByOrFail({ code: 'COORDINATOR' });
       const disableResponse = await request('PUT', `/users/${owner.id}`, root, {
+        englishName: 'owner',
+        tourCode: 'OWN',
         nickname: owner.nickname,
         avatar: '',
         gender: 0,

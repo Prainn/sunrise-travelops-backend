@@ -8,9 +8,7 @@ import {
   IsString,
   IsUUID,
   Matches,
-  MaxLength,
   Min,
-  MinLength,
 } from 'class-validator';
 import {
   optionalTrimmedString,
@@ -19,23 +17,24 @@ import {
 } from '../../common/resource.dto';
 import { ResourceStatus } from '../../common/resource.constants';
 
-export class FlightQueryDto extends ResourceQueryDto {}
+export interface AirportLabel {
+  code: string;
+  name: string;
+  englishName: string;
+}
+
+export class FlightQueryDto extends ResourceQueryDto {
+  @IsOptional() @IsUUID() departureAirportId?: string;
+  @IsOptional() @IsUUID() arrivalAirportId?: string;
+}
 
 export class CreateFlightDto {
   @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional() @IsUUID('all') id?: string;
 
-  @optionalTrimmedString
-  @IsString()
-  @MinLength(1)
-  @MaxLength(150)
-  departureCity: string;
+  @IsUUID() departureAirportId: string;
 
-  @optionalTrimmedString
-  @IsString()
-  @MinLength(1)
-  @MaxLength(150)
-  arrivalCity: string;
+  @IsUUID() arrivalAirportId: string;
 
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
@@ -66,6 +65,10 @@ export class UpdateFlightDto extends CreateFlightDto {
 export class FlightResponse implements ResourceAuditResponse {
   library: 'shengxu' | 'shared';
   id: string;
+  departureAirportId: string | null;
+  arrivalAirportId: string | null;
+  departureAirport: AirportLabel | null;
+  arrivalAirport: AirportLabel | null;
   departureCity: string;
   arrivalCity: string;
   flightNumber: string;

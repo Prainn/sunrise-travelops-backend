@@ -43,6 +43,14 @@ export const WEBSITE_PERMISSIONS = [
   'website:config:update',
 ] as const;
 
+export const TOUR_PERMISSIONS = [
+  'tour:list',
+  'tour:create',
+  'tour:update',
+  'tour:cancel',
+  'tour:rating:update',
+] as const;
+
 export const ADMIN_PERMISSIONS = [
   'sys:operation-log:list',
   'sys:user:list',
@@ -129,10 +137,10 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'resource:transport:create': '新增车型',
   'resource:transport:update': '修改车型',
   'resource:transport:delete': '删除车型',
-  'resource:guide:list': '查看导游价格',
-  'resource:guide:create': '新增导游价格',
-  'resource:guide:update': '修改导游价格',
-  'resource:guide:delete': '删除导游价格',
+  'resource:guide:list': '查看导游管理',
+  'resource:guide:create': '新增导游管理',
+  'resource:guide:update': '修改导游管理',
+  'resource:guide:delete': '删除导游管理',
   'resource:flight:list': '查看航班信息',
   'resource:flight:create': '新增航班信息',
   'resource:flight:update': '修改航班信息',
@@ -148,6 +156,11 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'itinerary:price': '编辑行程报价',
   'itinerary:pdf': '确认报价并生成 PDF',
   'itinerary:download': '下载已有冻结报价',
+  'tour:list': '查看成团表',
+  'tour:create': '创建旅行团',
+  'tour:update': '修改旅行团',
+  'tour:cancel': '撤销旅行团',
+  'tour:rating:update': '导游评分',
   'website:inquiry:list': '查看独立站询盘',
   'website:inquiry:create': '创建独立站询盘',
   'website:inquiry:update': '修改独立站询盘',

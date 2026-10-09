@@ -7,6 +7,8 @@ import { withResourceScope } from '../resources/common/resource-scope';
 import { saveItineraryData, loadItineraryData } from './structured-itinerary';
 import { recordPriceAdjustments } from './price-adjustments';
 import { saveFrozenDetails } from './structured-quotes';
+import { requireDictionaryItem } from '../common/dictionary-items';
+import { assertNoActiveTour } from '../common/tour-lock';
 import { nextBusinessCode } from '../common/business-code';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -136,9 +138,10 @@ export class InquiriesService {
         HttpStatus.CONFLICT,
       );
   }
-  private inquiryResponse(row: InquiryEntity) {
+  private inquiryResponse(row: InquiryEntity, hasActiveTour = false) {
     return {
       ...row.data,
+      hasActiveTour,
       id: row.id,
       code: row.code,
       businessUnit: row.businessUnit,
@@ -197,15 +200,25 @@ export class InquiriesService {
       .skip((query.page - 1) * query.pageSize)
       .take(query.pageSize)
       .getManyAndCount();
+    const active = await this.db.query<{ inquiry_id: string }[]>(
+      `SELECT inquiry_id FROM tours WHERE source_module='standard' AND status='active' AND inquiry_id=ANY($1::uuid[])`,
+      [rows.map((row) => row.id)],
+    );
+    const activeIds = new Set(active.map((row) => row.inquiry_id));
     return {
-      list: rows.map((row) => this.inquiryResponse(row)),
+      list: rows.map((row) => this.inquiryResponse(row, activeIds.has(row.id))),
       total,
       page: query.page,
       pageSize: query.pageSize,
     };
   }
   async detail(id: string, actor: Actor) {
-    return this.inquiryResponse(await this.inquiry(id, actor));
+    const row = await this.inquiry(id, actor);
+    const active = await this.db.query<unknown[]>(
+      `SELECT 1 FROM tours WHERE source_module='standard' AND inquiry_id=$1 AND status='active'`,
+      [id],
+    );
+    return this.inquiryResponse(row, active.length > 0);
   }
   async owners(actor: Actor, businessUnit?: BusinessUnit) {
     this.permission(actor, 'inquiry:list');
@@ -286,7 +299,9 @@ export class InquiriesService {
         contactName: contact.name,
         email: agency.email,
         phone: contact.phone,
-        countryOrRegion: agency.countryOrRegion,
+        countryItemId: null,
+        countryCode: null,
+        countryOrRegion: '',
         sourceChannel: '',
         originalMessage: '',
         internalRemark: '',
@@ -295,8 +310,24 @@ export class InquiriesService {
         lostReason: '',
       };
     }
+    let country = {
+      id: snapshot!.countryItemId,
+      code: snapshot!.countryCode,
+      name: snapshot!.countryOrRegion,
+    };
+    if (country.id !== input.countryItemId) {
+      const item = await requireDictionaryItem(
+        manager,
+        'country-region',
+        input.countryItemId,
+      );
+      country = { id: item.id, code: item.code, name: item.name };
+    }
     return {
       ...snapshot!,
+      countryItemId: country.id,
+      countryCode: country.code,
+      countryOrRegion: country.name,
       sourceChannel: input.sourceChannel.trim(),
       originalMessage: input.originalMessage.trim(),
       internalRemark: input.internalRemark,
@@ -368,6 +399,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const row = await this.inquiry(id, actor, manager, true);
       this.writable(row, actor);
+      await assertNoActiveTour(manager, 'standard', row.id);
       this.checkVersion(row.version, input.version);
       if (
         input.status &&
@@ -423,6 +455,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const row = await this.inquiry(id, actor, manager, true);
       this.writable(row, actor);
+      await assertNoActiveTour(manager, 'standard', row.id);
       this.checkVersion(row.version, version);
       const before = row.status;
       row.status = 'archived';
@@ -526,6 +559,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const inquiry = await this.inquiry(id, actor, manager, true);
       this.writable(inquiry, actor);
+      await assertNoActiveTour(manager, 'standard', inquiry.id);
       const data = await this.validation.normalize(
         manager,
         input,
@@ -569,6 +603,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       this.writable(inquiry, actor);
+      await assertNoActiveTour(manager, 'standard', inquiry.id);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       this.checkVersion(itinerary.version, input.version, true);
@@ -611,6 +646,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       this.writable(inquiry, actor);
+      await assertNoActiveTour(manager, 'standard', inquiry.id);
       this.checkVersion(itinerary.version, input.version, true);
       await assertItineraryLibrary(
         manager,
@@ -684,6 +720,19 @@ export class InquiriesService {
       calculation: this.calculateQuote(row.data),
     };
   }
+  /** Records the first download click on a frozen quote; repeats keep the first time. */
+  async recordDownload(id: string, actor: Actor) {
+    this.permission(actor, 'itinerary:download');
+    await this.pair(id, actor);
+    const rows = await this.db.query<{ firstDownloadedAt: Date }[]>(
+      `WITH updated AS (UPDATE itinerary_quotes SET first_downloaded_at = COALESCE(first_downloaded_at, now()),
+       first_downloaded_by = COALESCE(first_downloaded_by, $2)
+       WHERE itinerary_id = $1 RETURNING first_downloaded_at AS "firstDownloadedAt") SELECT * FROM updated`,
+      [id, actor.id],
+    );
+    if (!rows[0]) fail('PDF_NOT_READY', HttpStatus.CONFLICT);
+    return { firstDownloadedAt: rows[0].firstDownloadedAt };
+  }
   async pdfData(id: string, actor: Actor) {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
@@ -692,6 +741,7 @@ export class InquiriesService {
       });
       if (original) return original.snapshot;
       this.writable(inquiry, actor);
+      await assertNoActiveTour(manager, 'standard', inquiry.id);
       await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
       return this.pdfSnapshot(inquiry, itinerary);
@@ -711,6 +761,7 @@ export class InquiriesService {
       )
         return original.snapshot;
       this.writable(inquiry, actor);
+      await assertNoActiveTour(manager, 'standard', inquiry.id);
       this.checkVersion(itinerary.version, input.version, true);
       this.checkVersion(inquiry.version, input.inquiryVersion);
       if (itinerary.status !== 'draft')
@@ -771,6 +822,7 @@ export class InquiriesService {
         true,
       );
       const row = await this.inquiry(id, actor, manager, true);
+      await assertNoActiveTour(manager, 'standard', row.id);
       this.checkVersion(row.version, input.version);
       if (row.ownerId === owner.id || !input.reason.trim())
         invalid('Choose a new owner and enter transfer reason');

@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -254,6 +255,17 @@ export class ItinerariesController {
   ) {
     const actor = await this.service.actor(user, req);
     return moneyResponse(await this.service.pdfData(id, actor));
+  }
+  @Post(':id/download-click')
+  @HttpCode(200)
+  @Permissions('itinerary:download')
+  async downloadClick(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    const actor = await this.service.actor(user, req);
+    return this.service.recordDownload(id, actor);
   }
   @Post(':id/confirm-pdf')
   @Permissions('itinerary:pdf')

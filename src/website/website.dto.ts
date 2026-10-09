@@ -68,6 +68,7 @@ export class WebsiteVersionDto {
   @IsInt() @Min(1) version: number;
 }
 export class WebsiteInquiryDto implements WebsiteInquiryInput {
+  @IsUUID() countryItemId: string;
   @Transform(trim)
   @IsString()
   @MinLength(1)
