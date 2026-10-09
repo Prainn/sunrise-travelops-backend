@@ -18,9 +18,13 @@ import {
   optionalTrimmedString,
 } from '../../common/resource.dto';
 
-export class AgencyQueryDto extends ResourceQueryDto {}
+export class AgencyQueryDto extends ResourceQueryDto {
+  @IsOptional() @IsIn(['true', 'false']) parentOnly?: string;
+  @IsOptional() @IsUUID('all') parentId?: string;
+}
 
 export class CreateAgencyDto extends ResourceInputDto {
+  @IsOptional() @IsUUID('all') parentId?: string | null;
   @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
     'shengxu' | 'linxi' | 'website';
   @IsUUID() coordinatorId: string;
@@ -65,6 +69,9 @@ export class AgencyContactResponse implements ResourceAuditResponse {
 }
 
 export class AgencyListItemResponse implements ResourceAuditResponse {
+  parentId: string | null;
+  parentName: string | null;
+  shortName: string;
   businessUnit: 'shengxu' | 'linxi' | 'website' | null;
   coordinatorId: string | null;
   coordinatorName: string | null;
@@ -83,6 +90,7 @@ export class AgencyListItemResponse implements ResourceAuditResponse {
   status: string;
   remark: string;
   contactCount: number;
+  childCount: number;
 }
 
 export class AgencyDetailResponse extends AgencyListItemResponse {

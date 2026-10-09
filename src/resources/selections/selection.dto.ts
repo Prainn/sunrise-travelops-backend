@@ -1,6 +1,6 @@
 import { IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { OmitType } from '@nestjs/swagger';
 import {
   RestaurantListItemResponse,
@@ -11,6 +11,8 @@ import {
   AttractionPriceResponse,
 } from '../attractions/dto/attraction.dto';
 export class SelectionQuery {
+  @IsOptional() @IsIn(['true', 'false']) parentOnly?: string;
+  @IsOptional() @IsUUID('all') excludeId?: string;
   @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
     'shengxu' | 'linxi' | 'website';
   @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';

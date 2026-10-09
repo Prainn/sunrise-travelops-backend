@@ -19,7 +19,30 @@ import {
 @Index('IDX_resource_agencies_status', ['status'], {
   where: '"deleted_at" IS NULL',
 })
+@Check(
+  'CHK_resource_agencies_parent',
+  '"parent_id" IS NULL OR "parent_id" <> "id"',
+)
+@Index('IDX_resource_agencies_parent', ['parentId'], {
+  where: '"deleted_at" IS NULL',
+})
 export class AgencyEntity extends TopLevelResourceEntity {
+  @Column({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId: string | null;
+
+  @ManyToOne(() => AgencyEntity, (agency) => agency.children, {
+    onDelete: 'RESTRICT',
+    nullable: true,
+  })
+  @JoinColumn({
+    name: 'parent_id',
+    foreignKeyConstraintName: 'FK_resource_agencies_parent',
+  })
+  parent: AgencyEntity | null;
+
+  @OneToMany(() => AgencyEntity, (agency) => agency.parent)
+  children: AgencyEntity[];
+
   @Column({ name: 'business_unit', type: 'text', nullable: true })
   businessUnit: 'shengxu' | 'linxi' | 'website' | null;
 

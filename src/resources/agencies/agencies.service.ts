@@ -5,6 +5,7 @@ import {
 } from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { ResourceValidationService } from '../common/resource-validation.service';
+import { ResourceStatus } from '../common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
@@ -115,6 +116,60 @@ export class AgenciesService {
     return new Map(users.map((user) => [user.id, user.nickname]));
   }
 
+  private async requireParent(
+    parentId: string | null,
+    agency: {
+      id?: string;
+      parentId?: string | null;
+      library: 'shengxu' | 'shared';
+      businessUnit: BusinessUnit;
+    },
+    manager: DataSource['manager'],
+  ): Promise<AgencyEntity | null> {
+    if (!parentId) return null;
+    if (parentId === agency.id)
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '父级不能选择当前组团社',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    const repository = manager.getRepository(AgencyEntity);
+    const parent = await requireResourceForUpdate(
+      repository,
+      parentId,
+      ErrorCode.AGENCY_NOT_FOUND,
+    );
+    if (
+      parent.parentId ||
+      parent.library !== agency.library ||
+      parent.businessUnit !== agency.businessUnit ||
+      (parent.status !== ResourceStatus.Enabled && parentId !== agency.parentId)
+    )
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '父级必须是同业务、同资源库的有效一级组团社',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    if (agency.id && (await repository.existsBy({ parentId: agency.id })))
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '已有二级组团社的一级不能改为二级',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    return parent;
+  }
+
+  private agencyName(shortName: string, parent: AgencyEntity | null): string {
+    const name = parent ? `${parent.name}-${shortName}` : shortName;
+    if (name.length > 150)
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '组团社完整名称不能超过150字',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    return name;
+  }
+
   private agencyBusinessUnit(
     input: CreateAgencyDto,
     actor: AuthenticatedUser,
@@ -141,13 +196,25 @@ export class AgenciesService {
     const page = actualPage(query);
     const builder = this.agencies
       .createQueryBuilder('agency')
+      .leftJoinAndSelect('agency.parent', 'parent')
       .loadRelationCountAndMap('agency.contactCount', 'agency.contacts')
-      .orderBy("CAST(SUBSTRING(agency.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .loadRelationCountAndMap('agency.childCount', 'agency.children')
+      .addSelect(
+        "CAST(SUBSTRING(agency.code FROM '[0-9]+$') AS bigint)",
+        'agency_sequence',
+      )
+      .orderBy('agency_sequence', 'ASC')
       .addOrderBy('agency.code', 'ASC')
       .addOrderBy('agency.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
     scopeResources(builder, 'agency');
+    if (query.parentOnly === 'true')
+      builder.andWhere('agency.parentId IS NULL');
+    if (query.parentId)
+      builder.andWhere('agency.parentId = :parentId', {
+        parentId: query.parentId,
+      });
     if (query.businessUnit)
       builder.andWhere('agency.businessUnit = :businessUnit', {
         businessUnit: query.businessUnit,
@@ -180,7 +247,7 @@ export class AgenciesService {
   async get(id: string): Promise<AgencyDetailResponse> {
     const entity = await this.agencies.findOne({
       where: { id },
-      relations: { contacts: true },
+      relations: { contacts: true, parent: true },
     });
     if (!entity)
       throw new BusinessException({
@@ -198,6 +265,7 @@ export class AgenciesService {
         coordinatorNames.get(entity.coordinatorId ?? '') ?? null,
       ),
       contactCount: entity.contacts.length,
+      childCount: await this.agencies.countBy({ parentId: id }),
       contacts: entity.contacts.map((item) => this.toContactResponse(item)),
     };
   }
@@ -215,6 +283,11 @@ export class AgenciesService {
     );
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
+      const parent = await this.requireParent(
+        input.parentId ?? null,
+        { library, businessUnit },
+        manager,
+      );
       const coordinator = await this.requireCoordinator(
         input.coordinatorId,
         businessUnit,
@@ -225,6 +298,9 @@ export class AgenciesService {
       await ensureCodeAvailable(repository, code);
       const entity = repository.create({
         ...input,
+        parentId: parent?.id ?? null,
+        parent,
+        name: this.agencyName(input.name, parent),
         businessUnit,
         code,
         library,
@@ -265,6 +341,16 @@ export class AgenciesService {
           message: 'Agency business unit cannot be changed',
           status: HttpStatus.FORBIDDEN,
         });
+      const parent = await this.requireParent(
+        input.parentId ?? null,
+        {
+          id,
+          parentId: entity.parentId,
+          library: entity.library,
+          businessUnit,
+        },
+        manager,
+      );
       const coordinator = await this.requireCoordinator(
         input.coordinatorId,
         businessUnit,
@@ -277,12 +363,40 @@ export class AgenciesService {
       );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
-      Object.assign(entity, input, { id, businessUnit, updatedBy: actor.id });
+      const previousName = entity.name;
+      Object.assign(entity, input, {
+        id,
+        businessUnit,
+        parentId: parent?.id ?? null,
+        parent,
+        name: this.agencyName(input.name, parent),
+        updatedBy: actor.id,
+      });
       const saved = await repository.save(entity);
+      if (saved.name !== previousName) {
+        const children = await repository
+          .createQueryBuilder('child')
+          .where('child.parentId = :id', { id })
+          .setLock('pessimistic_write')
+          .getMany();
+        for (const child of children) {
+          child.name = this.agencyName(
+            child.name.slice(previousName.length + 1),
+            saved,
+          );
+          child.updatedBy = actor.id;
+        }
+        if (children.length) await repository.save(children);
+      }
       const contacts = await manager
         .getRepository(AgencyContactEntity)
         .findBy({ agencyId: id });
-      return this.getResponse(saved, contacts, coordinator.nickname);
+      return this.getResponse(
+        saved,
+        contacts,
+        coordinator.nickname,
+        await repository.countBy({ parentId: id }),
+      );
     });
   }
 
@@ -295,6 +409,23 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       const uniqueIds = entities.map((entity) => entity.id);
+      await repository
+        .createQueryBuilder('agency')
+        .whereInIds([...uniqueIds].sort())
+        .orderBy('agency.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
+      if (
+        await repository.existsBy({
+          parentId: In(uniqueIds),
+          id: Not(In(uniqueIds)),
+        })
+      )
+        throw new BusinessException({
+          code: ErrorCode.RESOURCE_IN_USE,
+          message: '请先删除或移出父级下的二级组团社',
+          status: HttpStatus.CONFLICT,
+        });
       await manager
         .getRepository(AgencyContactEntity)
         .createQueryBuilder()
@@ -443,11 +574,13 @@ export class AgenciesService {
     entity: AgencyEntity,
     contacts: AgencyContactEntity[],
     coordinatorName: string,
+    childCount = 0,
   ): AgencyDetailResponse {
     assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity, coordinatorName),
       contactCount: contacts.length,
+      childCount,
       contacts: contacts.map((item) => this.toContactResponse(item)),
     };
   }
@@ -461,6 +594,11 @@ export class AgenciesService {
       businessUnit: entity.businessUnit,
       coordinatorId: entity.coordinatorId,
       coordinatorName,
+      parentId: entity.parentId,
+      parentName: entity.parent?.name ?? null,
+      shortName: entity.parent
+        ? entity.name.slice(entity.parent.name.length + 1)
+        : entity.name,
       code: entity.code,
       name: entity.name,
       city: entity.city,
@@ -470,6 +608,9 @@ export class AgenciesService {
       remark: entity.remark,
       contactCount: Number(
         (entity as AgencyEntity & { contactCount?: number }).contactCount ?? 0,
+      ),
+      childCount: Number(
+        (entity as AgencyEntity & { childCount?: number }).childCount ?? 0,
       ),
     };
   }

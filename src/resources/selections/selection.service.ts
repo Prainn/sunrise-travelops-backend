@@ -111,6 +111,10 @@ export class SelectionService {
       qb.andWhere('resource.businessUnit = :businessUnit', {
         businessUnit: query.businessUnit,
       });
+    if (kind === 'agencies' && query.parentOnly === 'true')
+      qb.andWhere('resource.parentId IS NULL');
+    if (kind === 'agencies' && query.excludeId)
+      qb.andWhere('resource.id <> :excludeId', { excludeId: query.excludeId });
     const total = await qb.getCount();
     qb.select('resource.id', 'id').addSelect('resource.name', 'name');
     if (kind === 'hotels') {
