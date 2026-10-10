@@ -1,6 +1,7 @@
 import {
   CallHandler,
   ExecutionContext,
+  HttpException,
   Injectable,
   Logger,
   NestInterceptor,
@@ -8,6 +9,7 @@ import {
 import { Observable, catchError, from, mergeMap, throwError } from 'rxjs';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { BusinessException } from '../common/exceptions/business.exception';
 import {
   OperationCategory,
   OperationEntry,
@@ -19,6 +21,7 @@ type Action = {
   category: OperationCategory;
   label: string;
   parentKey?: string;
+  resultId?: boolean;
 };
 
 const resources: Record<string, string> = {
@@ -31,8 +34,6 @@ const resources: Record<string, string> = {
   GuidesController: '导游服务价格',
   GuidePeopleController: '导游人员',
   FlightsController: '航班信息',
-  GuideLeavesController: '导游请假',
-  ToursController: '旅行团',
 };
 
 function actionFor(
@@ -42,10 +43,96 @@ function actionFor(
 ): Action | null {
   if (controller === 'AuthController') {
     if (handler === 'login') return { category: 'login', label: '登录' };
+    if (handler === 'logout') return { category: 'login', label: '退出登录' };
     if (handler === 'changePassword')
       return { category: 'user', label: '本人修改密码' };
     if (handler === 'updateProfile')
       return { category: 'user', label: '编辑本人资料' };
+  }
+  if (controller === 'InquiriesController') {
+    const actions: Record<string, Action> = {
+      create: { category: 'inquiry', label: '新增询盘', resultId: true },
+      update: { category: 'inquiry', label: '编辑询盘' },
+      transfer: { category: 'inquiry', label: '转交询盘' },
+      archive: { category: 'inquiry', label: '归档询盘' },
+      parseDocument: { category: 'inquiry', label: '解析询盘文档' },
+      contact: {
+        category: 'resource',
+        label: '新增旅行社联系人',
+        parentKey: 'id',
+        resultId: true,
+      },
+      createPlan: {
+        category: 'itinerary',
+        label: '新增行程',
+        parentKey: 'id',
+        resultId: true,
+      },
+    };
+    return actions[handler] ?? null;
+  }
+  if (controller === 'ItinerariesController') {
+    const actions: Record<string, Action> = {
+      save: { category: 'itinerary', label: '保存行程' },
+      copy: {
+        category: 'itinerary',
+        label: '复制行程',
+        parentKey: 'id',
+        resultId: true,
+      },
+      previewQuote: { category: 'quotation', label: '报价试算' },
+      confirm: { category: 'quotation', label: '冻结报价' },
+      downloadClick: { category: 'quotation', label: '报价下载点击' },
+    };
+    return actions[handler] ?? null;
+  }
+  if (controller === 'WebsiteController') {
+    const actions: Record<string, Action> = {
+      create: { category: 'inquiry', label: '新增独立站询盘', resultId: true },
+      update: { category: 'inquiry', label: '编辑独立站询盘' },
+      transfer: { category: 'inquiry', label: '转交独立站询盘' },
+      archive: { category: 'inquiry', label: '归档独立站询盘' },
+      createItinerary: {
+        category: 'itinerary',
+        label: '新增独立站行程',
+        parentKey: 'id',
+        resultId: true,
+      },
+      saveItinerary: { category: 'itinerary', label: '保存独立站行程' },
+      copy: {
+        category: 'itinerary',
+        label: '复制独立站行程',
+        parentKey: 'id',
+        resultId: true,
+      },
+      generate: { category: 'itinerary', label: '生成独立站行程' },
+      confirm: { category: 'quotation', label: '冻结独立站报价' },
+      downloadClick: { category: 'quotation', label: '独立站报价下载点击' },
+      saveConfig: { category: 'website-config', label: '保存独立站配置' },
+    };
+    return actions[handler] ?? null;
+  }
+  if (controller === 'ToursController') {
+    if (handler === 'saveRating')
+      return { category: 'guide-rating', label: '保存导游评分' };
+    const labels: Record<string, string> = {
+      create: '新增旅行团',
+      update: '编辑旅行团',
+      cancel: '撤销旅行团',
+    };
+    return labels[handler]
+      ? { category: 'tour', label: labels[handler] }
+      : null;
+  }
+  if (controller === 'GuideLeavesController') {
+    const labels: Record<string, string> = {
+      create: '新增导游请假',
+      update: '编辑导游请假',
+      delete: '删除导游请假',
+    };
+    return labels[handler]
+      ? { category: 'guide-leave', label: labels[handler] }
+      : null;
   }
   if (controller === 'UserManagementController') {
     const labels: Record<string, string> = {
@@ -159,12 +246,33 @@ export class OperationLogInterceptor implements NestInterceptor {
         )?.slice(0, 32) ?? null,
       ip: (request.ip ?? '').slice(0, 64),
     });
-    const detail = (id: unknown): string => {
-      const data: Record<string, string> = {};
+    const detail = (id: unknown, error?: unknown): string => {
+      const data: Record<string, string | number> = {};
       if (typeof id === 'string') data.recordId = id.slice(0, 100);
       if (action.parentKey && request.params[action.parentKey] != null)
         data.parentId = String(request.params[action.parentKey]).slice(0, 100);
+      if (error !== undefined) {
+        data.statusCode =
+          error instanceof HttpException ? error.getStatus() : 500;
+        if (error instanceof BusinessException) data.errorCode = error.code;
+      }
       return JSON.stringify(data);
+    };
+    const targetIds = (item: Record<string, unknown> = {}): unknown[] => {
+      if (context.getHandler().name.startsWith('delete'))
+        return ids(request.query.ids);
+      const recordId = action.resultId
+        ? item.id
+        : (request.params.id ??
+          request.params.priceId ??
+          request.params.contactId ??
+          item.id);
+      return [
+        recordId ??
+          (context.getClass().name === 'AuthController'
+            ? request.user?.id
+            : null),
+      ];
     };
 
     return next.handle().pipe(
@@ -179,18 +287,7 @@ export class OperationLogInterceptor implements NestInterceptor {
               value && typeof value === 'object'
                 ? (value as Record<string, unknown>)
                 : {};
-            const targets = context.getHandler().name.startsWith('delete')
-              ? ids(request.query.ids)
-              : [
-                  request.params.id ??
-                    request.params.priceId ??
-                    request.params.contactId ??
-                    item.id ??
-                    (context.getHandler().name === 'changePassword' ||
-                    context.getHandler().name === 'updateProfile'
-                      ? request.user?.id
-                      : null),
-                ];
+            const targets = targetIds(item);
             const entries = (targets.length ? targets : [null]).map(
               (id): OperationEntry => ({
                 ...base(true),
@@ -203,9 +300,14 @@ export class OperationLogInterceptor implements NestInterceptor {
         ),
       ),
       catchError((error: unknown) => {
-        if (action.category !== 'login') return throwError(() => error);
+        const targets = targetIds();
         return from(
-          this.write([{ ...base(false), detail: detail(null) }]),
+          this.write(
+            (targets.length ? targets : [null]).map((id) => ({
+              ...base(false),
+              detail: detail(id, error),
+            })),
+          ),
         ).pipe(mergeMap(() => throwError(() => error)));
       }),
     );

@@ -9,6 +9,13 @@ export const OPERATION_CATEGORIES = [
   'system-category',
   'business-category',
   'resource',
+  'inquiry',
+  'itinerary',
+  'quotation',
+  'tour',
+  'guide-leave',
+  'guide-rating',
+  'website-config',
 ] as const;
 export type OperationCategory = (typeof OPERATION_CATEGORIES)[number];
 
