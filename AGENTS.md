@@ -11,7 +11,10 @@
 | `src/main.ts` / `src/app.module.ts` | 启动、全局管线与模块装配 |
 | `src/auth` / `src/users` / `src/roles` | 当前登录身份、有效权限、账号管理；roles 注册实体，无独立角色管理 Controller |
 | `src/inquiries` | 询盘、行程、成本试算、报价冻结、转交、调价、日志；没有独立 itineraries/quotations 模块 |
-| `src/resources` / `src/system` | 七类资源及子价格/联系人；系统与业务字典 |
+| `src/website` | 独立站直客询盘、行程、人工报价与专属配置；独立 `/api/website` 合同 |
+| `src/tours` / `src/common/tour-lock.ts` | 成团、导游请假/评分及来源写入锁；实际人员与报价服务价格分离 |
+| `src/resources` / `src/system` | 资源主项、航班、独立导游人员及子价格/联系人；系统与业务字典 |
+| `src/operation-logs` | 系统管理操作日志；与询盘差异/调价历史独立 |
 | `src/health` / `src/lynx` | Terminus 探测；独立公开访问记录（不混入业务 API/Swagger） |
 | `src/config` / `src/database` / `src/migrations` | 环境校验、连接与 migration CLI、完整 schema 链 |
 
@@ -20,6 +23,8 @@
 ## Backend Change Workflow
 
 修改 endpoint 检查 Controller → DTO → Service → Entity/Repository 或结构化 SQL → migration（schema 变化时）→ Swagger → frontend caller；检查影响，不机械修改每一层。
+
+调用链明确的接口改动从相关合同与这条链开始；跨端本身不触发完整 AOCI。只有发现共享授权、隔离、冻结/计算、事务或模块边界影响时，才按根任务分级扩大阅读。
 
 修改 DTO、实体、服务调用或持久化 JSON 时，同步检查 contract、调用者、fixture、repository mock、seed、历史记录及 migration。类型断言不能证明运行时结构正确。Swagger 从代码生成，不代替根 API 合同。
 
