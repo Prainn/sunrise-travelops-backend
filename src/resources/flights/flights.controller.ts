@@ -10,7 +10,6 @@ import {
   Post,
   Put,
   Query,
-  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -27,7 +26,6 @@ import {
   ApiSuccessResponse,
 } from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
-import { ResourceScopeInterceptor } from '../common/resource-scope';
 import {
   CreateFlightDto,
   FlightQueryDto,
@@ -39,7 +37,6 @@ import { FlightsService } from './flights.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/flights')
 export class FlightsController {
   constructor(private readonly service: FlightsService) {}

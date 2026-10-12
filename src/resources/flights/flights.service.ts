@@ -15,7 +15,6 @@ import {
   requireResourceForUpdate,
   requireResources,
 } from '../common/resource-service.helpers';
-import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import {
   AirportLabel,
   CreateFlightDto,
@@ -41,7 +40,6 @@ export class FlightsService {
       .addOrderBy('flight.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'flight');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -89,7 +87,6 @@ export class FlightsService {
       ...input,
       departureCity: from.name,
       arrivalCity: to.name,
-      library: resourceLibrary(true) ?? undefined,
       createdBy: actorId,
       updatedBy: actorId,
     });
@@ -116,7 +113,6 @@ export class FlightsService {
         id,
         departureCity: from.name,
         arrivalCity: to.name,
-        library: entity.library,
         updatedBy: actorId,
       });
       const saved = await repository.save(entity);
@@ -182,7 +178,6 @@ export class FlightsService {
   ): FlightResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       departureAirportId: entity.departureAirportId,
       arrivalAirportId: entity.arrivalAirportId,
       departureAirport: labels.get(entity.departureAirportId ?? '') ?? null,

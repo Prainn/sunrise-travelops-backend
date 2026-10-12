@@ -30,6 +30,7 @@ function fixture() {
     attractions: [],
     routes: [],
     patterns: [],
+    hotels: [],
     skeletons: [],
     templates: [
       ['arrival-basic', '抵达{city}。', 'Arrival in {city}.'],
@@ -132,6 +133,7 @@ function fixture() {
                 id: randomUUID(),
                 tier: 'A',
                 cityId: kunming,
+                configHotelId: null,
                 resourceId: null,
                 nameZh: '手填酒店',
                 nameEn: 'Manual Hotel',
@@ -247,6 +249,25 @@ describe('website UAT output', () => {
       invalid.templates.find((template) => template.code === code)![language] =
         copy;
       expect(() => validateWebsiteConfig(invalid)).toThrow(/未支持的变量/);
+    }
+  });
+  it('accepts website hotel price 0 and rejects missing or negative prices', () => {
+    const { config } = fixture();
+    const hotel = {
+      id: randomUUID(),
+      status: 'enabled' as const,
+      cityId: config.cities[0].id,
+      nameZh: '酒店',
+      nameEn: 'Hotel',
+      resourceId: null,
+      price: '0',
+    };
+    config.hotels = [hotel];
+    validateWebsiteConfig(config);
+    for (const price of ['', '-1', '1.234']) {
+      const invalid = structuredClone(config);
+      invalid.hotels[0].price = price;
+      expect(() => validateWebsiteConfig(invalid)).toThrow();
     }
   });
 });

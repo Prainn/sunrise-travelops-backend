@@ -125,7 +125,6 @@ export class RatingQueryDto extends PaginationQueryDto {
 }
 
 export class LeaveInputDto {
-  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsUUID() guidePersonId: string;
   @IsDateString({ strict: true }) @Matches(DATE) startDate: string;
   @IsDateString({ strict: true }) @Matches(DATE) endDate: string;
@@ -138,8 +137,6 @@ export class UpdateLeaveDto extends LeaveInputDto {
 }
 
 export class LeaveQueryDto extends PaginationQueryDto {
-  @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
-  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional() @IsUUID() guidePersonId?: string;
   @IsOptional() @IsDateString({ strict: true }) @Matches(DATE) from?: string;
   @IsOptional() @IsDateString({ strict: true }) @Matches(DATE) to?: string;

@@ -3,7 +3,6 @@ import {
   UserIdentityEntity,
   LoginScope,
   SCOPE_NAMES,
-  libraryFor,
 } from '../users/user-identity.entity';
 import { effectivePermissions } from './identity-permissions';
 import { UserLoginRecordEntity } from './user-login-record.entity';
@@ -148,7 +147,6 @@ export class AuthService {
         '',
       roles,
       permissions: effectivePermissions(scope, roles),
-      resourceLibrary: scope === 'headquarters' ? null : libraryFor(scope),
     };
   }
 

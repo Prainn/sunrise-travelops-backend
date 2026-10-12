@@ -1,11 +1,7 @@
 import { UserEntity } from '../src/users/user.entity';
 import { AuthenticatedUser } from '../src/auth/auth.types';
 import { effectivePermissions } from '../src/auth/identity-permissions';
-import {
-  libraryFor,
-  SCOPE_NAMES,
-  LoginScope,
-} from '../src/users/user-identity.entity';
+import { SCOPE_NAMES, LoginScope } from '../src/users/user-identity.entity';
 export function fixtureIdentity(
   user: UserEntity,
   scope: LoginScope,
@@ -25,6 +21,5 @@ export function fixtureIdentity(
     deptName: '',
     roles,
     permissions: effectivePermissions(scope, roles),
-    resourceLibrary: scope === 'headquarters' ? null : libraryFor(scope),
   };
 }

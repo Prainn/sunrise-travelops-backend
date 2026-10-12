@@ -23,7 +23,7 @@ import {
     where: '"deleted_at" IS NULL',
   },
 )
-@Index('UQ_resource_restaurants_standard_city', ['library', 'city'], {
+@Index('UQ_resource_restaurants_standard_city', ['city'], {
   unique: true,
   where: '"deleted_at" IS NULL AND "is_standard_price"',
 })

@@ -48,7 +48,6 @@ const forbidden = (): never =>
 const notFound = (): never =>
   fail(ErrorCode.NOT_FOUND, '旅行团不存在', HttpStatus.NOT_FOUND);
 
-const libraryOf = (unit: Unit) => (unit === 'shengxu' ? 'shengxu' : 'shared');
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Rating columns keyed by API field name. */
@@ -69,7 +68,7 @@ const RATING_SELECT = RATING_FIELDS.map(
 ).join(',');
 
 const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModule", t.business_unit AS "businessUnit",
-  t.library, t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
+  t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
   t.inquiry_code AS "inquiryCode", t.itinerary_code AS "itineraryCode", t.quote_code AS "quoteCode",
   t.agency_name AS "agencyName", t.contact_name AS "contactName", t.days, t.start_date::text AS "startDate",
   to_char(t.pickup_at,'YYYY-MM-DD HH24:MI') AS "pickupAt", to_char(t.drop_at,'YYYY-MM-DD HH24:MI') AS "dropAt",
@@ -265,7 +264,7 @@ export class ToursService {
       !this.unitAllowed(user, unit)
     )
       forbidden();
-    const params: unknown[] = [libraryOf(unit)];
+    const params: unknown[] = [];
     const keyword = query.keyword?.trim();
     const where = keyword
       ? ` AND (f.flight_number ILIKE $${params.push(`%${keyword}%`)} OR d.code ILIKE $${params.length} OR a.code ILIKE $${params.length} OR d.name ILIKE $${params.length} OR a.name ILIKE $${params.length} OR d.english_name ILIKE $${params.length} OR a.english_name ILIKE $${params.length})`
@@ -277,7 +276,7 @@ export class ToursService {
        FROM resource_flights f
        JOIN system_business_dictionary_items d ON d.id = f.departure_airport_id
        JOIN system_business_dictionary_items a ON a.id = f.arrival_airport_id
-       WHERE f.library = $1 AND f.status = 'enabled' AND f.deleted_at IS NULL
+       WHERE f.status = 'enabled' AND f.deleted_at IS NULL
          AND d.status = 'enabled' AND d.deleted_at IS NULL AND a.status = 'enabled' AND a.deleted_at IS NULL${where}
        ORDER BY f.flight_number, f.departure_time, f.id`,
       params,
@@ -295,14 +294,10 @@ export class ToursService {
     const [pickup, drop] = await Promise.all([
       existing?.pickupFlightId === query.pickupFlightId
         ? (existing.pickupFlight as { arrivalTime: string })
-        : this.flight(
-            this.db.manager,
-            query.pickupFlightId,
-            query.businessUnit,
-          ),
+        : this.flight(this.db.manager, query.pickupFlightId),
       existing?.dropFlightId === query.dropFlightId
         ? (existing.dropFlight as { departureTime: string })
-        : this.flight(this.db.manager, query.dropFlightId, query.businessUnit),
+        : this.flight(this.db.manager, query.dropFlightId),
     ]);
     const s = this.schedule(
       existing ? (existing.startDate as string) : query.startDate,
@@ -312,18 +307,13 @@ export class ToursService {
     );
     return this.db.query<Row[]>(
       `SELECT g.id, g.code, g.name, g.language FROM resource_guide_people g
-       WHERE g.library = $1 AND g.status = 'enabled' AND g.deleted_at IS NULL
+       WHERE g.status = 'enabled' AND g.deleted_at IS NULL
          AND NOT EXISTS (SELECT 1 FROM resource_guide_leaves l WHERE l.guide_person_id = g.id AND l.deleted_at IS NULL
-           AND l.start_date <= $3 AND l.end_date >= $2)
+           AND l.start_date <= $2 AND l.end_date >= $1)
          AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.guide_id = g.id AND t.status = 'active'
-           AND t.occupy_from <= $3 AND t.occupy_to >= $2 AND ($4::uuid IS NULL OR t.id <> $4))
+           AND t.occupy_from <= $2 AND t.occupy_to >= $1 AND ($3::uuid IS NULL OR t.id <> $3))
        ORDER BY g.code, g.id`,
-      [
-        libraryOf(query.businessUnit),
-        s.occupyFrom,
-        s.occupyTo,
-        query.excludeTourId ?? null,
-      ],
+      [s.occupyFrom, s.occupyTo, query.excludeTourId ?? null],
     );
   }
 
@@ -341,7 +331,7 @@ export class ToursService {
     }
   }
 
-  private async flight(manager: EntityManager, id: string, unit: Unit) {
+  private async flight(manager: EntityManager, id: string) {
     const rows = await manager.query<
       {
         id: string;
@@ -358,9 +348,9 @@ export class ToursService {
        FROM resource_flights f
        JOIN system_business_dictionary_items d ON d.id = f.departure_airport_id
        JOIN system_business_dictionary_items a ON a.id = f.arrival_airport_id
-       WHERE f.id = $1 AND f.library = $2 AND f.status = 'enabled' AND f.deleted_at IS NULL
+       WHERE f.id = $1 AND f.status = 'enabled' AND f.deleted_at IS NULL
          AND d.status = 'enabled' AND d.deleted_at IS NULL AND a.status = 'enabled' AND a.deleted_at IS NULL`,
-      [id, libraryOf(unit)],
+      [id],
     );
     return rows[0] ?? invalid('航班不可选或缺少机场信息');
   }
@@ -387,9 +377,9 @@ export class ToursService {
     excludeTourId: string | null,
   ) {
     const guide = await manager.query<{ id: string }[]>(
-      `SELECT id FROM resource_guide_people WHERE id = $1 AND library = $2 AND status = 'enabled'
+      `SELECT id FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
        AND deleted_at IS NULL FOR UPDATE`,
-      [guideId, libraryOf(unit)],
+      [guideId],
     );
     if (!guide[0]) invalid('导游不可选');
     const leave = await manager.query<unknown[]>(
@@ -551,16 +541,8 @@ export class ToursService {
       );
       const creatorCode = creator[0]?.tour_code;
       if (!creatorCode) invalid('当前账号未设置团号标识');
-      const pickup = await this.flight(
-        manager,
-        input.pickupFlightId,
-        src.businessUnit,
-      );
-      const drop = await this.flight(
-        manager,
-        input.dropFlightId,
-        src.businessUnit,
-      );
+      const pickup = await this.flight(manager, input.pickupFlightId);
+      const drop = await this.flight(manager, input.dropFlightId);
       const operator = await this.operator(
         manager,
         input.operatorId,
@@ -609,19 +591,18 @@ export class ToursService {
         new Set(taken.map((r) => r.tour_no)),
       );
       const inserted = await manager.query<{ id: string }[]>(
-        `INSERT INTO tours (tour_no, source_module, business_unit, library, inquiry_id, quote_id, itinerary_id,
+        `INSERT INTO tours (tour_no, source_module, business_unit, inquiry_id, quote_id, itinerary_id,
           inquiry_code, itinerary_code, quote_code, agency_name, contact_name, days, start_date, pickup_at, drop_at,
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
           guide_id, remark, created_by, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,
-          $29,$30,$31,$32,$33,$34,$35,$36::jsonb,$37::jsonb,$38,$39,$22,$22) RETURNING id`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21) RETURNING id`,
         [
           tourNo,
           src.module,
           src.businessUnit,
-          libraryOf(src.businessUnit),
           src.inquiryId,
           src.quoteId,
           src.itineraryId,
@@ -719,11 +700,11 @@ export class ToursService {
       const pickup =
         input.pickupFlightId === tour.pickup_flight_id
           ? null
-          : await this.flight(manager, input.pickupFlightId, unit);
+          : await this.flight(manager, input.pickupFlightId);
       const drop =
         input.dropFlightId === tour.drop_flight_id
           ? null
-          : await this.flight(manager, input.dropFlightId, unit);
+          : await this.flight(manager, input.dropFlightId);
       const operator = await this.operator(manager, input.operatorId, unit);
       // Retained flight IDs retain their booked times and labels after master-data edits.
       const pickupSnapshot =

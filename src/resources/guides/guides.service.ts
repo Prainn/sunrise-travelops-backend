@@ -1,4 +1,3 @@
-import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -42,7 +41,6 @@ export class GuidesService {
       .addOrderBy('guide.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'guide');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -82,7 +80,6 @@ export class GuidesService {
           repository.create({
             ...input,
             code,
-            library: resourceLibrary(true)!,
             dailyPrice: normalizeMoney(input.dailyPrice),
             name: guideName(input.secondLanguage, input.shopping),
             createdBy: actorId,
@@ -137,7 +134,6 @@ export class GuidesService {
   private toResponse(entity: GuideEntity): GuideResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       code: entity.code,
       name: entity.name,
       dailyPrice: normalizeMoney(entity.dailyPrice),

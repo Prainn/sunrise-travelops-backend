@@ -39,6 +39,8 @@ const TEMPLATE_VARIABLES = new Map<string, readonly string[]>([
   ['no-shopping', []],
 ]);
 
+const MONEY = /^(0|[1-9]\d{0,9})(\.\d{1,2})?$/;
+
 function invalid(message: string): never {
   throw new BusinessException({
     code: ErrorCode.VALIDATION_ERROR,
@@ -54,6 +56,7 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
   const groups = [
     config.cities,
     config.attractions,
+    config.hotels,
     config.routes,
     config.patterns,
     config.skeletons,
@@ -104,6 +107,11 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
     }
     if (new Set(item.recommendedMonths).size !== item.recommendedMonths.length)
       invalid('季节推荐月份不可重复');
+  }
+  for (const hotel of config.hotels) {
+    if (!cities.has(hotel.cityId)) invalid('酒店必须关联已有独立站城市');
+    if (typeof hotel.price !== 'string' || !MONEY.test(hotel.price))
+      invalid('独立站价格必须为非负金额，最多两位小数');
   }
   for (const route of config.routes) {
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
@@ -221,6 +229,7 @@ export function generateWebsiteDraft(
               id: randomUUID(),
               tier: 'A',
               cityId: definition.cityId,
+              configHotelId: null,
               resourceId: null,
               nameZh: '',
               nameEn: '',
@@ -288,6 +297,7 @@ export function buildWebsitePreview(
   const attractions = new Map(
     config.attractions.map((item) => [item.id, item]),
   );
+  const hotels = new Map(config.hotels.map((item) => [item.id, item]));
   const seenAttractions = new Set<string>();
   const visited: string[] = [];
   for (const day of itinerary.days) {
@@ -319,6 +329,16 @@ export function buildWebsitePreview(
           day.dayNumber,
         );
       for (const hotel of day.hotels) {
+        if (hotel.configHotelId) {
+          const configured = hotels.get(hotel.configHotelId);
+          if (!configured || configured.cityId !== hotel.cityId)
+            issue(
+              'CONFIG_NOT_READY',
+              'ERROR',
+              '所选独立站酒店不存在或与住宿城市不一致',
+              day.dayNumber,
+            );
+        }
         if (hotel.cityId !== day.overnightCityId)
           issue(
             'VAL-E02',

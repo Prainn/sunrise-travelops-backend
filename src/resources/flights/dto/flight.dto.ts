@@ -2,7 +2,6 @@ import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEnum,
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -29,7 +28,6 @@ export class FlightQueryDto extends ResourceQueryDto {
 }
 
 export class CreateFlightDto {
-  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional() @IsUUID('all') id?: string;
 
   @IsUUID() departureAirportId: string;
@@ -63,7 +61,6 @@ export class UpdateFlightDto extends CreateFlightDto {
 }
 
 export class FlightResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   departureAirportId: string | null;
   arrivalAirportId: string | null;

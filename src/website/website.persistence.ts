@@ -47,7 +47,7 @@ export async function loadWebsiteDetails(
   );
   const hotels = await manager.query<DetailRow<WebsiteHotelStay>[]>(
     `SELECT day_id AS "dayId",json_build_object(
-      'id',id,'tier',tier,'cityId',city_id,'resourceId',resource_id,'nameZh',name_zh,'nameEn',name_en,
+      'id',id,'tier',tier,'cityId',city_id,'configHotelId',config_hotel_id,'resourceId',resource_id,'nameZh',name_zh,'nameEn',name_en,
       'roomType',room_type,'breakfastIncluded',breakfast_included
       ) AS value FROM website_hotels WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
@@ -214,6 +214,7 @@ export async function saveWebsiteDetails(
       'position',
       'tier',
       'city_id',
+      'config_hotel_id',
       'resource_id',
       'name_zh',
       'name_en',
@@ -227,6 +228,7 @@ export async function saveWebsiteDetails(
         n,
         i.tier,
         i.cityId,
+        i.configHotelId,
         i.resourceId,
         i.nameZh,
         i.nameEn,

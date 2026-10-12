@@ -1,9 +1,7 @@
 import {
   UserIdentityEntity,
   BusinessUnit,
-  libraryFor,
 } from '../users/user-identity.entity';
-import { withResourceScope } from '../resources/common/resource-scope';
 import { saveItineraryData, loadItineraryData } from './structured-itinerary';
 import { recordPriceAdjustments } from './price-adjustments';
 import { saveFrozenDetails } from './structured-quotes';
@@ -47,12 +45,7 @@ import {
   CurrentPdfData as PdfData,
 } from './inquiry.entity';
 import { diffChanges, contextualChanges } from './changes';
-import {
-  assertItineraryLibrary,
-  dateAt,
-  invalid,
-  ItineraryValidation,
-} from './itinerary-validation';
+import { dateAt, invalid, ItineraryValidation } from './itinerary-validation';
 import { calculateItineraryQuote } from './quote-pricing';
 interface Actor extends AuthenticatedUser {
   name: string;
@@ -281,15 +274,18 @@ export class InquiriesService {
     if (!unchanged) {
       const agency = await manager.findOneBy(AgencyEntity, {
         id: input.agencyId,
-        library: libraryFor(
-          businessUnit ?? (previous!.businessUnit as BusinessUnit),
-        ),
       });
       const contact = await manager.findOneBy(AgencyContactEntity, {
         id: input.contactId,
         agencyId: input.agencyId,
       });
-      if (!agency || agency.status !== ResourceStatus.Enabled || !contact)
+      if (
+        !agency ||
+        agency.status !== ResourceStatus.Enabled ||
+        agency.businessUnit !==
+          (businessUnit ?? (previous!.businessUnit as BusinessUnit)) ||
+        !contact
+      )
         fail('INQUIRY_CONTACT_INVALID', HttpStatus.BAD_REQUEST);
       snapshot = {
         agencyId: agency.id,
@@ -352,7 +348,6 @@ export class InquiriesService {
         invalid('Business unit required');
       const agency = await manager.findOneBy(AgencyEntity, {
         id: input.agencyId,
-        library: libraryFor(businessUnit),
       });
       if (
         !agency ||
@@ -474,12 +469,10 @@ export class InquiriesService {
   }
   async createContact(agencyId: string, input: ContactInput, actor: Actor) {
     this.permission(actor, 'inquiry:update');
-    return withResourceScope(actor, null, () =>
-      this.agencies.createContact(
-        agencyId,
-        { name: input.name.trim(), phone: input.phone.trim() },
-        actor.id,
-      ),
+    return this.agencies.createContact(
+      agencyId,
+      { name: input.name.trim(), phone: input.phone.trim() },
+      actor.id,
     );
   }
   async itineraries(id: string, actor: Actor) {
@@ -539,7 +532,6 @@ export class InquiriesService {
       input,
       itinerary.data,
       inquiry.data.plannedDays,
-      libraryFor(inquiry.businessUnit as BusinessUnit),
       false,
     );
     return this.calculateQuote(data);
@@ -565,7 +557,6 @@ export class InquiriesService {
         input,
         undefined,
         inquiry.data.plannedDays,
-        libraryFor(inquiry.businessUnit as BusinessUnit),
       );
       const row = await manager.save(
         ItineraryEntity,
@@ -614,7 +605,6 @@ export class InquiriesService {
         body,
         itinerary.data,
         inquiry.data.plannedDays,
-        libraryFor(inquiry.businessUnit as BusinessUnit),
       );
       const changes = contextualChanges(itinerary.data, data);
       if (!changes.length) return this.itineraryResponse(itinerary);
@@ -648,11 +638,6 @@ export class InquiriesService {
       this.writable(inquiry, actor);
       await assertNoActiveTour(manager, 'standard', inquiry.id);
       this.checkVersion(itinerary.version, input.version, true);
-      await assertItineraryLibrary(
-        manager,
-        itinerary.data,
-        libraryFor(inquiry.businessUnit as BusinessUnit),
-      );
       const data = structuredClone(itinerary.data);
       data.title = input.title;
       const ids = new Map(data.dailyPlans.map((d) => [d.id, randomUUID()]));
@@ -768,11 +753,6 @@ export class InquiriesService {
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
-      await assertItineraryLibrary(
-        manager,
-        itinerary.data,
-        libraryFor(inquiry.businessUnit as BusinessUnit),
-      );
       const snapshot = this.pdfSnapshot(inquiry, itinerary);
       const frozen = await manager.save(
         ItineraryQuoteEntity,

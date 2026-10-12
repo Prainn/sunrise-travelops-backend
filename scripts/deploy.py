@@ -30,6 +30,7 @@ BREAKING_MIGRATIONS = {
     'AddPaxTierQuotes1790006400000',
     'ShareItineraryStaffCosts1790006600000',
     'RemoveGuideServiceTotal1790040600000',
+    'UnifyResourceLibrary1791619200000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');

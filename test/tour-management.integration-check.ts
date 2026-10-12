@@ -24,7 +24,6 @@ import { WebsiteService } from '../src/website/website.service';
 import { InquiriesService } from '../src/inquiries/inquiries.service';
 import { AgenciesService } from '../src/resources/agencies/agencies.service';
 import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
-import { withResourceScope } from '../src/resources/common/resource-scope';
 import { effectivePermissions } from '../src/auth/identity-permissions';
 import type { AuthenticatedUser } from '../src/auth/auth.types';
 import type { BusinessUnit } from '../src/users/user-identity.entity';
@@ -96,7 +95,6 @@ async function user(
     deptName: '',
     roles,
     permissions: effectivePermissions(scope, roles),
-    resourceLibrary: scope === 'shengxu' ? 'shengxu' : 'shared',
   };
 }
 async function fixture(
@@ -188,6 +186,7 @@ async function main() {
       [
         'AddTourManagement1791452400000',
         'RefineTourFlightConstraints1791532800000',
+        'UnifyResourceLibrary1791619200000',
       ].includes(m.name!),
     );
     db.migrations.splice(
@@ -224,7 +223,7 @@ async function main() {
     await check(
       'old data incremental migrations preserve IDs/text/freeze and backfill English',
       async () => {
-        assert.equal((await db.runMigrations()).length, 2);
+        assert.equal((await db.runMigrations()).length, 3);
         assert.equal((await db.runMigrations()).length, 0);
         const [u] = await db.query<
           { english_name: string; tour_code: string | null }[]
@@ -306,16 +305,11 @@ async function main() {
     const [airport] = await db.query<{ id: string }[]>(
       `SELECT id FROM system_business_dictionary_items WHERE code='KMG'`,
     );
-    const flight = async (library: string, departure = '02:30') =>
+    const flight = async (departure = '02:30') =>
       (
         await db.query<{ id: string }[]>(
-          `INSERT INTO resource_flights(library,departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES($1,'old city','old city',$2,$3,'10:00',$4,$4) RETURNING id`,
-          [
-            library,
-            randomUUID().slice(0, 8).toUpperCase(),
-            departure,
-            airport.id,
-          ],
+          `INSERT INTO resource_flights(departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES('old city','old city',$1,$2,'10:00',$3,$3) RETURNING id`,
+          [randomUUID().slice(0, 8).toUpperCase(), departure, airport.id],
         )
       )[0].id;
     await check(
@@ -329,48 +323,46 @@ async function main() {
         const mys = items.find((i) => i.code === 'MYS')!.id;
         for (const airportId of [pvg, sha])
           await db.query(
-            `INSERT INTO resource_flights(library,departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES('shengxu','上海','昆明','MU1234','08:00','10:00',$1,$2)`,
+            `INSERT INTO resource_flights(departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES('上海','昆明','MU1234','08:00','10:00',$1,$2)`,
             [airportId, airport.id],
           );
         const api = new FlightsService(db.getRepository(FlightEntity), db);
-        const result = await withResourceScope(sx, 'shengxu', () =>
-          api.list({ page: 1, pageSize: 20, keyword: 'Pudong' }),
-        );
+        const result = await api.list({
+          page: 1,
+          pageSize: 20,
+          keyword: 'Pudong',
+        });
         assert.equal(result.total, 1);
         assert.equal(result.list[0].departureAirport?.code, 'PVG');
         assert.equal(
           (
-            await withResourceScope(sx, 'shengxu', () =>
-              api.list({
-                page: 1,
-                pageSize: 20,
-                keyword: 'SHA',
-                departureAirportId: sha,
-                arrivalAirportId: airport.id,
-              }),
-            )
+            await api.list({
+              page: 1,
+              pageSize: 20,
+              keyword: 'SHA',
+              departureAirportId: sha,
+              arrivalAirportId: airport.id,
+            })
           ).list[0].departureAirport?.code,
           'SHA',
         );
         await rejects(
-          withResourceScope(sx, 'shengxu', () =>
-            api.create(
-              {
-                departureAirportId: mys,
-                arrivalAirportId: airport.id,
-                flightNumber: 'BAD',
-                departureTime: '08:00',
-                arrivalTime: '10:00',
-                status: ResourceStatus.Enabled,
-              },
-              sx.id,
-            ),
+          api.create(
+            {
+              departureAirportId: mys,
+              arrivalAirportId: airport.id,
+              flightNumber: 'BAD',
+              departureTime: '08:00',
+              arrivalTime: '10:00',
+              status: ResourceStatus.Enabled,
+            },
+            sx.id,
           ),
           'VALIDATION_ERROR',
         );
         await assert.rejects(
           db.query(
-            `INSERT INTO resource_flights(library,departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES('shengxu','other','other','MU1234','08:00','10:00',$1,$2)`,
+            `INSERT INTO resource_flights(departure_city,arrival_city,flight_number,departure_time,arrival_time,departure_airport_id,arrival_airport_id) VALUES('other','other','MU1234','08:00','10:00',$1,$2)`,
             [pvg, airport.id],
           ),
           (e) =>
@@ -379,17 +371,16 @@ async function main() {
         );
       },
     );
-    const shared = await flight('shared');
-    const shengxu = await flight('shengxu');
-    const guide = async (library: string) =>
+    const shared = await flight();
+    const guide = async () =>
       (
         await db.query<{ id: string }[]>(
-          `INSERT INTO resource_guide_people(code,name,library) VALUES($1,'Test Guide',$2) RETURNING id`,
-          [randomUUID(), library],
+          `INSERT INTO resource_guide_people(code,name) VALUES($1,'Test Guide') RETURNING id`,
+          [randomUUID()],
         )
       )[0].id;
-    const g = await guide('shared');
-    const g2 = await guide('shared');
+    const g = await guide();
+    const g2 = await guide();
     const input = (
       owner: AuthenticatedUser,
       guideId: string | null = null,
@@ -400,8 +391,8 @@ async function main() {
       leaders: 1,
       language: 'English',
       shopping: false,
-      pickupFlightId: owner.scope === 'shengxu' ? shengxu : shared,
-      dropFlightId: owner.scope === 'shengxu' ? shengxu : shared,
+      pickupFlightId: shared,
+      dropFlightId: shared,
       guideId,
       remark: '',
     });
@@ -499,45 +490,34 @@ async function main() {
       },
     );
     await check(
-      'leave endpoints are inclusive; other library cannot access or delete',
+      'leave endpoints are inclusive; any business can read, but a deleted leave is gone',
       async () => {
         await rejects(
-          withResourceScope(web, 'shared', () =>
-            leaves.create(
-              {
-                guidePersonId: g,
-                startDate: '2026-09-06',
-                endDate: '2026-09-06',
-                reason: '',
-                remark: '',
-              },
-              web.id,
-            ),
-          ),
-          'CONFLICT',
-        );
-        const l = await withResourceScope(web, 'shared', () =>
           leaves.create(
             {
               guidePersonId: g,
-              startDate: '2026-09-07',
-              endDate: '2026-09-08',
+              startDate: '2026-09-06',
+              endDate: '2026-09-06',
               reason: '',
               remark: '',
             },
             web.id,
           ),
+          'CONFLICT',
         );
-        await rejects(
-          withResourceScope(sx, 'shengxu', () => leaves.get(l.id as string)),
-          'RESOURCE_NOT_FOUND',
+        const l = await leaves.create(
+          {
+            guidePersonId: g,
+            startDate: '2026-09-07',
+            endDate: '2026-09-08',
+            reason: '',
+            remark: '',
+          },
+          web.id,
         );
-        await rejects(
-          withResourceScope(sx, 'shengxu', () =>
-            leaves.delete([l.id as string], sx.id),
-          ),
-          'RESOURCE_NOT_FOUND',
-        );
+        assert.equal((await leaves.get(l.id as string)).id, l.id);
+        await leaves.delete([l.id as string], sx.id);
+        await rejects(leaves.get(l.id as string), 'RESOURCE_NOT_FOUND');
       },
     );
     const otherScope = await fixture(
@@ -666,14 +646,14 @@ async function main() {
         assert.equal(r.list.find((x) => x.tourId === t.id)?.selfScore, 0);
         const copied = await website.copyItinerary(latest.itineraryId, 1, web);
         assert.equal(copied.status, 'draft');
-        const existingLeaves = await withResourceScope(web, 'shared', () =>
-          leaves.list({ page: 1, pageSize: 20, guidePersonId: g }),
-        );
-        await withResourceScope(web, 'shared', () =>
-          leaves.delete(
-            existingLeaves.list.map((l) => l.id as string),
-            web.id,
-          ),
+        const existingLeaves = await leaves.list({
+          page: 1,
+          pageSize: 20,
+          guidePersonId: g,
+        });
+        await leaves.delete(
+          existingLeaves.list.map((l) => l.id as string),
+          web.id,
         );
         const replacement = await create(latest, web, g);
         assert.notEqual(replacement.tourNo, t.tourNo);
@@ -797,21 +777,19 @@ async function main() {
         );
         const race = await Promise.allSettled([
           create(src, web2, g2),
-          withResourceScope(web2, 'shared', () =>
-            leaves.create(
-              {
-                guidePersonId: g2,
-                startDate: '2026-12-10',
-                endDate: '2026-12-13',
-                reason: '',
-                remark: '',
-              },
-              web2.id,
-            ),
+          leaves.create(
+            {
+              guidePersonId: g2,
+              startDate: '2026-12-10',
+              endDate: '2026-12-13',
+              reason: '',
+              remark: '',
+            },
+            web2.id,
           ),
         ]);
         assert.equal(race.filter((r) => r.status === 'fulfilled').length, 1);
-        const gg = await guide('shared');
+        const gg = await guide();
         const s1 = await fixture(
           web,
           'website',

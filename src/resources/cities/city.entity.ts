@@ -2,7 +2,7 @@ import { Check, Column, Entity, Index, Unique } from 'typeorm';
 import { TopLevelResourceEntity } from '../common/resource.entity';
 @Entity({ name: 'resource_cities' })
 @Unique('UQ_resource_cities_code', ['code'])
-@Index('UQ_resource_cities_name', ['library', 'name'], {
+@Index('UQ_resource_cities_name', ['name'], {
   unique: true,
   where: '"deleted_at" IS NULL',
 })

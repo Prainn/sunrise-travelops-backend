@@ -3,13 +3,12 @@ import { ResourceStatus } from '../common/resource.constants';
 import { VersionedResourceEntity } from '../common/resource.entity';
 
 @Entity({ name: 'resource_flights' })
-@Index('IDX_resource_flights_library_status', ['library', 'status'], {
+@Index('IDX_resource_flights_status', ['status'], {
   where: '"deleted_at" IS NULL',
 })
 @Index(
   'UQ_resource_flights_schedule',
   [
-    'library',
     'departureCity',
     'arrivalCity',
     'flightNumber',
@@ -25,7 +24,6 @@ import { VersionedResourceEntity } from '../common/resource.entity';
 @Index(
   'UQ_resource_flights_airport_schedule',
   [
-    'library',
     'departureAirportId',
     'arrivalAirportId',
     'flightNumber',
@@ -49,7 +47,6 @@ import { VersionedResourceEntity } from '../common/resource.entity';
   `"departure_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' AND "arrival_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
 )
 export class FlightEntity extends VersionedResourceEntity {
-  @Column({ type: 'text' }) library: 'shengxu' | 'shared';
   @Column({ name: 'departure_city', type: 'varchar', length: 150 })
   departureCity: string;
   @Column({ name: 'arrival_city', type: 'varchar', length: 150 })

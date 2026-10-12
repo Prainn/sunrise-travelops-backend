@@ -1,4 +1,3 @@
-import { scopeResources } from '../common/resource-scope';
 import { Injectable, HttpStatus } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -22,15 +21,12 @@ export class SelectionService {
   private query(kind: Kind) {
     const entity =
       kind === 'restaurant' ? RestaurantPriceEntity : AttractionPriceEntity;
-    return scopeResources(
-      this.dataSource
-        .getRepository<RestaurantPriceEntity | AttractionPriceEntity>(entity)
-        .createQueryBuilder('price')
-        .innerJoin(`price.${kind}`, 'resource')
-        .where('resource.status = :status', { status: 'enabled' })
-        .andWhere('resource.deletedAt IS NULL'),
-      'resource',
-    );
+    return this.dataSource
+      .getRepository<RestaurantPriceEntity | AttractionPriceEntity>(entity)
+      .createQueryBuilder('price')
+      .innerJoin(`price.${kind}`, 'resource')
+      .where('resource.status = :status', { status: 'enabled' })
+      .andWhere('resource.deletedAt IS NULL');
   }
   async list(kind: Kind, query: SelectionQuery) {
     const city = kind === 'restaurant' ? 'city' : 'area';
@@ -80,7 +76,6 @@ export class SelectionService {
       .getRepository(entity)
       .createQueryBuilder('resource')
       .where('resource.status = :status', { status: 'enabled' });
-    scopeResources(qb, 'resource');
     if (query.keyword?.trim())
       qb.andWhere('resource.name ILIKE :keyword', {
         keyword: `%${query.keyword.trim()}%`,

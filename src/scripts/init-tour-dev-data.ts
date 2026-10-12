@@ -71,7 +71,6 @@ type Item = {
 };
 type Flight = {
   id: string;
-  library: string;
   flightNumber: string;
   departureCity: string;
   arrivalCity: string;
@@ -80,7 +79,7 @@ type Flight = {
   departureAirportId: string | null;
   arrivalAirportId: string | null;
 };
-const flightSelect = `id, library, flight_number AS "flightNumber", departure_city AS "departureCity", arrival_city AS "arrivalCity", departure_time AS "departureTime", arrival_time AS "arrivalTime", departure_airport_id AS "departureAirportId", arrival_airport_id AS "arrivalAirportId"`;
+const flightSelect = `id, flight_number AS "flightNumber", departure_city AS "departureCity", arrival_city AS "arrivalCity", departure_time AS "departureTime", arrival_time AS "arrivalTime", departure_airport_id AS "departureAirportId", arrival_airport_id AS "arrivalAirportId"`;
 
 export async function tourDataPreflight(m: EntityManager) {
   return {
@@ -99,7 +98,7 @@ export async function tourDataPreflight(m: EntityManager) {
       `SELECT u.id,i.scope,i.username,u.english_name AS "englishName",u.tour_code AS "tourCode" FROM users u JOIN user_identities i ON i.user_id=u.id WHERE u.deleted_at IS NULL ORDER BY i.scope,i.username`,
     ),
     flights: await m.query<Flight[]>(
-      `SELECT ${flightSelect} FROM resource_flights WHERE deleted_at IS NULL ORDER BY library,flight_number,id`,
+      `SELECT ${flightSelect} FROM resource_flights WHERE deleted_at IS NULL ORDER BY flight_number,id`,
     ),
     agencies: await m.query<{ id: string; countryOrRegion: string }[]>(
       `SELECT id,country_or_region AS "countryOrRegion" FROM resource_agencies WHERE country_item_id IS NULL AND deleted_at IS NULL ORDER BY id`,

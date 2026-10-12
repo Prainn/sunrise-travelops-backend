@@ -29,7 +29,7 @@ import {
   'CHK_resource_attractions_category',
   "\"category\" IN ('scenic', 'performance', 'experience', 'transport', 'package')",
 )
-@Index('UQ_resource_attractions_standard_city', ['library', 'area'], {
+@Index('UQ_resource_attractions_standard_city', ['area'], {
   unique: true,
   where: '"deleted_at" IS NULL AND "is_standard_price"',
 })

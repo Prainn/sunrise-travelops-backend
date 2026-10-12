@@ -3,7 +3,6 @@ import { DataSource } from 'typeorm';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { PageResult } from '../common/types/page-result';
-import { resourceLibrary } from '../resources/common/resource-scope';
 import { LeaveInputDto, LeaveQueryDto, UpdateLeaveDto } from './tour.dto';
 
 type Row = Record<string, unknown>;
@@ -15,7 +14,7 @@ const fail = (code: string, message: string, status: HttpStatus): never => {
     status,
   });
 };
-const SELECT = `l.id, g.library, l.guide_person_id AS "guidePersonId", g.name AS "guideName", g.code AS "guideCode",
+const SELECT = `l.id, l.guide_person_id AS "guidePersonId", g.name AS "guideName", g.code AS "guideCode",
   l.start_date::text AS "startDate", l.end_date::text AS "endDate", l.reason, l.remark, l.version,
   l.created_at AS "createdAt", l.updated_at AS "updatedAt", l.created_by AS "createdBy", l.updated_by AS "updatedBy"`;
 const FROM = `resource_guide_leaves l JOIN resource_guide_people g ON g.id = l.guide_person_id`;
@@ -25,10 +24,8 @@ export class GuideLeavesService {
   constructor(private readonly db: DataSource) {}
 
   async list(query: LeaveQueryDto): Promise<PageResult<Row>> {
-    const library = resourceLibrary();
     const params: unknown[] = [];
     let where = 'WHERE l.deleted_at IS NULL AND g.deleted_at IS NULL';
-    if (library) where += ` AND g.library = $${params.push(library)}`;
     if (query.guidePersonId)
       where += ` AND l.guide_person_id = $${params.push(query.guidePersonId)}`;
     if (query.from) where += ` AND l.end_date >= $${params.push(query.from)}`;
@@ -63,10 +60,9 @@ export class GuideLeavesService {
         '开始日期不能晚于结束日期',
         HttpStatus.BAD_REQUEST,
       );
-    const library = resourceLibrary(true);
     const guide = await manager.query<unknown[]>(
-      `SELECT id FROM resource_guide_people WHERE id = $1 AND library = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [input.guidePersonId, library],
+      `SELECT id FROM resource_guide_people WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [input.guidePersonId],
     );
     if (!guide.length)
       fail(ErrorCode.RESOURCE_NOT_FOUND, '导游不存在', HttpStatus.NOT_FOUND);
@@ -149,13 +145,12 @@ export class GuideLeavesService {
   }
 
   async delete(ids: string[], actorId: string): Promise<void> {
-    const library = resourceLibrary(true);
     const uniqueIds = [...new Set(ids)];
     await this.db.transaction(async (m) => {
       const rows = await m.query<Row[]>(
         `SELECT l.id FROM ${FROM} WHERE l.id = ANY($1::uuid[]) AND l.deleted_at IS NULL
-          AND g.deleted_at IS NULL AND g.library = $2 FOR UPDATE OF l`,
-        [uniqueIds, library],
+          AND g.deleted_at IS NULL FOR UPDATE OF l`,
+        [uniqueIds],
       );
       if (rows.length !== uniqueIds.length)
         fail(
@@ -172,10 +167,9 @@ export class GuideLeavesService {
   }
 
   async get(id: string): Promise<Row> {
-    const library = resourceLibrary();
     const rows = await this.db.query<Row[]>(
-      `SELECT ${SELECT} FROM ${FROM} WHERE l.id = $1 AND l.deleted_at IS NULL AND g.deleted_at IS NULL AND ($2::text IS NULL OR g.library = $2)`,
-      [id, library],
+      `SELECT ${SELECT} FROM ${FROM} WHERE l.id = $1 AND l.deleted_at IS NULL AND g.deleted_at IS NULL`,
+      [id],
     );
     return (
       rows[0] ??

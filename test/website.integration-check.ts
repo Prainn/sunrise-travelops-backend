@@ -119,7 +119,8 @@ async function main() {
           (migration.name ?? migration.constructor.name) !==
             flightConstraintMigrationName &&
           (migration.name ?? migration.constructor.name) !==
-            templateNameMigrationName,
+            templateNameMigrationName &&
+          migration.name !== 'UnifyResourceLibrary1791619200000',
       ),
     );
     await db.runMigrations();
@@ -228,16 +229,12 @@ async function main() {
     const contactId = randomUUID();
     const hotelId = randomUUID();
     const vehicleId = randomUUID();
-    const sharedCityId = randomUUID();
-    const shengxuCityId = randomUUID();
-    await db.query(
-      `INSERT INTO resource_cities(id,library,code,name) VALUES
-       ($1,'shared','CITY-901','昆明'),($2,'shengxu','CITY-902','盛旭测试城市')`,
-      [sharedCityId, shengxuCityId],
+    const [{ id: publicCityId }] = await db.query<{ id: string }[]>(
+      `SELECT id FROM resource_cities WHERE name='昆明' AND library='shengxu' AND deleted_at IS NULL`,
     );
     await db.query(
-      `INSERT INTO resource_agencies(id,library,code,name,business_unit,coordinator_id)
-       VALUES($1,'shared','AGY-901','霖熹既有旅行社','linxi',$2)`,
+      `INSERT INTO resource_agencies(id,code,name,business_unit,coordinator_id,library)
+       VALUES($1,'AGY-901','霖熹既有旅行社','linxi',$2,'shengxu')`,
       [agencyId, linxi.id],
     );
     await db.query(
@@ -246,13 +243,13 @@ async function main() {
       [contactId, agencyId],
     );
     await db.query(
-      `INSERT INTO resource_hotels(id,library,code,name,city,rating,individual_price,unit,breakfast)
-       VALUES($1,'shared','HTL-901','既有霖熹酒店','昆明','international_five_star',500,'roomNight','早餐')`,
+      `INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit,breakfast,library)
+       VALUES($1,'HTL-901','既有霖熹酒店','昆明','international_five_star',500,'roomNight','早餐','shengxu')`,
       [hotelId],
     );
     await db.query(
-      `INSERT INTO resource_transports(id,library,code,name,seats,service_level,unit)
-       VALUES($1,'shared','VEH-901','既有霖熹车型',7,'standard','vehicleDay')`,
+      `INSERT INTO resource_transports(id,code,name,seats,service_level,unit,library)
+       VALUES($1,'VEH-901','既有霖熹车型',7,'standard','vehicleDay','shengxu')`,
       [vehicleId],
     );
     const resourceValidation = new ResourceValidationService(
@@ -425,7 +422,8 @@ async function main() {
       ...allMigrations.filter(
         (migration) =>
           (migration.name ?? migration.constructor.name) !==
-          templateNameMigrationName,
+            templateNameMigrationName &&
+          migration.name !== 'UnifyResourceLibrary1791619200000',
       ),
     );
     assert.deepEqual(
@@ -465,6 +463,7 @@ async function main() {
     };
     const currentLegacyConfig = {
       ...legacyConfig,
+      hotels: [],
       version: 1002,
       templates: [{ ...legacyConfig.templates[0], id: randomUUID() }],
     };
@@ -521,7 +520,7 @@ async function main() {
     db.migrations.splice(0, db.migrations.length, ...allMigrations);
     assert.deepEqual(
       (await db.runMigrations()).map(({ name }) => name),
-      [templateNameMigrationName],
+      [templateNameMigrationName, 'UnifyResourceLibrary1791619200000'],
     );
     assert.equal((await db.runMigrations()).length, 0);
     const upgradedConfigs = await db.query<Array<{ config: WebsiteConfig }>>(
@@ -529,6 +528,7 @@ async function main() {
     );
     assert.deepEqual(upgradedConfigs[0].config, {
       ...legacyConfig,
+      hotels: [],
       templates: [
         { ...legacyConfig.templates[0], name: 'legacy-arrival' },
         legacyConfig.templates[1],
@@ -536,6 +536,7 @@ async function main() {
     });
     assert.deepEqual(upgradedConfigs[1].config, {
       ...currentLegacyConfig,
+      hotels: [],
       templates: [
         { ...currentLegacyConfig.templates[0], name: 'legacy-arrival' },
       ],
@@ -643,6 +644,9 @@ async function main() {
       }
       const cityId = randomUUID();
       const secondCityId = randomUUID();
+      const configHotelId = randomUUID();
+      const disabledHotelId = randomUUID();
+      const otherCityHotelId = randomUUID();
       const attractionId = randomUUID();
       const componentId = randomUUID();
       const skeletonId = randomUUID();
@@ -667,13 +671,42 @@ async function main() {
       );
       const authoredConfig: WebsiteConfig = {
         version: initialConfig.version,
+        hotels: [
+          {
+            id: configHotelId,
+            cityId,
+            status: 'enabled',
+            nameZh: '配置酒店',
+            nameEn: 'Configured Hotel',
+            resourceId: hotelId,
+            price: '0',
+          },
+          {
+            id: disabledHotelId,
+            cityId,
+            status: 'disabled',
+            nameZh: '停用酒店',
+            nameEn: 'Disabled Hotel',
+            resourceId: null,
+            price: '10.50',
+          },
+          {
+            id: otherCityHotelId,
+            cityId: secondCityId,
+            status: 'enabled',
+            nameZh: '异地酒店',
+            nameEn: 'Other City Hotel',
+            resourceId: null,
+            price: '20.00',
+          },
+        ],
         cities: [
           {
             id: cityId,
             status: 'enabled',
             nameZh: '昆明',
             nameEn: 'Kunming',
-            resourceId: sharedCityId,
+            resourceId: publicCityId,
           },
           {
             id: secondCityId,
@@ -861,8 +894,7 @@ async function main() {
       const websiteCities = await data<{ list: Array<{ id: string }> }>(
         await request('GET', '/website/resources/city', owner),
       );
-      assert(websiteCities.list.some(({ id }) => id === sharedCityId));
-      assert(!websiteCities.list.some(({ id }) => id === shengxuCityId));
+      assert(websiteCities.list.some(({ id }) => id === publicCityId));
       const ownerOptions = await data<Array<{ id: string }>>(
         await request('GET', '/website/owners', owner),
       );
@@ -877,13 +909,13 @@ async function main() {
         new Set(managerOptions.map(({ id }) => id)),
         new Set([owner.id, other.id]),
       );
-      const crossLibrary = structuredClone(config);
-      crossLibrary.cities[0].resourceId = shengxuCityId;
+      const missingCity = structuredClone(config);
+      missingCity.cities[0].resourceId = randomUUID();
       const deniedConfig = await request(
         'PUT',
         '/website/config',
         resource,
-        crossLibrary,
+        missingCity,
       );
       assert(
         deniedConfig.status >= 400 && deniedConfig.status < 500,
@@ -995,6 +1027,7 @@ async function main() {
                   {
                     id: randomUUID(),
                     tier: 'A',
+                    configHotelId: null,
                     cityId,
                     resourceId: null,
                     nameZh: '人工酒店',
@@ -1060,6 +1093,61 @@ async function main() {
         data<WebsitePreview>(
           await request('GET', `/website/itineraries/${id}/preview`, owner),
         );
+      // Config hotels: validate against the selected version on real HTTP saves.
+      for (const selectedId of [
+        randomUUID(),
+        disabledHotelId,
+        otherCityHotelId,
+      ]) {
+        const invalidHotel = planFixture();
+        invalidHotel.days[0].hotels[0].configHotelId = selectedId;
+        const parent = await data<WebsiteInquiry>(
+          await request('GET', `/website/inquiries/${inquiry.id}`, owner),
+        );
+        assert.equal(
+          (
+            await request(
+              'POST',
+              `/website/inquiries/${inquiry.id}/itineraries`,
+              owner,
+              { ...invalidHotel, inquiryVersion: parent.version },
+            )
+          ).status,
+          400,
+        );
+      }
+      const hotelInput = planFixture();
+      Object.assign(hotelInput.days[0].hotels[0], {
+        configHotelId,
+        resourceId: hotelId,
+        nameZh: '配置酒店',
+        nameEn: 'Configured Hotel',
+      });
+      const hotelPlan = await createPlan(hotelInput);
+      assert.equal(hotelPlan.days[0].hotels[0].configHotelId, configHotelId);
+      const hotelRead = await data<WebsiteItinerary>(
+        await request('GET', `/website/itineraries/${hotelPlan.id}`, owner),
+      );
+      assert.equal(hotelRead.days[0].hotels[0].configHotelId, configHotelId);
+      assert.deepEqual(hotelRead.vehiclePrices, hotelInput.vehiclePrices);
+      const hotelCopy = await data<WebsiteItinerary>(
+        await request(
+          'POST',
+          `/website/itineraries/${hotelPlan.id}/copy`,
+          owner,
+          { version: hotelPlan.version },
+        ),
+        201,
+      );
+      assert.equal(hotelCopy.configVersion, hotelPlan.configVersion);
+      assert.equal(hotelCopy.days[0].hotels[0].configHotelId, configHotelId);
+      assert.notEqual(
+        hotelCopy.days[0].hotels[0].id,
+        hotelPlan.days[0].hotels[0].id,
+      );
+      const hotelPreview = await preview(hotelPlan.id);
+      assert(!JSON.stringify(hotelPreview.english).includes('configHotelId'));
+      assert(!JSON.stringify(hotelPreview.english).includes('resourceId'));
       const errorScenarios: Array<
         [string, (plan: WebsiteItineraryInput) => void]
       > = [

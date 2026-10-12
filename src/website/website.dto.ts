@@ -37,6 +37,7 @@ import type {
   WebsiteVehiclePrice,
   WebsiteCity,
   WebsiteAttraction,
+  WebsiteConfigHotel,
   WebsiteRoute,
   WebsitePattern,
   WebsiteSkeleton,
@@ -156,6 +157,10 @@ export class WebsiteHotelDto implements WebsiteHotelStay {
   @IsUUID() id: string;
   @IsIn(['A', 'B']) tier: 'A' | 'B';
   @IsUUID() cityId: string;
+  @IsDefined()
+  @ValidateIf((o: WebsiteHotelDto) => o.configHotelId !== null)
+  @IsUUID()
+  configHotelId: string | null;
   @IsDefined()
   @ValidateIf((o: WebsiteHotelDto) => o.resourceId !== null)
   @IsUUID()
@@ -314,6 +319,22 @@ export class WebsiteAttractionDto
   @Max(12, { each: true })
   recommendedMonths: number[];
 }
+export class WebsiteConfigHotelDto
+  extends ConfigBaseDto
+  implements WebsiteConfigHotel
+{
+  @IsUUID() cityId: string;
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) nameZh: string;
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) nameEn: string;
+  @IsDefined()
+  @ValidateIf((o: WebsiteConfigHotelDto) => o.resourceId !== null)
+  @IsUUID()
+  resourceId: string | null;
+  // Required string so that 0 stays distinct from missing, null and empty.
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  price: string;
+}
 export class WebsiteRouteDto extends ConfigBaseDto implements WebsiteRoute {
   @IsUUID() fromCityId: string;
   @IsUUID() toCityId: string;
@@ -372,6 +393,11 @@ export class WebsiteConfigDto implements WebsiteConfig {
   @ValidateNested({ each: true })
   @Type(() => WebsiteAttractionDto)
   attractions: WebsiteAttractionDto[];
+  @IsArray()
+  @ArrayMaxSize(5000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteConfigHotelDto)
+  hotels: WebsiteConfigHotelDto[];
   @IsArray()
   @ArrayMaxSize(5000)
   @ValidateNested({ each: true })

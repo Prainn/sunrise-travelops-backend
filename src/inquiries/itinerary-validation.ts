@@ -1,4 +1,3 @@
-import { ResourceLibrary } from '../users/user-identity.entity';
 import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -88,7 +87,6 @@ export class ItineraryValidation {
     manager: EntityManager,
     item: ItineraryInput['dailyPlans'][number]['items'][number],
     oldItem: ItineraryInput['dailyPlans'][number]['items'][number] | undefined,
-    library: ResourceLibrary | undefined,
     checkReason: boolean,
   ): Promise<void> {
     if (oldItem)
@@ -118,8 +116,7 @@ export class ItineraryValidation {
         !price ||
         !resource ||
         resource.deletedAt ||
-        resource.status !== ResourceStatus.Enabled ||
-        (library && resource.library !== library)
+        resource.status !== ResourceStatus.Enabled
       )
         invalid(
           isRestaurant
@@ -161,7 +158,6 @@ export class ItineraryValidation {
     input: ItineraryInput,
     previous?: ItineraryInput,
     plannedDays = input.dailyPlans.length,
-    library?: ResourceLibrary,
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
@@ -177,7 +173,7 @@ export class ItineraryValidation {
     );
     if (newCities.length) {
       const cities = await manager.find(CityEntity, {
-        where: { name: In(newCities), library },
+        where: { name: In(newCities) },
       });
       if (
         cities.filter((city) => city.status === ResourceStatus.Enabled)
@@ -268,8 +264,7 @@ export class ItineraryValidation {
           old,
           checkReason,
         );
-      } else
-        await this.validateDailyItem(manager, item, old, library, checkReason);
+      } else await this.validateDailyItem(manager, item, old, checkReason);
       if (
         item.unit === 'table' &&
         !(
@@ -321,8 +316,7 @@ export class ItineraryValidation {
             !hotel ||
             hotel.status !== ResourceStatus.Enabled ||
             hotel.city !== selection.destination ||
-            hotel.rating !== rating ||
-            (library && hotel.library !== library)
+            hotel.rating !== rating
           )
             invalid('Hotel does not match city or tier');
           const groupRate = selection.referenceBasis === 'hotel_group';
@@ -409,8 +403,7 @@ export class ItineraryValidation {
           if (
             !resource ||
             resource.status !== ResourceStatus.Enabled ||
-            resource.serviceLevel !== group.tier ||
-            (library && resource.library !== library)
+            resource.serviceLevel !== group.tier
           )
             invalid('Invalid vehicle');
           Object.assign(vehicle, {
@@ -479,11 +472,7 @@ export class ItineraryValidation {
         const resource = await manager.findOneBy(GuideEntity, {
           id: guide.guideId,
         });
-        if (
-          !resource ||
-          resource.status !== ResourceStatus.Enabled ||
-          (library && resource.library !== library)
-        )
+        if (!resource || resource.status !== ResourceStatus.Enabled)
           invalid('Invalid guide');
         Object.assign(guide, {
           guideName: resource.name,
@@ -703,42 +692,5 @@ export class ItineraryValidation {
         status: HttpStatus.BAD_REQUEST,
         details: { issues },
       });
-  }
-}
-
-export async function assertItineraryLibrary(
-  manager: EntityManager,
-  plan: ItineraryInput,
-  library: ResourceLibrary,
-) {
-  const references = [
-    {
-      entity: HotelEntity,
-      ids: plan.hotelPlans.flatMap((p) => p.hotels.map((h) => h.hotelId)),
-    },
-    { entity: GuideEntity, ids: plan.guidePlans.map((g) => g.guideId) },
-    {
-      entity: TransportEntity,
-      ids: plan.vehiclePlans.flatMap((p) =>
-        p.arrangements.flatMap((a) => a.vehicles.map((v) => v.vehicleId)),
-      ),
-    },
-  ];
-  for (const reference of references) {
-    const ids = [...new Set(reference.ids)];
-    if (!ids.length) continue;
-    const rows = await manager
-      .getRepository(reference.entity)
-      .find({ where: { id: In(ids), library }, withDeleted: true });
-    if (rows.length !== ids.length) invalid('Resource outside inquiry library');
-  }
-  for (const item of plan.dailyPlans.flatMap((d) => d.items)) {
-    if (item.resourceId === null && item.type === 'restaurant') continue;
-    const kind = item.type === 'restaurant' ? 'restaurants' : 'attractions';
-    const parent = await manager.query<Array<{ id: string }>>(
-      `SELECT id FROM resource_${kind} WHERE id=$1 AND library=$2`,
-      [item.resourceId, library],
-    );
-    if (!parent.length) invalid('Resource outside inquiry library');
   }
 }

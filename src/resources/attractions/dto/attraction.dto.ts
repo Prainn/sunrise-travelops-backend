@@ -94,7 +94,6 @@ export class AttractionPriceResponse implements ResourceAuditResponse {
   priceNote: string;
 }
 export class AttractionListItemResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

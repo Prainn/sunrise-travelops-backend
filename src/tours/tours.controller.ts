@@ -8,7 +8,6 @@ import {
   Post,
   Put,
   Query,
-  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -16,7 +15,6 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../resources/common/resource.dto';
-import { ResourceScopeInterceptor } from '../resources/common/resource-scope';
 import { GuideLeavesService } from './guide-leaves.service';
 import {
   CancelTourDto,
@@ -142,7 +140,6 @@ export class ToursController {
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/guide-leaves')
 export class GuideLeavesController {
   constructor(private readonly service: GuideLeavesService) {}

@@ -1,4 +1,4 @@
-import { LoginScope, ResourceLibrary } from '../users/user-identity.entity';
+import { LoginScope } from '../users/user-identity.entity';
 export interface AuthenticatedUser {
   id: string;
   username: string;
@@ -10,7 +10,6 @@ export interface AuthenticatedUser {
   deptId: number | null;
   deptName: string;
   roles: string[];
-  resourceLibrary: ResourceLibrary | null;
 }
 
 export interface JwtPayload {

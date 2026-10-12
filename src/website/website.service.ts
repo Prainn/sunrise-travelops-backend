@@ -210,6 +210,17 @@ export class WebsiteService {
             ]
           : [],
       ),
+      ...config.hotels.flatMap((h) =>
+        h.resourceId
+          ? [
+              {
+                key: `hotel:${h.id}:${h.resourceId}`,
+                kind: 'hotel' as const,
+                id: h.resourceId,
+              },
+            ]
+          : [],
+      ),
       ...config.attractions.flatMap((a) =>
         a.resourceId
           ? [
@@ -247,6 +258,7 @@ export class WebsiteService {
       attractions: config.attractions.filter((attraction) =>
         attractionIds.has(attraction.id),
       ),
+      hotels: [],
     });
     return [
       ...refs,
@@ -287,16 +299,15 @@ export class WebsiteService {
       const selected = refs.filter((r) => r.kind === kind);
       if (!selected.length) continue;
       const rows = await manager.query<
-        { id: string; library: string; status: string; deleted: boolean }[]
+        { id: string; status: string; deleted: boolean }[]
       >(
-        `SELECT id,library,status,deleted_at IS NOT NULL AS deleted FROM ${resourceTables[kind]} WHERE id=ANY($1::uuid[])${manager.queryRunner?.isTransactionActive ? ' FOR SHARE' : ''}`,
+        `SELECT id,status,deleted_at IS NOT NULL AS deleted FROM ${resourceTables[kind]} WHERE id=ANY($1::uuid[])${manager.queryRunner?.isTransactionActive ? ' FOR SHARE' : ''}`,
         [[...new Set(selected.map((r) => r.id))]],
       );
       for (const ref of selected) {
         const row = rows.find((r) => r.id === ref.id);
         if (
           !row ||
-          row.library !== 'shared' ||
           row.deleted ||
           (oldRefs !== undefined &&
             !retained.has(ref.key) &&
@@ -720,7 +731,29 @@ export class WebsiteService {
         duplicate(day.meals.map((m) => m.slot))
       )
         invalid('一天内酒店档次或餐食时段不能重复');
-      day.hotels.forEach((h) => city(h.cityId));
+      day.hotels.forEach((hotel) => {
+        city(hotel.cityId);
+        if (!hotel.configHotelId) return;
+        const configured = config.hotels.find(
+          (h) => h.id === hotel.configHotelId,
+        );
+        const retained =
+          old?.configVersion === input.configVersion &&
+          old.days.some((d) =>
+            d.hotels.some(
+              (h) =>
+                h.id === hotel.id && h.configHotelId === hotel.configHotelId,
+            ),
+          );
+        if (
+          !configured ||
+          configured.cityId !== hotel.cityId ||
+          (!retained && configured.status !== 'enabled')
+        )
+          invalid('所选独立站酒店不可用或与住宿城市不一致', {
+            configHotelId: hotel.configHotelId,
+          });
+      });
       day.legs.forEach((leg) => {
         city(leg.fromCityId);
         city(leg.toCityId);
@@ -1150,7 +1183,7 @@ export class WebsiteService {
       ? ` AND (name ILIKE $1 OR code ILIKE $1)`
       : '';
     const params: unknown[] = query.keyword ? [`%${query.keyword}%`] : [];
-    const where = ` WHERE library='shared' AND deleted_at IS NULL AND status='enabled'${keyword}`;
+    const where = ` WHERE deleted_at IS NULL AND status='enabled'${keyword}`;
     const count = await this.db.manager.query<{ total: string }[]>(
       `SELECT count(*)::text AS total FROM ${table}${where}`,
       params,

@@ -1,8 +1,3 @@
-import {
-  assertResourceLibrary,
-  resourceLibrary,
-  scopeResources,
-} from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -66,7 +61,6 @@ export class AttractionsService {
       .addOrderBy('attraction.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'attraction');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -108,11 +102,7 @@ export class AttractionsService {
     input: CreateAttractionDto,
     actorId: string,
   ): Promise<AttractionDetailResponse> {
-    await this.validation.validateCity(
-      input.area,
-      undefined,
-      resourceLibrary(true)!,
-    );
+    await this.validation.validateCity(input.area, undefined);
     await this.validation.validateUnit(input.unit, 'attraction');
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AttractionEntity);
@@ -124,7 +114,6 @@ export class AttractionsService {
           ...input,
           description: input.description ?? '',
           code,
-          library: resourceLibrary(true)!,
           prices: [],
           createdBy: actorId,
           updatedBy: actorId,
@@ -148,11 +137,7 @@ export class AttractionsService {
         ErrorCode.ATTRACTION_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      await this.validation.validateCity(
-        input.area,
-        entity.area,
-        entity.library,
-      );
+      await this.validation.validateCity(input.area, entity.area);
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
@@ -328,7 +313,6 @@ export class AttractionsService {
   private toListResponse(entity: AttractionEntity): AttractionListItemResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       code: entity.code,
       name: entity.name,
       area: entity.area,
@@ -348,7 +332,6 @@ export class AttractionsService {
     entity: AttractionEntity,
     prices: AttractionPriceEntity[],
   ): AttractionDetailResponse {
-    assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity),
       priceCount: prices.length,

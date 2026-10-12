@@ -21,12 +21,15 @@ import {
 export class AgencyQueryDto extends ResourceQueryDto {
   @IsOptional() @IsIn(['true', 'false']) parentOnly?: string;
   @IsOptional() @IsUUID('all') parentId?: string;
+  // Inquiry selection only: agencies bound to this business unit's coordinators.
+  @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
+    'shengxu' | 'linxi' | 'website';
 }
 
 export class CreateAgencyDto extends ResourceInputDto {
   @IsOptional() @IsUUID('all') parentId?: string | null;
-  @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
-    'shengxu' | 'linxi' | 'website';
+  @IsIn(['shengxu', 'linxi', 'website'])
+  businessUnit: 'shengxu' | 'linxi' | 'website';
   @IsUUID() coordinatorId: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
   @IsOptional() @IsUUID() countryItemId?: string | null;
@@ -75,7 +78,6 @@ export class AgencyListItemResponse implements ResourceAuditResponse {
   businessUnit: 'shengxu' | 'linxi' | 'website' | null;
   coordinatorId: string | null;
   coordinatorName: string | null;
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

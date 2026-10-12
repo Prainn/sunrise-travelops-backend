@@ -63,7 +63,6 @@ export class RestaurantPriceResponse implements ResourceAuditResponse {
   remark: string;
 }
 export class RestaurantListItemResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

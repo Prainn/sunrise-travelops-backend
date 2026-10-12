@@ -1,4 +1,3 @@
-import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -46,7 +45,6 @@ export class TransportsService {
       .addOrderBy('transport.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'transport');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -87,7 +85,6 @@ export class TransportsService {
         this.transports.create({
           ...input,
           code,
-          library: resourceLibrary(true)!,
           createdBy: actorId,
           updatedBy: actorId,
         }),
@@ -139,7 +136,6 @@ export class TransportsService {
   private toResponse(entity: TransportEntity): TransportResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       code: entity.code,
       name: entity.name,
       serviceLevel: entity.serviceLevel,

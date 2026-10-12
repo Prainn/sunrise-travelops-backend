@@ -1,5 +1,3 @@
-import { UseInterceptors } from '@nestjs/common';
-import { ResourceScopeInterceptor } from '../common/resource-scope';
 import {
   Body,
   Controller,
@@ -38,7 +36,6 @@ import { CitiesService } from './cities.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/cities')
 export class CitiesController {
   constructor(private readonly service: CitiesService) {}

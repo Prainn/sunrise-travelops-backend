@@ -14,7 +14,6 @@ import {
   requireResourceForUpdate,
   requireResources,
 } from '../common/resource-service.helpers';
-import { resourceLibrary, scopeResources } from '../common/resource-scope';
 import {
   CreateGuidePersonDto,
   GuidePersonQueryDto,
@@ -46,7 +45,6 @@ export class GuidePeopleService {
       .addOrderBy('person.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'person');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -85,7 +83,6 @@ export class GuidePeopleService {
       const code = `GPR-${String(sequence).padStart(3, '0')}`;
       const entity = repository.create({
         ...input,
-        library: resourceLibrary(true) ?? undefined,
         code,
         gender: input.gender ?? 0,
         age: input.age ?? null,
@@ -119,7 +116,6 @@ export class GuidePeopleService {
       assertVersion(entity.version, input.version);
       Object.assign(entity, input, {
         id,
-        library: entity.library,
         code: entity.code,
         gender: input.gender ?? 0,
         age: input.age === undefined ? entity.age : input.age,
@@ -179,7 +175,6 @@ export class GuidePeopleService {
   private toResponse(entity: GuidePersonEntity): GuidePersonResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       code: entity.code,
       name: entity.name,
       gender: entity.gender,

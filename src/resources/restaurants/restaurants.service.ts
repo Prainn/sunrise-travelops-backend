@@ -1,8 +1,3 @@
-import {
-  assertResourceLibrary,
-  resourceLibrary,
-  scopeResources,
-} from '../common/resource-scope';
 import { nextBusinessCode } from '../../common/business-code';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -66,7 +61,6 @@ export class RestaurantsService {
       .addOrderBy('restaurant.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'restaurant');
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
@@ -104,11 +98,7 @@ export class RestaurantsService {
     input: CreateRestaurantDto,
     actorId: string,
   ): Promise<RestaurantDetailResponse> {
-    await this.validation.validateCity(
-      input.city,
-      undefined,
-      resourceLibrary(true)!,
-    );
+    await this.validation.validateCity(input.city, undefined);
     await this.validation.validateUnit(input.unit, 'restaurant');
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(RestaurantEntity);
@@ -120,7 +110,6 @@ export class RestaurantsService {
           ...input,
           description: input.description ?? '',
           code,
-          library: resourceLibrary(true)!,
           prices: [],
           createdBy: actorId,
           updatedBy: actorId,
@@ -144,11 +133,7 @@ export class RestaurantsService {
         ErrorCode.RESTAURANT_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      await this.validation.validateCity(
-        input.city,
-        entity.city,
-        entity.library,
-      );
+      await this.validation.validateCity(input.city, entity.city);
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
@@ -301,7 +286,6 @@ export class RestaurantsService {
   private toListResponse(entity: RestaurantEntity): RestaurantListItemResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       code: entity.code,
       name: entity.name,
       city: entity.city,
@@ -323,7 +307,6 @@ export class RestaurantsService {
     entity: RestaurantEntity,
     prices: RestaurantPriceEntity[],
   ): RestaurantDetailResponse {
-    assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity),
       priceCount: prices.length,

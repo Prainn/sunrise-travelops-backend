@@ -32,7 +32,6 @@ export class UpdateTransportDto extends CreateTransportDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class TransportResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

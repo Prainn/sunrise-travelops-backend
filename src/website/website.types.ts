@@ -30,6 +30,15 @@ export interface WebsiteAttraction extends ConfigBase {
   copyKey: string;
   recommendedMonths: number[];
 }
+export interface WebsiteConfigHotel extends ConfigBase {
+  cityId: string;
+  nameZh: string;
+  nameEn: string;
+  // Public hotel reference; null for hotels maintained only by the website.
+  resourceId: string | null;
+  // Website price in CNY per room per night; "0" is a valid explicit value.
+  price: string;
+}
 export interface WebsiteRoute extends ConfigBase {
   fromCityId: string;
   toCityId: string;
@@ -59,6 +68,7 @@ export interface WebsiteConfig {
   version: number;
   cities: WebsiteCity[];
   attractions: WebsiteAttraction[];
+  hotels: WebsiteConfigHotel[];
   routes: WebsiteRoute[];
   patterns: WebsitePattern[];
   skeletons: WebsiteSkeleton[];
@@ -118,6 +128,8 @@ export interface WebsiteHotelStay {
   id: string;
   tier: 'A' | 'B';
   cityId: string;
+  // Website configuration hotel; distinct from the public hotel resourceId.
+  configHotelId: string | null;
   resourceId: string | null;
   nameZh: string;
   nameEn: string;

@@ -41,8 +41,6 @@ import { BusinessDictionaryTypeEntity } from '../src/system/business-dictionarie
 import { BusinessDictionaryItemEntity } from '../src/system/business-dictionaries/business-dictionary-item.entity';
 import { CityEntity } from '../src/resources/cities/city.entity';
 import { CitiesService } from '../src/resources/cities/cities.service';
-import { SelectionService } from '../src/resources/selections/selection.service';
-import { withResourceScope } from '../src/resources/common/resource-scope';
 import { AuthenticatedUser } from '../src/auth/auth.types';
 import type { Request } from 'express';
 const connection = {
@@ -201,8 +199,8 @@ async function main() {
       await empty.query("SELECT name FROM roles WHERE code='ADMIN'"),
       [{ name: '系统管理部' }],
     );
-    await empty.query(`INSERT INTO resource_guide_people(library,code,name)
-      VALUES ('shengxu','GPR-OLD','旧导游档案')`);
+    await empty.query(`INSERT INTO resource_guide_people(code,name,library)
+      VALUES ('GPR-OLD','旧导游档案','shengxu')`);
     empty.migrations.splice(0, empty.migrations.length, ...migrations);
     assert(
       (await empty.runMigrations()).some(
@@ -1150,32 +1148,17 @@ async function main() {
     assert.equal(transferred.businessUnit, 'shengxu');
     const cities = new CitiesService(db.getRepository(CityEntity), db);
     const lxActor = await current(lx.id, 'linxi');
-    await withResourceScope(root, 'shared', () =>
+    await assert.rejects(
       cities.create(
         { name: '昆明', province: '云南', status: 'enabled' as never },
         root.id,
       ),
     );
-    const shared = await withResourceScope(lxActor, null, () =>
-      cities.options(),
-    );
-    assert.equal(shared.length, 1);
-    assert.equal(shared[0].library, 'shared');
-    assert.match(shared[0].code, /^CITY-\d+$/);
-    const selection = new SelectionService(db);
-    assert.equal(
-      (
-        await withResourceScope(lxActor, null, () =>
-          selection.resources('hotels', { page: 1, pageSize: 20 }),
-        )
-      ).total,
-      0,
-    );
+    const publicCities = await cities.options();
+    assert(publicCities.some((city) => city.name === '昆明'));
+    assert(publicCities.every((city) => /^CITY-\d+$/.test(city.code)));
     await assert.rejects(
-      withResourceScope(lxActor, null, () => agencies.get(ids.agency)),
-    );
-    await assert.rejects(
-      validation.normalize(db.manager, editablePlan, undefined, 3, 'shared'),
+      validation.normalize(db.manager, editablePlan, undefined, 3),
     );
     for (const day of editablePlan.dailyPlans)
       for (const item of day.items)
@@ -1202,14 +1185,13 @@ async function main() {
       },
       undefined,
       3,
-      'shengxu',
     );
     assert.equal(normalized.hotelPlans[0].hotels[0].referencePrice, 900);
     const priceChange = structuredClone(normalized);
     priceChange.hotelPlans[0].hotels[0].unitCost = 950;
     priceChange.hotelPlans[0].hotels[0].referencePrice = 950;
     await assert.rejects(
-      validation.normalize(db.manager, priceChange, normalized, 3, 'shengxu'),
+      validation.normalize(db.manager, priceChange, normalized, 3),
     );
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '旺季价格';
     const adjusted = await validation.normalize(
@@ -1217,25 +1199,17 @@ async function main() {
       priceChange,
       normalized,
       3,
-      'shengxu',
     );
     assert.equal(adjusted.hotelPlans[0].hotels[0].referencePrice, 900);
     priceChange.hotelPlans[0].hotels[0].unitCost = 900;
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '';
     await assert.rejects(
-      validation.normalize(db.manager, priceChange, adjusted, 3, 'shengxu'),
+      validation.normalize(db.manager, priceChange, adjusted, 3),
     );
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '恢复参考价';
     assert.equal(
-      (
-        await validation.normalize(
-          db.manager,
-          priceChange,
-          adjusted,
-          3,
-          'shengxu',
-        )
-      ).hotelPlans[0].hotels[0].unitCost,
+      (await validation.normalize(db.manager, priceChange, adjusted, 3))
+        .hotelPlans[0].hotels[0].unitCost,
       900,
     );
     // Exercise both daily resource price queries and preserve their snapshots/errors.
@@ -1244,8 +1218,8 @@ async function main() {
     const attractionId = randomUUID();
     const attractionPriceId = randomUUID();
     await db.query(
-      `INSERT INTO resource_restaurants(id,library,code,name,city,unit)
-       VALUES ($1,'shengxu','RES-901','验证餐厅','昆明','table')`,
+      `INSERT INTO resource_restaurants(id,code,name,city,unit)
+       VALUES ($1,'RES-901','验证餐厅','昆明','table')`,
       [restaurantId],
     );
     await db.query(
@@ -1254,8 +1228,8 @@ async function main() {
       [restaurantPriceId, restaurantId],
     );
     await db.query(
-      `INSERT INTO resource_attractions(id,library,code,name,area,category,unit)
-       VALUES ($1,'shengxu','ATT-901','验证景点','昆明','scenic','person')`,
+      `INSERT INTO resource_attractions(id,code,name,area,category,unit)
+       VALUES ($1,'ATT-901','验证景点','昆明','scenic','person')`,
       [attractionId],
     );
     await db.query(
@@ -1320,17 +1294,8 @@ async function main() {
       const validateResource = (
         input = resourceInput,
         previous = dailyResourcePlan,
-        library: 'shengxu' | 'shared' = 'shengxu',
         checkReason = true,
-      ) =>
-        validation.normalize(
-          db.manager,
-          input,
-          previous,
-          3,
-          library,
-          checkReason,
-        );
+      ) => validation.normalize(db.manager, input, previous, 3, checkReason);
       const validated = await validateResource();
       const item = validated.dailyPlans[0].items[0];
       assert.equal(item.resourceName, resource.resourceName);
@@ -1344,10 +1309,6 @@ async function main() {
       const wrongParent = structuredClone(resourceInput);
       wrongParent.dailyPlans[0].items[0].resourceId = randomUUID();
       await assert.rejects(validateResource(wrongParent), error);
-      await assert.rejects(
-        validateResource(resourceInput, dailyResourcePlan, 'shared'),
-        error,
-      );
       const repriced = structuredClone(resourceInput);
       repriced.dailyPlans[0].items[0].unitCost += 1;
       await assert.rejects(validateResource(repriced), {
@@ -1355,7 +1316,7 @@ async function main() {
         message: '调整价格必须填写本次原因',
       });
       assert.equal(
-        (await validateResource(repriced, dailyResourcePlan, 'shengxu', false))
+        (await validateResource(repriced, dailyResourcePlan, false))
           .dailyPlans[0].items[0].unitCost,
         resource.unitCost + 1,
       );
@@ -1528,7 +1489,6 @@ async function main() {
         0,
       );
       const personInput = {
-        library: 'shengxu',
         name: '测试导游',
         age: 36,
         contact: '微信: guide-01',
@@ -1586,7 +1546,6 @@ async function main() {
         '/resources/guide-people',
         root,
         {
-          library: 'shengxu',
           name: '测试导游',
           certificateNo: '',
           status: 'enabled',
@@ -1707,28 +1666,12 @@ async function main() {
             websiteResources,
           )
         ).status,
-        403,
+        200,
       );
       assert.equal(
-        (
-          await request(
-            'GET',
-            '/resources/guide-people?library=shengxu',
-            websiteResources,
-          )
-        ).status,
-        403,
-      );
-      assert.equal(
-        (
-          await request(
-            'POST',
-            '/resources/guide-people',
-            websiteResources,
-            personInput,
-          )
-        ).status,
-        403,
+        (await request('GET', '/resources/guide-people', websiteResources))
+          .status,
+        200,
       );
       assert.equal(
         (
@@ -1835,42 +1778,41 @@ async function main() {
       ])
         assert.equal(
           (await request('GET', path, websiteResources)).status,
-          403,
+          200,
           path,
         );
       assert.equal(
-        (
-          await request(
-            'GET',
-            '/resources/selections/hotels?library=shengxu',
-            websiteResources,
-          )
-        ).status,
-        403,
+        (await request('GET', '/resources/selections/hotels', websiteResources))
+          .status,
+        200,
       );
       assert.equal(
-        (
-          await httpData<{ total: number }>(
-            await request('GET', '/resources/hotels', websiteResources),
-          )
-        ).total,
-        0,
+        (await request('GET', '/resources/hotels', websiteResources)).status,
+        200,
       );
       const sameCities = await httpData<Array<{ id: string }>>(
         await request('GET', '/resources/cities/options', websiteResources),
       );
-      assert.equal(sameCities[0].id, shared[0].id);
+      assert.equal(
+        sameCities
+          .map((c) => c.id)
+          .sort()
+          .join(),
+        publicCities
+          .map((c) => c.id)
+          .sort()
+          .join(),
+      );
       const sharedAgencyResponse = await request(
         'POST',
         '/resources/agencies',
         root,
         {
-          library: 'shared',
           businessUnit: 'linxi',
           coordinatorId: lx.id,
           name: '共享旅行社',
           city: '昆明',
-          countryOrRegion: '',
+          countryItemId: null,
           email: '',
           status: 'enabled',
           remark: '',
@@ -1910,6 +1852,10 @@ async function main() {
       const sharedContact = (
         (await contactResponse.json()) as { data: { id: string } }
       ).data;
+      const [country] = await db.query<{ id: string }[]>(
+        `INSERT INTO system_business_dictionary_items(type_id,code,name,english_name)
+         SELECT id,'CHN','中国','China' FROM system_business_dictionary_types WHERE code='country-region' RETURNING id`,
+      );
       const sharedInquiryResponse = await request(
         'POST',
         '/inquiries',
@@ -1919,6 +1865,7 @@ async function main() {
           contactId: sharedContact.id,
           sourceChannel: 'Email',
           originalMessage: '共享资源，询盘独立',
+          countryItemId: country.id,
           plannedDays: 3,
           internalRemark: '',
           lostReason: '',

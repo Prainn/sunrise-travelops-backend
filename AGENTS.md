@@ -34,7 +34,7 @@
 
 - `/api`；普通成功由 `ResponseInterceptor` 包装 `{ code: "SUCCESS", message: "success", data }`，不在 Service/Controller 再包一层。204 无 body，文件和 health 成功响应有显式例外。
 - `ApiExceptionFilter` 输出 `{ code, message, data: null, details, timestamp, path, requestId? }`；业务拒绝用 `BusinessException` 和现有 ErrorCode，保留真实 HTTP 4xx/5xx，不以 200 代替错误。
-- 单资源不存在 404，空列表 200；分页 `{ list, total, page, pageSize }`。询盘范围外 ID 为 404，资源跨库拒绝可为 403，不能统一改写。
+- 单资源不存在 404，空列表 200；分页 `{ list, total, page, pageSize }`。范围外业务记录和无权限访问的状态码按共享合同及所属业务合同核对，不能统一改写。
 - GET/PUT 通常 200，未覆盖的 POST 默认 201；登录/刷新显式 200，退出等显式 204。新增动作核对 Controller 实际状态及前端消费者。
 - 全局 ValidationPipe 负责白名单、拒绝多余字段及转换；DTO 嵌套校验不能替代 Service 的资源归属、状态和版本检查。
 
@@ -44,7 +44,7 @@
 - Entity 与迁移保持映射一致，但 `structured-itinerary.ts` / `structured-quotes.ts` 的 SQL 明细表并非都有 Entity；完整 schema 看 migration，不能直接用 ORM 差异删除已有约束。
 - 持久化变更检查旧数据及恢复路径，尤其 DROP、rename、type change 和 JSONB 转换；不直接修改生产 schema。日常业务不恢复 data JSONB 双写；冻结存档和审计 JSON 按现有设计保留。
 - 金额沿用 numeric 与现有分币舍入工具、HTTP 两位小数字符串；迁移不得截断历史精度或用今天资源价伪造旧参考价。当前仅人民币，无汇率模型。
-- `effectivePermissions` 以当前身份决定权限，不叠加其他身份；询盘按业务/负责人、资源按 library 校验，ROOT 也不能跨库引用行程资源。
+- `effectivePermissions` 以当前身份决定权限，不叠加其他身份；公共资源访问仍须校验动作权限、状态及引用有效性；询盘、行程、成团和独立站专属配置的访问范围按对应需求及合同校验，不能以公共资源共享替代业务归属检查。
 - 每行程一份 V1 冻结报价，quoted 不可普通编辑，修改复制独立 Draft。冻结价格/数量/客户及计算结果不追随主数据更新；读取历史报价不得重新计算。
 - 稳定明细 ID、父版本、业务保存、调价历史和日志保持事务一致；试算/取消/失败不记成功历史。内部成本、利润和调价原因不进入客户 PDF。
 

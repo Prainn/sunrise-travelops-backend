@@ -14,13 +14,9 @@ import {
 } from '../src/resources/agencies/dto/agency.dto';
 import { ResourceValidationService } from '../src/resources/common/resource-validation.service';
 import { ResourceStatus } from '../src/resources/common/resource.constants';
-import { withResourceScope } from '../src/resources/common/resource-scope';
 import { SelectionService } from '../src/resources/selections/selection.service';
 import { UserEntity } from '../src/users/user.entity';
-import {
-  UserIdentityEntity,
-  ResourceLibrary,
-} from '../src/users/user-identity.entity';
+import { UserIdentityEntity } from '../src/users/user-identity.entity';
 import { RoleEntity } from '../src/roles/role.entity';
 import { AuthenticatedUser } from '../src/auth/auth.types';
 import { CityEntity } from '../src/resources/cities/city.entity';
@@ -74,21 +70,26 @@ async function run() {
     for (const database of databases)
       await admin.query(`CREATE DATABASE "${database}"`);
     db = await source(databases[0]).initialize();
-    assert.equal((await db.runMigrations()).length, 53);
+    assert.equal((await db.runMigrations()).length, 54);
     assert.equal((await db.runMigrations()).length, 0);
     await db.destroy();
     db = await source(databases[1]).initialize();
-    const [hierarchyMigration] = db.migrations.splice(
-      db.migrations.findIndex((migration) => migration.name === migrationName),
-      1,
+    const pending = db.migrations.filter((m) =>
+      [migrationName, 'UnifyResourceLibrary1791619200000'].includes(m.name!),
+    );
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...db.migrations.filter((m) => !pending.includes(m)),
     );
     assert.equal((await db.runMigrations()).length, 52);
+    // This fixture deliberately targets the pre-unification schema.
     const [legacy] = await db.query<{ id: string }[]>(
       `INSERT INTO resource_agencies (code,name,library,business_unit)
        VALUES ('AGY-900','既有组团社','shengxu','shengxu') RETURNING id`,
     );
-    db.migrations.push(hierarchyMigration);
-    assert.equal((await db.runMigrations()).length, 1);
+    db.migrations.push(...pending);
+    assert.equal((await db.runMigrations()).length, 2);
     assert.equal((await db.runMigrations()).length, 0);
     const retained = await db
       .getRepository(AgencyEntity)
@@ -157,7 +158,6 @@ async function run() {
       deptName: '',
       roles: ['ROOT'],
       permissions: [],
-      resourceLibrary: null,
     };
     const agencyRepository = db.getRepository(AgencyEntity);
     const contactRepository = db.getRepository(AgencyContactEntity);
@@ -172,8 +172,7 @@ async function run() {
       ),
     );
     const selections = new SelectionService(db);
-    const scoped = <T>(action: () => T, library: ResourceLibrary = 'shengxu') =>
-      withResourceScope(actor, library, action);
+    const scoped = <T>(action: () => T) => action();
     const update = (agency: AgencyDetailResponse, name = agency.shortName) =>
       scoped(() =>
         service.update(
@@ -337,37 +336,26 @@ async function run() {
       scoped(() =>
         service.create(input('新增二级', owner.id, parent.id), actor),
       ),
-      /有效一级/,
+      /有效的一级/,
     );
 
-    const sharedParent = await scoped(
-      () =>
-        service.create(
-          { ...input('共享一级', owner.id), businessUnit: 'linxi' },
-          actor,
-        ),
-      'shared',
-    );
-    await assert.rejects(
-      scoped(() =>
-        service.create(input('跨库', owner.id, sharedParent.id), actor),
+    const linxiParent = await scoped(() =>
+      service.create(
+        { ...input('霖熹一级', owner.id), businessUnit: 'linxi' },
+        actor,
       ),
-      /无权访问/,
     );
-    await assert.rejects(
-      scoped(
-        () =>
-          service.create(
-            {
-              ...input('跨业务', owner.id, sharedParent.id),
-              businessUnit: 'website',
-            },
-            actor,
-          ),
-        'shared',
+    const crossBusinessChild = await scoped(() =>
+      service.create(
+        {
+          ...input('跨业务', owner.id, linxiParent.id),
+          businessUnit: 'website',
+        },
+        actor,
       ),
-      /同业务/,
     );
+    assert.equal(crossBusinessChild.parentId, linxiParent.id);
+    assert.equal(crossBusinessChild.businessUnit, 'website');
     await assert.rejects(
       db.query(`UPDATE resource_agencies SET parent_id=id WHERE id=$1`, [
         retained.id,
@@ -410,7 +398,6 @@ async function run() {
         agencyRepository.create({
           ...input(`树形父级${index}`, owner.id),
           code: `AGY-${10000 + index}`,
-          library: 'shengxu',
         }),
       ),
     );
@@ -419,7 +406,6 @@ async function run() {
         agencyRepository.create({
           ...input(`树形父级0-分页子项${index}`, owner.id, treeParents[0].id),
           code: `AGY-${11000 + index}`,
-          library: 'shengxu',
           status:
             index === 0 ? ResourceStatus.Disabled : ResourceStatus.Enabled,
         }),
@@ -433,8 +419,8 @@ async function run() {
       service.list({ page: 2, pageSize: 20, parentOnly: 'true' }),
     );
     assert.equal(roots.list.length, 20);
-    assert.equal(roots.total, 22);
-    assert.equal(nextRoots.list.length, 2);
+    assert.equal(roots.total, 23);
+    assert.equal(nextRoots.list.length, 3);
     assert(roots.list.every((agency) => agency.parentId === null));
     assert.equal(
       roots.list.find((agency) => agency.id === treeParents[0].id)?.childCount,
@@ -474,17 +460,15 @@ async function run() {
     assert.equal(search.list[0].parentName, treeParents[0].name);
     assert.equal(
       (
-        await scoped(
-          () =>
-            service.list({
-              page: 1,
-              pageSize: 20,
-              parentId: treeParents[0].id,
-            }),
-          'shared',
+        await scoped(() =>
+          service.list({
+            page: 1,
+            pageSize: 20,
+            parentId: treeParents[0].id,
+          }),
         )
       ).total,
-      0,
+      21,
     );
     console.log(
       'Agency hierarchy: schema, independent contacts/coordinators, selection, rename/CAS, scope, deletion, root/child paging, child counts and global search checks passed.',
