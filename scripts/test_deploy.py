@@ -38,13 +38,31 @@ class ReleaseSafety(unittest.TestCase):
             (state / 'releases').mkdir()
             current = {'current': 'old', 'previous': None, 'migration_history': {'A': '1'}, 'compatible_migrations': []}
             with patch.object(release, 'STATE', state), patch.object(release, 'read_state', return_value=current), \
-                 patch.object(release, 'release', return_value={'image': 'old-image'}), \
+                 patch.object(release, 'release', return_value={'image': 'old-image', 'migrations': {'A': '1'}}), \
                  patch.object(release, 'migrations', return_value={'A': '1'}), \
                  patch.object(release, 'applied', return_value=['A']), patch.object(release, 'run') as run, \
                  patch.object(release, 'activate_or_restore'), patch.object(release, 'cleanup_after_success'):
                 result = release.publish('a' * 40 + '-1-1', 'new-image')
                 self.assertTrue(result['verified'])
                 run.assert_not_called()
+
+    def test_failed_release_after_maintenance_does_not_restart_incompatible_image(self):
+        name = 'UnifyResourceLibrary1791619200000'
+        target = {'A': '1', name: '2'}
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'releases').mkdir()
+            current = {'current': 'old', 'previous': None, 'migration_history': {'A': '1'}, 'compatible_migrations': []}
+            with patch.object(release, 'STATE', state), patch.object(release, 'read_state', return_value=current), \
+                 patch.object(release, 'release', return_value={'image': 'old-image', 'migrations': {'A': '1'}}), \
+                 patch.object(release, 'migrations', return_value=target), \
+                 patch.object(release, 'applied', return_value=list(target)), \
+                 patch.object(release, 'activate', side_effect=RuntimeError('unhealthy')) as activate, \
+                 patch.object(release, 'run') as run:
+                with self.assertRaisesRegex(RuntimeError, 'candidate API stopped'):
+                    release.publish('a' * 40 + '-1-1', 'new-image')
+                activate.assert_called_once_with('new-image')
+                run.assert_called_once_with(release.COMPOSE + ['stop', 'api'])
 
     def test_first_release_failure_stops_candidate_without_database_changes(self):
         with patch.object(release, 'activate', side_effect=RuntimeError('unhealthy')), \
