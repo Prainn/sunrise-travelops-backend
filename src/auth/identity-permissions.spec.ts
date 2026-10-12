@@ -18,6 +18,29 @@ describe('headquarters permissions', () => {
       expect(permissions).not.toContain(permission);
     }
   });
+
+  it.each([['EXECUTIVE'], ['ADMIN'], ['EXECUTIVE', 'ADMIN']])(
+    'keeps inquiry and itinerary operations read-only for %j',
+    (...roles: string[]) => {
+      const permissions = effectivePermissions('headquarters', roles);
+      expect(permissions).toEqual(
+        expect.arrayContaining([
+          'inquiry:list',
+          'itinerary:list',
+          'itinerary:download',
+        ]),
+      );
+      expect(
+        permissions.filter(
+          (p) =>
+            (p.startsWith('inquiry:') || p.startsWith('itinerary:')) &&
+            !['inquiry:list', 'itinerary:list', 'itinerary:download'].includes(
+              p,
+            ),
+        ),
+      ).toEqual([]);
+    },
+  );
 });
 
 const websitePermissions = (
