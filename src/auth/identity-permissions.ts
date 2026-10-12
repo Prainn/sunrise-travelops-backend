@@ -21,7 +21,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     ...ADMIN_PERMISSIONS,
     'inquiry:transfer',
     'itinerary:download',
-    'tour:list',
+    ...TOUR_PERMISSIONS,
   ],
   EXECUTIVE: reads,
   ADMIN: [

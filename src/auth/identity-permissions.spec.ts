@@ -1,4 +1,24 @@
 import { effectivePermissions } from './identity-permissions';
+import { PERMISSION_DEFINITIONS, TOUR_PERMISSIONS } from './permissions';
+
+describe('headquarters permissions', () => {
+  it('grants ROOT every defined permission, including all tour operations', () => {
+    const permissions = effectivePermissions('headquarters', ['ROOT']);
+    expect(permissions).toEqual(
+      expect.arrayContaining(Object.keys(PERMISSION_DEFINITIONS)),
+    );
+  });
+
+  it.each(['ADMIN', 'EXECUTIVE'])('%s can only read tours', (role) => {
+    const permissions = effectivePermissions('headquarters', [role]);
+    expect(permissions).toContain('tour:list');
+    for (const permission of TOUR_PERMISSIONS.filter(
+      (p) => p !== 'tour:list',
+    )) {
+      expect(permissions).not.toContain(permission);
+    }
+  });
+});
 
 const websitePermissions = (
   scope: Parameters<typeof effectivePermissions>[0],
