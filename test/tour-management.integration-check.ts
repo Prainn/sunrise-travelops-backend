@@ -187,6 +187,7 @@ async function main() {
         'AddTourManagement1791452400000',
         'RefineTourFlightConstraints1791532800000',
         'UnifyResourceLibrary1791619200000',
+        'DropUnusedItineraryFields1791705600000',
       ].includes(m.name!),
     );
     db.migrations.splice(
@@ -223,7 +224,7 @@ async function main() {
     await check(
       'old data incremental migrations preserve IDs/text/freeze and backfill English',
       async () => {
-        assert.equal((await db.runMigrations()).length, 3);
+        assert.equal((await db.runMigrations()).length, 4);
         assert.equal((await db.runMigrations()).length, 0);
         const [u] = await db.query<
           { english_name: string; tour_code: string | null }[]

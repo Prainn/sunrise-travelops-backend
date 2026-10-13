@@ -86,16 +86,6 @@ export class IdentityInput {
 }
 
 class UserEditableFieldsDto {
-  /** @deprecated 从 toUserInput 省略顶层 id，更新使用路径 ID；identities[].id 仍须保留。 */
-  @ApiPropertyOptional({
-    format: 'uuid',
-    deprecated: true,
-    description: '当前前端更新仍发送；迁移时省略顶层 id，使用路径 ID',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
   @ApiProperty({ example: '李明' })
   @Transform(trim)
   @IsString()

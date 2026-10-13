@@ -44,16 +44,6 @@ export class DictionaryItemQueryDto extends PaginationQueryDto {
 }
 
 export class DictionaryTypeInputDto {
-  /** @deprecated 从 toDictionaryTypeInput 省略 id，更新使用路径 ID。 */
-  @ApiPropertyOptional({
-    format: 'uuid',
-    deprecated: true,
-    description: '当前前端更新仍发送；迁移时省略 id，使用路径 ID',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
   @ApiProperty({ example: '用户性别' })
   @Transform(trim)
   @IsString()
@@ -82,28 +72,6 @@ export class DictionaryTypeInputDto {
 }
 
 export class DictionaryItemInputDto {
-  /** @deprecated 从 toDictionaryItemInput 省略 id，更新使用路径 ID。 */
-  @ApiPropertyOptional({
-    format: 'uuid',
-    deprecated: true,
-    description: '当前前端更新仍发送；迁移时省略 id，使用路径 ID',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
-  /** @deprecated 从 toDictionaryItemInput 省略 dictCode，创建和更新均使用路径编码。 */
-  @ApiPropertyOptional({
-    deprecated: true,
-    description: '当前前端仍发送；迁移时省略 dictCode，使用路径编码',
-    example: 'gender',
-  })
-  @IsOptional()
-  @Transform(trimAndLowercase)
-  @Matches(/^[a-z][a-z0-9_]*$/)
-  @MaxLength(100)
-  dictCode?: string;
-
   @ApiProperty({ example: '男' })
   @Transform(trim)
   @IsString()

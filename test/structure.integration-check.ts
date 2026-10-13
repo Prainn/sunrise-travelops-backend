@@ -1394,8 +1394,8 @@ async function main() {
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       };
-      const httpData = async <T>(response: Response) => {
-        assert.equal(response.status, 200, await response.clone().text());
+      const httpData = async <T>(response: Response, status = 200) => {
+        assert.equal(response.status, status, await response.clone().text());
         return ((await response.json()) as { data: T }).data;
       };
       const logs = await httpData<{ list: { changes: FieldChange[] }[] }>(
@@ -1879,6 +1879,105 @@ async function main() {
       const sharedInquiry = (
         (await sharedInquiryResponse.json()) as { data: { id: string } }
       ).data;
+      const previousInquiry = await httpData<Record<string, unknown>>(
+        await request('GET', `/inquiries/${sharedInquiry.id}`, lxActor),
+      );
+      const agencyCoordinator = await createUser(
+        'agency-move-coordinator',
+        'shengxu',
+        3,
+        'COORDINATOR',
+      );
+      const changedAgency = await request(
+        'PUT',
+        `/resources/agencies/${sharedAgency.id}`,
+        root,
+        {
+          version: sharedAgency.version,
+          businessUnit: 'shengxu',
+          coordinatorId: agencyCoordinator.id,
+          name: '改业务后的旅行社',
+          city: '昆明',
+          countryItemId: null,
+          email: 'new@example.com',
+          status: 'enabled',
+          remark: '',
+        },
+      );
+      assert.equal(
+        changedAgency.status,
+        200,
+        await changedAgency.clone().text(),
+      );
+      const newContact = await httpData<{ id: string }>(
+        await request(
+          'POST',
+          `/inquiries/contacts/${sharedAgency.id}`,
+          lxActor,
+          { name: '旧询盘新联系人', phone: '654321' },
+        ),
+        201,
+      );
+      const contactUpdate = {
+        version: previousInquiry.version,
+        agencyId: sharedAgency.id,
+        contactId: newContact.id,
+        sourceChannel: 'Email',
+        originalMessage: '共享资源，询盘独立',
+        countryItemId: country.id,
+        plannedDays: 3,
+        internalRemark: '',
+        lostReason: '',
+      };
+      const maintained = await httpData<Record<string, unknown>>(
+        await request(
+          'PUT',
+          `/inquiries/${sharedInquiry.id}`,
+          lxActor,
+          contactUpdate,
+        ),
+      );
+      for (const field of [
+        'businessUnit',
+        'ownerId',
+        'agencyId',
+        'agencyCode',
+        'agencyName',
+        'email',
+        'countryItemId',
+      ])
+        assert.equal(maintained[field], previousInquiry[field], field);
+      assert.equal(maintained.contactId, newContact.id);
+      assert.equal(maintained.contactName, '旧询盘新联系人');
+      assert.equal(maintained.phone, '654321');
+      const foreignContact = await request(
+        'PUT',
+        `/inquiries/${sharedInquiry.id}`,
+        lxActor,
+        {
+          ...contactUpdate,
+          version: maintained.version,
+          contactId: ids.contact,
+        },
+      );
+      assert.equal(foreignContact.status, 400);
+      const foreignAgency = await request(
+        'PUT',
+        `/inquiries/${sharedInquiry.id}`,
+        lxActor,
+        {
+          ...contactUpdate,
+          version: maintained.version,
+          agencyId: ids.agency,
+          contactId: ids.contact,
+        },
+      );
+      assert.equal(foreignAgency.status, 400);
+      const newInquiry = await request('POST', '/inquiries', lxActor, {
+        ...contactUpdate,
+        version: undefined,
+      });
+      assert.equal(newInquiry.status, 400);
       const websiteUser = await createUser(
         'web-coordinator',
         'website',
@@ -1924,6 +2023,135 @@ async function main() {
       );
       assert.equal(profile.scope, 'linxi');
       assert.equal(profile.deptId, 5);
+      const [coordinatorRole] = await db.query<{ id: string }[]>(
+        "SELECT id FROM roles WHERE code='COORDINATOR'",
+      );
+      const userInput = {
+        username: 'request_cleanup',
+        nickname: '请求字段验证',
+        englishName: 'Cleanup',
+        tourCode: 'CL',
+        identities: [
+          { scope: 'linxi', deptId: 5, roleIds: [coordinatorRole.id] },
+        ],
+      };
+      assert.equal(
+        (
+          await request('POST', '/users', root, {
+            ...userInput,
+            id: randomUUID(),
+          })
+        ).status,
+        400,
+      );
+      const createdUser = await httpData<{
+        id: string;
+        identities: { id: string }[];
+      }>(await request('POST', '/users', root, userInput), 201);
+      const userUpdate = {
+        nickname: '更新姓名',
+        englishName: 'Cleanup',
+        tourCode: 'CL',
+        identities: [
+          { ...userInput.identities[0], id: createdUser.identities[0].id },
+        ],
+      };
+      assert.equal(
+        (
+          await request('PUT', `/users/${createdUser.id}`, root, {
+            ...userUpdate,
+            id: createdUser.id,
+          })
+        ).status,
+        400,
+      );
+      const updatedUser = await httpData<{ identities: { id: string }[] }>(
+        await request('PUT', `/users/${createdUser.id}`, root, userUpdate),
+      );
+      assert.equal(updatedUser.identities[0].id, createdUser.identities[0].id);
+      const typeInput = {
+        name: '请求字段验证分类',
+        dictCode: 'request_cleanup',
+        status: 1,
+      };
+      assert.equal(
+        (
+          await request('POST', '/system/dictionaries', root, {
+            ...typeInput,
+            id: randomUUID(),
+          })
+        ).status,
+        400,
+      );
+      const createdType = await httpData<{ id: string }>(
+        await request('POST', '/system/dictionaries', root, typeInput),
+        201,
+      );
+      assert.equal(
+        (
+          await request(
+            'PUT',
+            `/system/dictionaries/${createdType.id}`,
+            root,
+            typeInput,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request('PUT', `/system/dictionaries/${createdType.id}`, root, {
+            ...typeInput,
+            id: createdType.id,
+          })
+        ).status,
+        400,
+      );
+      const itemInput = {
+        label: '验证项',
+        value: 'one',
+        status: 1,
+        sort: 1,
+        tagType: '',
+      };
+      for (const obsolete of [
+        { id: randomUUID() },
+        { dictCode: typeInput.dictCode },
+      ])
+        assert.equal(
+          (
+            await request(
+              'POST',
+              `/system/dictionaries/${typeInput.dictCode}/items`,
+              root,
+              { ...itemInput, ...obsolete },
+            )
+          ).status,
+          400,
+        );
+      const createdItem = await httpData<{ id: string }>(
+        await request(
+          'POST',
+          `/system/dictionaries/${typeInput.dictCode}/items`,
+          root,
+          itemInput,
+        ),
+        201,
+      );
+      const itemPath = `/system/dictionaries/${typeInput.dictCode}/items/${createdItem.id}`;
+      assert.equal(
+        (await request('PUT', itemPath, root, itemInput)).status,
+        200,
+      );
+      for (const obsolete of [
+        { id: createdItem.id },
+        { dictCode: typeInput.dictCode },
+      ])
+        assert.equal(
+          (await request('PUT', itemPath, root, { ...itemInput, ...obsolete }))
+            .status,
+          400,
+        );
     } finally {
       await app.close();
     }

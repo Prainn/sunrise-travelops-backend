@@ -3,6 +3,11 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
+import { ItineraryEntity } from '../src/inquiries/inquiry.entity';
+import {
+  loadItineraryData,
+  saveItineraryData,
+} from '../src/inquiries/structured-itinerary';
 import { loadWebsiteDetails } from '../src/website/website.persistence';
 
 const connection = {
@@ -28,6 +33,10 @@ async function run() {
   await admin.query(`CREATE DATABASE "${name}"`);
   try {
     await db.initialize();
+    const cleanup = db.migrations.find(
+      (m) => m.name === 'DropUnusedItineraryFields1791705600000',
+    )!;
+    db.migrations.splice(db.migrations.indexOf(cleanup), 1);
     const pending = db.migrations.find((m) => m.name === migrationName)!;
     db.migrations.splice(db.migrations.indexOf(pending), 1);
     assert.equal((await db.runMigrations()).length, 53);
@@ -475,8 +484,84 @@ async function run() {
       }),
       /unique constraint/,
     );
+    // The next migration removes only obsolete daily fields, including non-default old values.
+    await db.query(
+      'UPDATE itineraries SET adults=9,children_count=3,leader_count=2 WHERE id=$1',
+      [standard],
+    );
+    await db.query(
+      `INSERT INTO itinerary_quote_settings(itinerary_id,position,other_expenses,customer_notes,holiday_restrictions,hotel_replacement_terms)
+      VALUES($1,0,123.456,'keep notes','keep holiday','keep hotel')`,
+      [standard],
+    );
+    await db.query(
+      `INSERT INTO itinerary_quote_options(itinerary_id,position,id,hotel_tier,vehicle_tier,adult_unit_price,leader_foc_enabled)
+      VALUES($1,0,'keep-option','A','standard',456.789,true)`,
+      [standard],
+    );
+    await db.query(
+      `INSERT INTO itinerary_pax_prices(itinerary_id,position,option_id,pax,adult_unit_price)
+      VALUES($1,0,'keep-option',2,456.789)`,
+      [standard],
+    );
+    const beforeCleanup = await db.query<{ row: Record<string, unknown> }[]>(
+      `SELECT to_jsonb(i)-'adults'-'children_count'-'leader_count' AS row FROM itineraries i WHERE id=$1`,
+      [standard],
+    );
+    db.migrations.push(cleanup);
+    assert.equal((await db.runMigrations()).length, 1);
+    assert.equal((await db.runMigrations()).length, 0);
+    assert.deepEqual(
+      await db.query(
+        `SELECT to_jsonb(i) AS row FROM itineraries i WHERE id=$1`,
+        [standard],
+      ),
+      beforeCleanup,
+    );
+    assert.equal(
+      (
+        await db.query<
+          { column_name: string }[]
+        >(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND
+      ((table_name='itineraries' AND column_name IN ('adults','children_count','leader_count')) OR
+       (table_name='itinerary_quote_options' AND column_name IN ('adult_unit_price','leader_foc_enabled')) OR
+       (table_name='itinerary_quote_settings' AND column_name='other_expenses'))`)
+      ).length,
+      0,
+    );
+    assert.deepEqual(
+      await db.query(
+        `SELECT adult_unit_price::text FROM itinerary_pax_prices WHERE itinerary_id=$1`,
+        [standard],
+      ),
+      [{ adult_unit_price: '456.789' }],
+    );
+    assert.deepEqual(
+      (
+        await db.query<{ snapshot: unknown }[]>(
+          'SELECT snapshot FROM website_quotations WHERE itinerary_id=$1',
+          [plan],
+        )
+      )[0].snapshot,
+      snapshot,
+    );
+    const currentPlan = await loadItineraryData(
+      db.manager,
+      await db.manager.findOneByOrFail(ItineraryEntity, { id: standard }),
+    );
+    assert.equal(
+      currentPlan.data.quote.options[0].paxPrices[0].adultUnitPrice,
+      456.789,
+    );
+    assert.equal(currentPlan.data.quote.customerNotes, 'keep notes');
+    await saveItineraryData(db.manager, currentPlan);
+    assert.equal(
+      (await loadItineraryData(db.manager, currentPlan)).data.quote.options[0]
+        .paxPrices[0].adultUnitPrice,
+      456.789,
+    );
     console.log(
-      'PASS: representative 53→54 upgrade; all 9 resource kinds retained/deleted; child cleanup; reference blockers and transaction rollback; website references/text/frozen snapshot; structured read; uniqueness; repeat migration.',
+      'PASS: representative 53→54→55 upgrade; unused daily fields removed, PAX precision/read/save and frozen data preserved; all 9 resource kinds retained/deleted; child cleanup; reference blockers and transaction rollback; website references/text/frozen snapshot; structured read; uniqueness; repeat migration.',
     );
   } finally {
     if (db.isInitialized) await db.destroy();

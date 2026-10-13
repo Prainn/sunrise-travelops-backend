@@ -282,8 +282,9 @@ export class InquiriesService {
       if (
         !agency ||
         agency.status !== ResourceStatus.Enabled ||
-        agency.businessUnit !==
-          (businessUnit ?? (previous!.businessUnit as BusinessUnit)) ||
+        (previous?.data.agencyId !== input.agencyId &&
+          agency.businessUnit !==
+            (businessUnit ?? (previous!.businessUnit as BusinessUnit))) ||
         !contact
       )
         fail('INQUIRY_CONTACT_INVALID', HttpStatus.BAD_REQUEST);
@@ -305,6 +306,13 @@ export class InquiriesService {
         nextFollowUpAt: null,
         lostReason: '',
       };
+      if (previous?.data.agencyId === input.agencyId)
+        snapshot = {
+          ...previous.data,
+          contactId: contact.id,
+          contactName: contact.name,
+          phone: contact.phone,
+        };
     }
     let country = {
       id: snapshot!.countryItemId,

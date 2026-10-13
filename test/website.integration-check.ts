@@ -120,7 +120,8 @@ async function main() {
             flightConstraintMigrationName &&
           (migration.name ?? migration.constructor.name) !==
             templateNameMigrationName &&
-          migration.name !== 'UnifyResourceLibrary1791619200000',
+          migration.name !== 'UnifyResourceLibrary1791619200000' &&
+          migration.name !== 'DropUnusedItineraryFields1791705600000',
       ),
     );
     await db.runMigrations();
@@ -423,7 +424,8 @@ async function main() {
         (migration) =>
           (migration.name ?? migration.constructor.name) !==
             templateNameMigrationName &&
-          migration.name !== 'UnifyResourceLibrary1791619200000',
+          migration.name !== 'UnifyResourceLibrary1791619200000' &&
+          migration.name !== 'DropUnusedItineraryFields1791705600000',
       ),
     );
     assert.deepEqual(
@@ -520,7 +522,11 @@ async function main() {
     db.migrations.splice(0, db.migrations.length, ...allMigrations);
     assert.deepEqual(
       (await db.runMigrations()).map(({ name }) => name),
-      [templateNameMigrationName, 'UnifyResourceLibrary1791619200000'],
+      [
+        templateNameMigrationName,
+        'UnifyResourceLibrary1791619200000',
+        'DropUnusedItineraryFields1791705600000',
+      ],
     );
     assert.equal((await db.runMigrations()).length, 0);
     const upgradedConfigs = await db.query<Array<{ config: WebsiteConfig }>>(

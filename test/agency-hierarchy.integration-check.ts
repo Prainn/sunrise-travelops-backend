@@ -70,12 +70,16 @@ async function run() {
     for (const database of databases)
       await admin.query(`CREATE DATABASE "${database}"`);
     db = await source(databases[0]).initialize();
-    assert.equal((await db.runMigrations()).length, 54);
+    assert.equal((await db.runMigrations()).length, 55);
     assert.equal((await db.runMigrations()).length, 0);
     await db.destroy();
     db = await source(databases[1]).initialize();
     const pending = db.migrations.filter((m) =>
-      [migrationName, 'UnifyResourceLibrary1791619200000'].includes(m.name!),
+      [
+        migrationName,
+        'UnifyResourceLibrary1791619200000',
+        'DropUnusedItineraryFields1791705600000',
+      ].includes(m.name!),
     );
     db.migrations.splice(
       0,
@@ -89,7 +93,7 @@ async function run() {
        VALUES ('AGY-900','既有组团社','shengxu','shengxu') RETURNING id`,
     );
     db.migrations.push(...pending);
-    assert.equal((await db.runMigrations()).length, 2);
+    assert.equal((await db.runMigrations()).length, 3);
     assert.equal((await db.runMigrations()).length, 0);
     const retained = await db
       .getRepository(AgencyEntity)

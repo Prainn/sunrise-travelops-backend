@@ -31,6 +31,7 @@ BREAKING_MIGRATIONS = {
     'ShareItineraryStaffCosts1790006600000',
     'RemoveGuideServiceTotal1790040600000',
     'UnifyResourceLibrary1791619200000',
+    'DropUnusedItineraryFields1791705600000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
