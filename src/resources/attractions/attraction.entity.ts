@@ -58,7 +58,7 @@ export class AttractionEntity extends TopLevelResourceEntity {
 })
 @Check(
   'CHK_resource_attraction_prices_item_type',
-  "\"item_type\" IN ('ticket', 'transport', 'guide', 'activity', 'package')",
+  '"item_type" ~ \'^[a-z][a-zA-Z0-9-]*$\'',
 )
 @Check(
   'CHK_resource_attraction_prices_dates',
@@ -82,7 +82,7 @@ export class AttractionPriceEntity extends VersionedResourceEntity {
     foreignKeyConstraintName: 'FK_resource_attraction_prices_attraction',
   })
   attraction: AttractionEntity;
-  @Column({ name: 'item_type', type: 'varchar', length: 20 })
+  @Column({ name: 'item_type', type: 'varchar', length: 100 })
   itemType: AttractionPriceItemType;
   @Column({ name: 'item_name', type: 'varchar', length: 150 }) itemName: string;
   @Column({ type: 'varchar', length: 100, default: '' }) audience: string;

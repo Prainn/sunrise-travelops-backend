@@ -14,12 +14,4 @@ export const ATTRACTION_CATEGORIES = [
 ] as const;
 export type AttractionCategory = (typeof ATTRACTION_CATEGORIES)[number];
 
-export const ATTRACTION_PRICE_ITEM_TYPES = [
-  'ticket',
-  'transport',
-  'guide',
-  'activity',
-  'package',
-] as const;
-export type AttractionPriceItemType =
-  (typeof ATTRACTION_PRICE_ITEM_TYPES)[number];
+export type AttractionPriceItemType = string;

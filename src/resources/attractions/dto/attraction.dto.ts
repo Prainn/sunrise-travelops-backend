@@ -13,7 +13,6 @@ import {
 } from 'class-validator';
 import {
   ATTRACTION_CATEGORIES,
-  ATTRACTION_PRICE_ITEM_TYPES,
   AttractionCategory,
   AttractionPriceItemType,
 } from '../../common/resource.constants';
@@ -48,7 +47,10 @@ export class UpdateAttractionDto extends CreateAttractionDto {
 }
 export class CreateAttractionPriceDto {
   @IsOptional() @IsUUID('all') id?: string;
-  @IsIn(ATTRACTION_PRICE_ITEM_TYPES) itemType: AttractionPriceItemType;
+  @optionalTrimmedString
+  @Matches(/^[a-z][a-zA-Z0-9-]*$/)
+  @MaxLength(100)
+  itemType: AttractionPriceItemType;
   @optionalTrimmedString @IsString() @MaxLength(150) itemName: string;
   @optionalTrimmedString @IsString() @MaxLength(100) audience: string;
   @optionalTrimmedString @IsString() @MaxLength(100) periodName: string;

@@ -207,6 +207,7 @@ export class AttractionsService {
       await this.validation.validateUnit(input.unit, 'attraction');
       const repository = manager.getRepository(AttractionPriceEntity);
       const amounts = this.amounts(input);
+      await this.validation.validateAttractionPriceItemType(input.itemType);
       return this.toPriceResponse(
         await repository.save(
           repository.create({
@@ -249,6 +250,10 @@ export class AttractionsService {
           status: HttpStatus.NOT_FOUND,
         });
       assertVersion(entity.version, input.version);
+      await this.validation.validateAttractionPriceItemType(
+        input.itemType,
+        entity.itemType,
+      );
       Object.assign(entity, input, this.amounts(input), {
         id: priceId,
         attractionId,
