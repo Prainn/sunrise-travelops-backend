@@ -247,7 +247,6 @@ export class AgenciesService {
     actor: AuthenticatedUser,
   ): Promise<AgencyDetailResponse> {
     const businessUnit = this.agencyBusinessUnit(input);
-    await this.validation.validateCity(input.city);
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
       const parent = await this.requireParent(
@@ -318,7 +317,6 @@ export class AgenciesService {
         businessUnit,
         manager,
       );
-      await this.validation.validateCity(input.city, entity.city);
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
       const previousName = entity.name;
