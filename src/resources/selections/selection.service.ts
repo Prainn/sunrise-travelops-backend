@@ -25,7 +25,8 @@ export class SelectionService {
       .createQueryBuilder('resource')
       .where('resource.status = :status', { status: 'enabled' })
       .andWhere('resource.deletedAt IS NULL')
-      .andWhere('resource.price IS NOT NULL');
+      .andWhere('resource.price IS NOT NULL')
+      .andWhere("resource.description ~ '[^[:space:]]'");
   }
   async list(kind: Kind, query: SelectionQuery) {
     const city = kind === 'restaurant' ? 'city' : 'area';
