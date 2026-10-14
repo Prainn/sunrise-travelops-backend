@@ -1,5 +1,3 @@
-import { UseInterceptors } from '@nestjs/common';
-import { ResourceScopeInterceptor } from '../common/resource-scope';
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Permissions } from '../../auth/decorators/permissions.decorator';
@@ -13,13 +11,12 @@ import {
   SelectionQuery,
   PriceOptionResponse,
   ResourceOptionResponse,
-  RestaurantSelectionResponse,
-  AttractionSelectionResponse,
+  RestaurantResponse,
+  AttractionResponse,
 } from './selection.dto';
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/selections')
 export class SelectionController {
   constructor(private readonly service: SelectionService) {}
@@ -47,27 +44,27 @@ export class SelectionController {
   guides(@Query() query: SelectionQuery) {
     return this.service.resources('guides', query);
   }
-  @Get('restaurant-prices')
+  @Get('restaurants')
   @Permissions('resource:restaurant:list')
   @ApiPaginatedResponse(PriceOptionResponse)
   restaurants(@Query() query: SelectionQuery) {
     return this.service.list('restaurant', query);
   }
-  @Get('restaurant-prices/:id')
+  @Get('restaurants/:id')
   @Permissions('resource:restaurant:list')
-  @ApiSuccessResponse({ type: RestaurantSelectionResponse })
+  @ApiSuccessResponse({ type: RestaurantResponse })
   restaurant(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.detail('restaurant', id);
   }
-  @Get('attraction-prices')
+  @Get('attractions')
   @Permissions('resource:attraction:list')
   @ApiPaginatedResponse(PriceOptionResponse)
   attractions(@Query() query: SelectionQuery) {
     return this.service.list('attraction', query);
   }
-  @Get('attraction-prices/:id')
+  @Get('attractions/:id')
   @Permissions('resource:attraction:list')
-  @ApiSuccessResponse({ type: AttractionSelectionResponse })
+  @ApiSuccessResponse({ type: AttractionResponse })
   attraction(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.detail('attraction', id);
   }

@@ -1,7 +1,14 @@
-import { CallHandler, ExecutionContext } from '@nestjs/common';
+import {
+  CallHandler,
+  ExecutionContext,
+  HttpStatus,
+  Logger,
+} from '@nestjs/common';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import { OperationLogInterceptor } from './operation-log.interceptor';
 import { OperationEntry, OperationLogsService } from './operation-logs.service';
+import { BusinessException } from '../common/exceptions/business.exception';
+import { ErrorCode } from '../common/constants/error-code';
 
 function context(
   controller: string,
@@ -78,21 +85,174 @@ describe('OperationLogInterceptor', () => {
     expect(JSON.stringify(entries)).not.toContain('secret');
   });
 
-  it('does not record failed business mutations', async () => {
+  it('records a failed mutation without storing its body or error message and rethrows the same error', async () => {
     const request = {
       user: actor,
-      body: {},
+      body: {
+        identityNumber: 'private-document',
+        password: 'private-password',
+      },
       params: { id: 'resource-id' },
       query: {},
       ip: '127.0.0.1',
     };
+    const failure = new BusinessException({
+      code: ErrorCode.RESOURCE_VERSION_CONFLICT,
+      status: HttpStatus.CONFLICT,
+      message: 'private-error-message',
+      details: { identityNumber: 'private-document' },
+    });
     await expect(
       firstValueFrom(
         interceptor.intercept(context('GuidesController', 'update', request), {
-          handle: () => throwError(() => new Error('conflict')),
+          handle: () => throwError(() => failure),
         } as CallHandler),
       ),
-    ).rejects.toThrow('conflict');
+    ).rejects.toBe(failure);
+    expect(entries).toMatchObject([{ category: 'resource', success: false }]);
+    expect(JSON.parse(entries[0].detail)).toEqual({
+      recordId: 'resource-id',
+      statusCode: 409,
+      errorCode: ErrorCode.RESOURCE_VERSION_CONFLICT,
+    });
+    expect(JSON.stringify(entries)).not.toContain('private-');
+  });
+
+  it.each([
+    ['InquiriesController', 'createPlan', 'itinerary', '新增行程'],
+    ['ItinerariesController', 'copy', 'itinerary', '复制行程'],
+    ['WebsiteController', 'createItinerary', 'itinerary', '新增独立站行程'],
+    ['WebsiteController', 'copy', 'itinerary', '复制独立站行程'],
+  ])(
+    'records the new object and source for %s.%s',
+    async (controller, handler, category, action) => {
+      const result = { id: 'new-itinerary', title: 'private-title' };
+      const request = {
+        user: actor,
+        body: { version: 1 },
+        params: { id: 'source-id' },
+        query: {},
+      };
+      const value = await firstValueFrom(
+        interceptor.intercept(context(controller, handler, request), {
+          handle: () => of(result),
+        } as CallHandler),
+      );
+      expect(value).toBe(result);
+      expect(entries).toMatchObject([{ category, action, success: true }]);
+      expect(JSON.parse(entries[0].detail)).toEqual({
+        recordId: 'new-itinerary',
+        parentId: 'source-id',
+      });
+      expect(JSON.stringify(entries)).not.toContain('private-title');
+    },
+  );
+
+  it.each([
+    ['InquiriesController', 'transfer', 'inquiry'],
+    ['InquiriesController', 'archive', 'inquiry'],
+    ['ItinerariesController', 'confirm', 'quotation'],
+    ['ItinerariesController', 'previewQuote', 'quotation'],
+    ['ItinerariesController', 'downloadClick', 'quotation'],
+    ['WebsiteController', 'generate', 'itinerary'],
+    ['WebsiteController', 'saveConfig', 'website-config'],
+    ['ToursController', 'cancel', 'tour'],
+    ['ToursController', 'saveRating', 'guide-rating'],
+    ['GuideLeavesController', 'update', 'guide-leave'],
+  ])(
+    'logs %s.%s without serializing business data',
+    async (controller, handler, category) => {
+      const result = { quotation: { customer: 'private-customer' } };
+      const request = {
+        user: actor,
+        params: { id: 'object-id' },
+        query: {},
+        body: { comment: 'private-comment' },
+      };
+      await firstValueFrom(
+        interceptor.intercept(context(controller, handler, request), {
+          handle: () => of(result),
+        } as CallHandler),
+      );
+      expect(entries).toMatchObject([{ category, success: true }]);
+      expect(JSON.parse(entries[0].detail)).toEqual({ recordId: 'object-id' });
+      expect(JSON.stringify(entries)).not.toContain('private-');
+    },
+  );
+
+  it('logs each failed batch-delete target and preserves the failure', async () => {
+    const failure = new Error('rejected');
+    const request = {
+      user: actor,
+      params: {},
+      query: { ids: ['leave-1', 'leave-2'] },
+      body: {},
+    };
+    await expect(
+      firstValueFrom(
+        interceptor.intercept(
+          context('GuideLeavesController', 'delete', request),
+          {
+            handle: () => throwError(() => failure),
+          } as CallHandler,
+        ),
+      ),
+    ).rejects.toBe(failure);
+    expect(
+      entries.map((entry) => {
+        const detail = JSON.parse(entry.detail) as { recordId: string };
+        return [entry.success, detail.recordId];
+      }),
+    ).toEqual([
+      [false, 'leave-1'],
+      [false, 'leave-2'],
+    ]);
+  });
+
+  it('leaves ordinary reads and token refresh unlogged', async () => {
+    const request = {
+      user: actor,
+      params: { id: 'object-id' },
+      query: {},
+      body: {},
+    };
+    for (const [controller, handler] of [
+      ['ItinerariesController', 'detail'],
+      ['WebsiteController', 'quotation'],
+      ['ToursController', 'list'],
+      ['AuthController', 'refresh'],
+    ]) {
+      await firstValueFrom(
+        interceptor.intercept(context(controller, handler, request), {
+          handle: () => of({}),
+        } as CallHandler),
+      );
+    }
     expect(entries).toEqual([]);
+  });
+
+  it('preserves a successful response when log persistence fails', async () => {
+    const logger = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+    logs.append.mockRejectedValueOnce(new Error('log storage unavailable'));
+    const result = { id: 'inquiry-id' };
+    try {
+      const value = await firstValueFrom(
+        interceptor.intercept(
+          context('InquiriesController', 'create', {
+            user: actor,
+            params: {},
+            query: {},
+            body: {},
+          }),
+          { handle: () => of(result) } as CallHandler,
+        ),
+      );
+      expect(value).toBe(result);
+      expect(logger).toHaveBeenCalled();
+    } finally {
+      logger.mockRestore();
+    }
   });
 });

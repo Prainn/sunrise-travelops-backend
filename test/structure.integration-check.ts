@@ -20,7 +20,16 @@ import { InquiriesService } from '../src/inquiries/inquiries.service';
 import { calculateItineraryQuote } from '../src/inquiries/quote-pricing';
 import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
 import { InquiryQuery } from '../src/inquiries/inquiry.dto';
-import { ItineraryEntity, PdfData } from '../src/inquiries/inquiry.entity';
+import {
+  type FieldChange,
+  ItineraryEntity,
+  PdfData,
+} from '../src/inquiries/inquiry.entity';
+import {
+  contextualChanges,
+  diffChanges,
+  moneyResponse,
+} from '../src/inquiries/changes';
 import { loadItineraryData } from '../src/inquiries/structured-itinerary';
 import { AgenciesService } from '../src/resources/agencies/agencies.service';
 import {
@@ -32,8 +41,6 @@ import { BusinessDictionaryTypeEntity } from '../src/system/business-dictionarie
 import { BusinessDictionaryItemEntity } from '../src/system/business-dictionaries/business-dictionary-item.entity';
 import { CityEntity } from '../src/resources/cities/city.entity';
 import { CitiesService } from '../src/resources/cities/cities.service';
-import { SelectionService } from '../src/resources/selections/selection.service';
-import { withResourceScope } from '../src/resources/common/resource-scope';
 import { AuthenticatedUser } from '../src/auth/auth.types';
 import type { Request } from 'express';
 const connection = {
@@ -43,7 +50,124 @@ const connection = {
   username: 'postgres',
   password: 'isolated-test-only',
 };
+function checkAuditChanges() {
+  const before = {
+    dailyPlans: [
+      {
+        id: 'day-1',
+        dayNumber: 1,
+        items: [
+          { id: 'meal-1', resourceName: '原餐厅', unitCost: 10, quantity: 1 },
+          {
+            id: 'meal-removed',
+            resourceName: '删除餐厅',
+            unitCost: 8,
+            quantity: 1,
+          },
+        ],
+      },
+      { id: 'day-removed', dayNumber: 2, items: [] },
+    ],
+    hotelPlans: [
+      { tier: 'hotel-tier', hotels: [{ destination: '昆明', unitCost: 100 }] },
+    ],
+    vehiclePlans: [{ tier: 'standard', totalPrice: 1000 }],
+    guidePlans: [{ destination: '昆明', dailyPrice: 200 }],
+    quote: {
+      options: [
+        {
+          id: 'option-1',
+          hotelTier: 'hotel-tier',
+          vehicleTier: 'standard',
+          paxPrices: [{ pax: 10, adultUnitPrice: 500 }],
+        },
+        {
+          id: 'option-removed',
+          hotelTier: 'old-tier',
+          vehicleTier: 'vip',
+          paxPrices: [],
+        },
+      ],
+    },
+    childRate: 70,
+  };
+  const after = structuredClone(before);
+  after.dailyPlans.pop();
+  after.dailyPlans[0].items.pop();
+  Object.assign(after.dailyPlans[0].items[0], {
+    resourceName: '新餐厅',
+    unitCost: 12.5,
+    quantity: 2,
+  });
+  after.hotelPlans[0].hotels[0].unitCost = 110;
+  after.vehiclePlans[0].totalPrice = 1100;
+  after.guidePlans[0].dailyPrice = 220;
+  after.quote.options.pop();
+  after.quote.options[0].paxPrices[0].adultUnitPrice = 600;
+  after.childRate = 65;
+  const changes = contextualChanges(before, after);
+  const change = (path: string) => {
+    const found = changes.find((item) => item.path === path);
+    assert.ok(found, path);
+    return found;
+  };
+  const pricePath = 'dailyPlans[day-1].items[meal-1].unitCost';
+  assert.deepEqual(change(pricePath).context, { dayNumber: 1, name: '新餐厅' });
+  assert.deepEqual(change('dailyPlans[day-removed]').context, { dayNumber: 2 });
+  // A removed item in a retained day did not use its old name as context.
+  assert.deepEqual(change('dailyPlans[day-1].items[meal-removed]').context, {
+    dayNumber: 1,
+  });
+  assert.deepEqual(
+    change('hotelPlans[hotel-tier].hotels[昆明].unitCost').context,
+    { destination: '昆明', hotelTier: 'hotel-tier' },
+  );
+  assert.deepEqual(change('vehiclePlans[standard].totalPrice').context, {
+    vehicleTier: 'standard',
+  });
+  assert.deepEqual(change('guidePlans[昆明].dailyPrice').context, {
+    destination: '昆明',
+  });
+  assert.deepEqual(
+    change('quote.options[option-1].paxPrices[10].adultUnitPrice').context,
+    { hotelTier: 'hotel-tier', vehicleTier: 'standard' },
+  );
+  assert.deepEqual(change('quote.options[option-removed]').context, {});
+  const response = moneyResponse(changes) as FieldChange[];
+  assert.deepEqual(
+    response.find((item) => item.path === pricePath),
+    {
+      ...change(pricePath),
+      before: '10.00',
+      after: '12.50',
+    },
+  );
+  for (const path of ['dailyPlans[day-1].items[meal-1].quantity', 'childRate'])
+    assert.deepEqual(
+      response.find((item) => item.path === path),
+      change(path),
+    );
+  assert.equal(change(pricePath).before, 10);
+  assert.equal(change(pricePath).after, 12.5);
+  assert.deepEqual(
+    moneyResponse(diffChanges(undefined, { unitCost: 12.5, quantity: 2 })),
+    [
+      {
+        path: '',
+        kind: 'added',
+        before: null,
+        after: { unitCost: '12.50', quantity: 2 },
+      },
+    ],
+  );
+  assert.deepEqual(
+    moneyResponse(diffChanges({ unitCost: null }, { unitCost: 0 })),
+    [{ path: 'unitCost', kind: 'changed', before: null, after: '0.00' }],
+  );
+  assert.deepEqual(contextualChanges(before, structuredClone(before)), []);
+}
 async function main() {
+  checkAuditChanges();
   const admin = await new DataSource({
     ...connection,
     database: 'travel_refactor_test',
@@ -75,8 +199,8 @@ async function main() {
       await empty.query("SELECT name FROM roles WHERE code='ADMIN'"),
       [{ name: '系统管理部' }],
     );
-    await empty.query(`INSERT INTO resource_guide_people(library,code,name)
-      VALUES ('shengxu','GPR-OLD','旧导游档案')`);
+    await empty.query(`INSERT INTO resource_guide_people(code,name,library)
+      VALUES ('GPR-OLD','旧导游档案','shengxu')`);
     empty.migrations.splice(0, empty.migrations.length, ...migrations);
     assert(
       (await empty.runMigrations()).some(
@@ -171,7 +295,7 @@ async function main() {
       [ids.contact, ids.agency],
     );
     await db.query(
-      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明','international_five_star',900,'roomNight')",
+      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明',5,900,'roomNight')",
       [ids.hotel],
     );
     await db.query(
@@ -224,7 +348,6 @@ async function main() {
             id: `meal-${n}`,
             type: 'restaurant',
             resourceId: null,
-            resourcePriceId: null,
             resourceName: '历史自定义餐厅',
             priceName: '',
             quantity: 11,
@@ -238,13 +361,13 @@ async function main() {
       })),
       hotelPlans: [
         {
-          tier: 'international_five_star',
+          tier: 5,
           hotels: [
             {
               destination: '昆明',
               hotelId: ids.hotel,
               hotelName: '历史名称酒店',
-              rating: 'international_five_star',
+              rating: 5,
               breakfast: '早餐',
               unit: 'roomNight',
               unitCost: 555.55,
@@ -309,7 +432,7 @@ async function main() {
         options: [
           {
             id: 'option-old',
-            hotelTier: 'international_five_star',
+            hotelTier: 5,
             vehicleTier: 'standard',
             adultUnitPrice: 2000,
             leaderFocEnabled: false,
@@ -379,7 +502,7 @@ async function main() {
         options: [
           {
             optionId: 'option-old',
-            hotelTier: 'international_five_star',
+            hotelTier: 5,
             vehicleTier: 'standard',
             hotelCost: 6666.6,
             vehicleCost: 1234.56,
@@ -706,6 +829,8 @@ async function main() {
           username,
           password: 'other-password',
           nickname: username,
+          englishName: username,
+          tourCode: 'T1',
           avatar: '',
           gender: 0,
           mobile: '',
@@ -728,8 +853,8 @@ async function main() {
     const adminUser = await createUser('sysadmin', 'headquarters', 1, 'ADMIN');
     const exec = await createUser('boss', 'headquarters', 4, 'EXECUTIVE');
     const multipleIdentities = {
-      username: 'invalid_mixed',
-      password: 'other-password',
+      englishName: 'Multi',
+      tourCode: 'MU',
       nickname: '多部门账号',
       avatar: '',
       gender: 0,
@@ -750,15 +875,18 @@ async function main() {
       ],
     };
     await assert.rejects(
-      management.create(multipleIdentities, root),
+      management.create(
+        {
+          ...multipleIdentities,
+          username: 'invalid_mixed',
+          password: 'other-password',
+        },
+        root,
+      ),
       /一个账号只能有一个登录范围和部门/,
     );
     await assert.rejects(
-      management.update(
-        exec.id,
-        { ...multipleIdentities, username: 'boss' },
-        root,
-      ),
+      management.update(exec.id, multipleIdentities, root),
       /一个账号只能有一个登录范围和部门/,
     );
     assert.equal(
@@ -864,6 +992,7 @@ async function main() {
         ids.owner,
         {
           ...userForm,
+          tourCode: userForm.tourCode ?? 'T1',
           identities: userForm.identities.map((i) => ({
             ...i,
             deptId: i.deptId!,
@@ -920,6 +1049,20 @@ async function main() {
       a,
     );
     assert.equal(saved.dailyPlans[0].items[0].unitCost, 90);
+    const [savedLog] = await db.query<Array<{ changes: FieldChange[] }>>(
+      "SELECT changes FROM inquiry_logs WHERE target_id=$1 AND action='itinerary_saved' ORDER BY occurred_at DESC,id DESC LIMIT 1",
+      [ids.draft],
+    );
+    const savedPriceChange = savedLog.changes.find((change) =>
+      change.path.endsWith('.unitCost'),
+    );
+    assert.ok(savedPriceChange);
+    assert.equal(savedPriceChange.before, 85.12);
+    assert.equal(savedPriceChange.after, 90);
+    assert.deepEqual(savedPriceChange.context, {
+      dayNumber: 1,
+      name: saved.dailyPlans[0].items[0].resourceName,
+    });
     assert.equal(saved.hotelPlans[0].hotels[0].unitCost, 555.55);
     assert.equal(
       (
@@ -991,6 +1134,7 @@ async function main() {
       ids.owner,
       {
         ...userForm,
+        tourCode: userForm.tourCode ?? 'T1',
         identities: userForm.identities.map((i) => ({
           ...i,
           deptId: i.deptId!,
@@ -1003,32 +1147,17 @@ async function main() {
     assert.equal(transferred.businessUnit, 'shengxu');
     const cities = new CitiesService(db.getRepository(CityEntity), db);
     const lxActor = await current(lx.id, 'linxi');
-    await withResourceScope(root, 'shared', () =>
+    await assert.rejects(
       cities.create(
         { name: '昆明', province: '云南', status: 'enabled' as never },
         root.id,
       ),
     );
-    const shared = await withResourceScope(lxActor, null, () =>
-      cities.options(),
-    );
-    assert.equal(shared.length, 1);
-    assert.equal(shared[0].library, 'shared');
-    assert.match(shared[0].code, /^CITY-\d+$/);
-    const selection = new SelectionService(db);
-    assert.equal(
-      (
-        await withResourceScope(lxActor, null, () =>
-          selection.resources('hotels', { page: 1, pageSize: 20 }),
-        )
-      ).total,
-      0,
-    );
+    const publicCities = await cities.options();
+    assert(publicCities.some((city) => city.name === '昆明'));
+    assert(publicCities.every((city) => /^CITY-\d+$/.test(city.code)));
     await assert.rejects(
-      withResourceScope(lxActor, null, () => agencies.get(ids.agency)),
-    );
-    await assert.rejects(
-      validation.normalize(db.manager, editablePlan, undefined, 3, 'shared'),
+      validation.normalize(db.manager, editablePlan, undefined, 3),
     );
     for (const day of editablePlan.dailyPlans)
       for (const item of day.items)
@@ -1055,14 +1184,13 @@ async function main() {
       },
       undefined,
       3,
-      'shengxu',
     );
     assert.equal(normalized.hotelPlans[0].hotels[0].referencePrice, 900);
     const priceChange = structuredClone(normalized);
     priceChange.hotelPlans[0].hotels[0].unitCost = 950;
     priceChange.hotelPlans[0].hotels[0].referencePrice = 950;
     await assert.rejects(
-      validation.normalize(db.manager, priceChange, normalized, 3, 'shengxu'),
+      validation.normalize(db.manager, priceChange, normalized, 3),
     );
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '旺季价格';
     const adjusted = await validation.normalize(
@@ -1070,27 +1198,128 @@ async function main() {
       priceChange,
       normalized,
       3,
-      'shengxu',
     );
     assert.equal(adjusted.hotelPlans[0].hotels[0].referencePrice, 900);
     priceChange.hotelPlans[0].hotels[0].unitCost = 900;
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '';
     await assert.rejects(
-      validation.normalize(db.manager, priceChange, adjusted, 3, 'shengxu'),
+      validation.normalize(db.manager, priceChange, adjusted, 3),
     );
     priceChange.hotelPlans[0].hotels[0].adjustmentReason = '恢复参考价';
     assert.equal(
-      (
-        await validation.normalize(
-          db.manager,
-          priceChange,
-          adjusted,
-          3,
-          'shengxu',
-        )
-      ).hotelPlans[0].hotels[0].unitCost,
+      (await validation.normalize(db.manager, priceChange, adjusted, 3))
+        .hotelPlans[0].hotels[0].unitCost,
       900,
     );
+    // Exercise both daily resource price queries and preserve their snapshots/errors.
+    const restaurantId = randomUUID();
+    const attractionId = randomUUID();
+    await db.query(
+      `INSERT INTO resource_restaurants(id,code,name,city,unit,price,diner_count,description)
+       VALUES ($1,'RES-901','验证餐厅','昆明','table',100,8,'验证桌餐')`,
+      [restaurantId],
+    );
+    await db.query(
+      `INSERT INTO resource_attractions(id,code,name,area,category,unit,price,description)
+       VALUES ($1,'ATT-901','验证景点','昆明','scenic','person',40,'验证门票')`,
+      [attractionId],
+    );
+    const dailyResourcePlan = structuredClone(normalized);
+    dailyResourcePlan.hotelPlans = [];
+    dailyResourcePlan.vehiclePlans = [];
+    dailyResourcePlan.guidePlans = [];
+    for (const day of dailyResourcePlan.dailyPlans) day.items = [];
+    dailyResourcePlan.dailyPlans[0].meals.lunch = true;
+    for (const resource of [
+      {
+        type: 'restaurant' as const,
+        resourceId: restaurantId,
+        resourceName: '验证餐厅',
+        priceName: '验证桌餐',
+        unit: 'table',
+        unitCost: 100,
+        dinerCount: 8,
+        totalCost: 12.5,
+        table: 'resource_restaurants',
+        error: 'Invalid restaurant resource',
+      },
+      {
+        type: 'attraction' as const,
+        resourceId: attractionId,
+        resourceName: '验证景点',
+        priceName: '验证门票',
+        unit: 'person',
+        unitCost: 40,
+        dinerCount: null,
+        totalCost: 40,
+        table: 'resource_attractions',
+        error: 'Invalid attraction resource',
+      },
+    ]) {
+      const resourceInput = structuredClone(dailyResourcePlan);
+      resourceInput.dailyPlans[0].items = [
+        {
+          ...normalized.dailyPlans[0].items[0],
+          id: 'daily-resource-check',
+          type: resource.type,
+          resourceId: resource.resourceId,
+          resourceName: '客户端资源名称',
+          priceName: '客户端价格名称',
+          unit: 'personMeal',
+          unitCost: resource.unitCost,
+          totalCost: 0,
+          dinerCount: 9,
+          referencePrice: 1,
+          referenceBasis: 'unknown',
+          adjustmentReason: '',
+          mealSlot: resource.type === 'restaurant' ? 'lunch' : undefined,
+        },
+      ];
+      const validateResource = (
+        input = resourceInput,
+        previous = dailyResourcePlan,
+        checkReason = true,
+      ) => validation.normalize(db.manager, input, previous, 3, checkReason);
+      const validated = await validateResource();
+      const item = validated.dailyPlans[0].items[0];
+      assert.equal(item.resourceName, resource.resourceName);
+      assert.equal(item.priceName, resource.priceName);
+      assert.equal(item.unit, resource.unit);
+      assert.equal(item.dinerCount, resource.dinerCount);
+      assert.equal(item.referencePrice, resource.unitCost);
+      assert.equal(item.referenceBasis, 'resource_price');
+      assert.equal(item.totalCost, resource.totalCost);
+      const error = { code: 'ITINERARY_INVALID', message: resource.error };
+      const wrongParent = structuredClone(resourceInput);
+      wrongParent.dailyPlans[0].items[0].resourceId = randomUUID();
+      await assert.rejects(validateResource(wrongParent), error);
+      const repriced = structuredClone(resourceInput);
+      repriced.dailyPlans[0].items[0].unitCost += 1;
+      await assert.rejects(validateResource(repriced), {
+        code: 'ITINERARY_INVALID',
+        message: '调整价格必须填写本次原因',
+      });
+      assert.equal(
+        (await validateResource(repriced, dailyResourcePlan, false))
+          .dailyPlans[0].items[0].unitCost,
+        resource.unitCost + 1,
+      );
+      await db.query(
+        `UPDATE ${resource.table} SET name='已改名资源', status='disabled' WHERE id=$1`,
+        [resource.resourceId],
+      );
+      await assert.rejects(validateResource(), error);
+      assert.deepEqual(
+        (await validateResource(resourceInput, validated)).dailyPlans[0]
+          .items[0],
+        item,
+      );
+      await db.query(
+        `UPDATE ${resource.table} SET status='enabled', deleted_at=now() WHERE id=$1`,
+        [resource.resourceId],
+      );
+      await assert.rejects(validateResource(), error);
+    }
     // Real controller/guard/interceptor integration against the same disposable database.
     Object.assign(process.env, {
       ENV_FILE: '/dev/null',
@@ -1149,10 +1378,21 @@ async function main() {
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
       };
-      const httpData = async <T>(response: Response) => {
-        assert.equal(response.status, 200, await response.clone().text());
+      const httpData = async <T>(response: Response, status = 200) => {
+        assert.equal(response.status, status, await response.clone().text());
         return ((await response.json()) as { data: T }).data;
       };
+      const logs = await httpData<{ list: { changes: FieldChange[] }[] }>(
+        await request('GET', `/inquiry-logs?inquiryId=${ids.inquiry}`, root),
+      );
+      const httpPriceChange = logs.list
+        .flatMap((log) => log.changes)
+        .find((change) => change.path === savedPriceChange.path);
+      assert.deepEqual(httpPriceChange, {
+        ...savedPriceChange,
+        before: '85.12',
+        after: '90.00',
+      });
       for (const reader of [system, executive]) {
         assert.equal(
           (await request('POST', '/inquiries', reader, {})).status,
@@ -1233,7 +1473,6 @@ async function main() {
         0,
       );
       const personInput = {
-        library: 'shengxu',
         name: '测试导游',
         age: 36,
         contact: '微信: guide-01',
@@ -1291,7 +1530,6 @@ async function main() {
         '/resources/guide-people',
         root,
         {
-          library: 'shengxu',
           name: '测试导游',
           certificateNo: '',
           status: 'enabled',
@@ -1412,28 +1650,12 @@ async function main() {
             websiteResources,
           )
         ).status,
-        403,
+        200,
       );
       assert.equal(
-        (
-          await request(
-            'GET',
-            '/resources/guide-people?library=shengxu',
-            websiteResources,
-          )
-        ).status,
-        403,
-      );
-      assert.equal(
-        (
-          await request(
-            'POST',
-            '/resources/guide-people',
-            websiteResources,
-            personInput,
-          )
-        ).status,
-        403,
+        (await request('GET', '/resources/guide-people', websiteResources))
+          .status,
+        200,
       );
       assert.equal(
         (
@@ -1540,39 +1762,41 @@ async function main() {
       ])
         assert.equal(
           (await request('GET', path, websiteResources)).status,
-          403,
+          200,
           path,
         );
       assert.equal(
-        (
-          await request(
-            'GET',
-            '/resources/selections/hotels?library=shengxu',
-            websiteResources,
-          )
-        ).status,
-        403,
+        (await request('GET', '/resources/selections/hotels', websiteResources))
+          .status,
+        200,
       );
       assert.equal(
-        (
-          await httpData<{ total: number }>(
-            await request('GET', '/resources/hotels', websiteResources),
-          )
-        ).total,
-        0,
+        (await request('GET', '/resources/hotels', websiteResources)).status,
+        200,
       );
       const sameCities = await httpData<Array<{ id: string }>>(
         await request('GET', '/resources/cities/options', websiteResources),
       );
-      assert.equal(sameCities[0].id, shared[0].id);
+      assert.equal(
+        sameCities
+          .map((c) => c.id)
+          .sort()
+          .join(),
+        publicCities
+          .map((c) => c.id)
+          .sort()
+          .join(),
+      );
       const sharedAgencyResponse = await request(
         'POST',
         '/resources/agencies',
-        websiteResources,
+        root,
         {
+          businessUnit: 'linxi',
+          coordinatorId: lx.id,
           name: '共享旅行社',
           city: '昆明',
-          countryOrRegion: '',
+          countryItemId: null,
           email: '',
           status: 'enabled',
           remark: '',
@@ -1612,6 +1836,10 @@ async function main() {
       const sharedContact = (
         (await contactResponse.json()) as { data: { id: string } }
       ).data;
+      const [country] = await db.query<{ id: string }[]>(
+        `INSERT INTO system_business_dictionary_items(type_id,code,name,english_name)
+         SELECT id,'CHN','中国','China' FROM system_business_dictionary_types WHERE code='country-region' RETURNING id`,
+      );
       const sharedInquiryResponse = await request(
         'POST',
         '/inquiries',
@@ -1621,6 +1849,7 @@ async function main() {
           contactId: sharedContact.id,
           sourceChannel: 'Email',
           originalMessage: '共享资源，询盘独立',
+          countryItemId: country.id,
           plannedDays: 3,
           internalRemark: '',
           lostReason: '',
@@ -1634,6 +1863,105 @@ async function main() {
       const sharedInquiry = (
         (await sharedInquiryResponse.json()) as { data: { id: string } }
       ).data;
+      const previousInquiry = await httpData<Record<string, unknown>>(
+        await request('GET', `/inquiries/${sharedInquiry.id}`, lxActor),
+      );
+      const agencyCoordinator = await createUser(
+        'agency-move-coordinator',
+        'shengxu',
+        3,
+        'COORDINATOR',
+      );
+      const changedAgency = await request(
+        'PUT',
+        `/resources/agencies/${sharedAgency.id}`,
+        root,
+        {
+          version: sharedAgency.version,
+          businessUnit: 'shengxu',
+          coordinatorId: agencyCoordinator.id,
+          name: '改业务后的旅行社',
+          city: '昆明',
+          countryItemId: null,
+          email: 'new@example.com',
+          status: 'enabled',
+          remark: '',
+        },
+      );
+      assert.equal(
+        changedAgency.status,
+        200,
+        await changedAgency.clone().text(),
+      );
+      const newContact = await httpData<{ id: string }>(
+        await request(
+          'POST',
+          `/inquiries/contacts/${sharedAgency.id}`,
+          lxActor,
+          { name: '旧询盘新联系人', phone: '654321' },
+        ),
+        201,
+      );
+      const contactUpdate = {
+        version: previousInquiry.version,
+        agencyId: sharedAgency.id,
+        contactId: newContact.id,
+        sourceChannel: 'Email',
+        originalMessage: '共享资源，询盘独立',
+        countryItemId: country.id,
+        plannedDays: 3,
+        internalRemark: '',
+        lostReason: '',
+      };
+      const maintained = await httpData<Record<string, unknown>>(
+        await request(
+          'PUT',
+          `/inquiries/${sharedInquiry.id}`,
+          lxActor,
+          contactUpdate,
+        ),
+      );
+      for (const field of [
+        'businessUnit',
+        'ownerId',
+        'agencyId',
+        'agencyCode',
+        'agencyName',
+        'email',
+        'countryItemId',
+      ])
+        assert.equal(maintained[field], previousInquiry[field], field);
+      assert.equal(maintained.contactId, newContact.id);
+      assert.equal(maintained.contactName, '旧询盘新联系人');
+      assert.equal(maintained.phone, '654321');
+      const foreignContact = await request(
+        'PUT',
+        `/inquiries/${sharedInquiry.id}`,
+        lxActor,
+        {
+          ...contactUpdate,
+          version: maintained.version,
+          contactId: ids.contact,
+        },
+      );
+      assert.equal(foreignContact.status, 400);
+      const foreignAgency = await request(
+        'PUT',
+        `/inquiries/${sharedInquiry.id}`,
+        lxActor,
+        {
+          ...contactUpdate,
+          version: maintained.version,
+          agencyId: ids.agency,
+          contactId: ids.contact,
+        },
+      );
+      assert.equal(foreignAgency.status, 400);
+      const newInquiry = await request('POST', '/inquiries', lxActor, {
+        ...contactUpdate,
+        version: undefined,
+      });
+      assert.equal(newInquiry.status, 400);
       const websiteUser = await createUser(
         'web-coordinator',
         'website',
@@ -1679,6 +2007,135 @@ async function main() {
       );
       assert.equal(profile.scope, 'linxi');
       assert.equal(profile.deptId, 5);
+      const [coordinatorRole] = await db.query<{ id: string }[]>(
+        "SELECT id FROM roles WHERE code='COORDINATOR'",
+      );
+      const userInput = {
+        username: 'request_cleanup',
+        nickname: '请求字段验证',
+        englishName: 'Cleanup',
+        tourCode: 'CL',
+        identities: [
+          { scope: 'linxi', deptId: 5, roleIds: [coordinatorRole.id] },
+        ],
+      };
+      assert.equal(
+        (
+          await request('POST', '/users', root, {
+            ...userInput,
+            id: randomUUID(),
+          })
+        ).status,
+        400,
+      );
+      const createdUser = await httpData<{
+        id: string;
+        identities: { id: string }[];
+      }>(await request('POST', '/users', root, userInput), 201);
+      const userUpdate = {
+        nickname: '更新姓名',
+        englishName: 'Cleanup',
+        tourCode: 'CL',
+        identities: [
+          { ...userInput.identities[0], id: createdUser.identities[0].id },
+        ],
+      };
+      assert.equal(
+        (
+          await request('PUT', `/users/${createdUser.id}`, root, {
+            ...userUpdate,
+            id: createdUser.id,
+          })
+        ).status,
+        400,
+      );
+      const updatedUser = await httpData<{ identities: { id: string }[] }>(
+        await request('PUT', `/users/${createdUser.id}`, root, userUpdate),
+      );
+      assert.equal(updatedUser.identities[0].id, createdUser.identities[0].id);
+      const typeInput = {
+        name: '请求字段验证分类',
+        dictCode: 'request_cleanup',
+        status: 1,
+      };
+      assert.equal(
+        (
+          await request('POST', '/system/dictionaries', root, {
+            ...typeInput,
+            id: randomUUID(),
+          })
+        ).status,
+        400,
+      );
+      const createdType = await httpData<{ id: string }>(
+        await request('POST', '/system/dictionaries', root, typeInput),
+        201,
+      );
+      assert.equal(
+        (
+          await request(
+            'PUT',
+            `/system/dictionaries/${createdType.id}`,
+            root,
+            typeInput,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request('PUT', `/system/dictionaries/${createdType.id}`, root, {
+            ...typeInput,
+            id: createdType.id,
+          })
+        ).status,
+        400,
+      );
+      const itemInput = {
+        label: '验证项',
+        value: 'one',
+        status: 1,
+        sort: 1,
+        tagType: '',
+      };
+      for (const obsolete of [
+        { id: randomUUID() },
+        { dictCode: typeInput.dictCode },
+      ])
+        assert.equal(
+          (
+            await request(
+              'POST',
+              `/system/dictionaries/${typeInput.dictCode}/items`,
+              root,
+              { ...itemInput, ...obsolete },
+            )
+          ).status,
+          400,
+        );
+      const createdItem = await httpData<{ id: string }>(
+        await request(
+          'POST',
+          `/system/dictionaries/${typeInput.dictCode}/items`,
+          root,
+          itemInput,
+        ),
+        201,
+      );
+      const itemPath = `/system/dictionaries/${typeInput.dictCode}/items/${createdItem.id}`;
+      assert.equal(
+        (await request('PUT', itemPath, root, itemInput)).status,
+        200,
+      );
+      for (const obsolete of [
+        { id: createdItem.id },
+        { dictCode: typeInput.dictCode },
+      ])
+        assert.equal(
+          (await request('PUT', itemPath, root, { ...itemInput, ...obsolete }))
+            .status,
+          400,
+        );
     } finally {
       await app.close();
     }

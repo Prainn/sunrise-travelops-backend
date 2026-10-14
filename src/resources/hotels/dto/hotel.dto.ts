@@ -20,14 +20,15 @@ export class HotelQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() city?: string;
   @IsOptional()
   @optionalTrimmedString
-  @IsIn(['international_five_star', 'ctrip_preferred'])
-  rating?: string;
+  @Type(() => Number)
+  @IsIn([3, 4, 5])
+  rating?: number;
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateHotelDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) province: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @IsIn(['international_five_star', 'ctrip_preferred']) rating: string;
+  @Type(() => Number) @IsIn([3, 4, 5]) rating: number;
   @optionalTrimmedString @IsString() facilities: string;
   @optionalTrimmedString @IsString() breakfast: string;
   @optionalTrimmedString @IsString() @MaxLength(500) address: string;
@@ -46,7 +47,6 @@ export class UpdateHotelDto extends CreateHotelDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class HotelResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;
@@ -57,7 +57,7 @@ export class HotelResponse implements ResourceAuditResponse {
   name: string;
   province: string;
   city: string;
-  rating: string;
+  rating: number;
   facilities: string;
   breakfast: string;
   address: string;

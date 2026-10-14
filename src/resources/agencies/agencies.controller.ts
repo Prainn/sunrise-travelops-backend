@@ -1,5 +1,3 @@
-import { UseInterceptors } from '@nestjs/common';
-import { ResourceScopeInterceptor } from '../common/resource-scope';
 import {
   Body,
   Controller,
@@ -44,7 +42,6 @@ import {
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/agencies')
 export class AgenciesController {
   constructor(private readonly service: AgenciesService) {}
@@ -61,11 +58,8 @@ export class AgenciesController {
   @Get('coordinators')
   @Permissions('resource:agency:list')
   @ApiOperation({ summary: 'List coordinators for an organizing agency' })
-  coordinators(
-    @Query('businessUnit') businessUnit: BusinessUnit,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.coordinators(businessUnit, user);
+  coordinators(@Query('businessUnit') businessUnit: BusinessUnit) {
+    return this.service.coordinators(businessUnit);
   }
   @Get(':agencyId/contacts')
   @Permissions('resource:agency:list')

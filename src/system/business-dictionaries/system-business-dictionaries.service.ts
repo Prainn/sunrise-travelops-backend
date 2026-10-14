@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
 import { BusinessException } from '../../common/exceptions/business.exception';
+import { catalogFor, matchCatalog } from './dictionary-catalogs';
 import { BusinessDictionaryItemEntity } from './business-dictionary-item.entity';
 import { BusinessDictionaryTypeEntity } from './business-dictionary-type.entity';
 import {
@@ -145,6 +146,7 @@ export class SystemBusinessDictionariesService {
   ): Promise<BusinessDictionaryItemResponse> {
     const type = await this.requireTypeByCode(typeCode);
     this.validateResourceTypes(typeCode, input.resourceTypes);
+    this.validateCatalogItem(typeCode, input);
     await this.ensureItemCodeAvailable(type.id, input.code);
     const entity = this.dictionaryItems.create({
       typeId: type.id,
@@ -170,7 +172,14 @@ export class SystemBusinessDictionariesService {
     const type = await this.requireTypeByCode(typeCode);
     const entity = await this.requireItem(id, type.id);
     this.validateResourceTypes(typeCode, input.resourceTypes);
+    this.validateCatalogItem(typeCode, input);
     await this.ensureItemCodeAvailable(type.id, input.code, id);
+    if (
+      (entity.code !== input.code ||
+        entity.englishName !== input.englishName) &&
+      (await this.referencedItemIds(typeCode, [id])).length
+    )
+      throw this.referenced('Referenced item code cannot be changed');
     entity.code = input.code;
     entity.name = input.name;
     entity.englishName = input.englishName;
@@ -214,6 +223,8 @@ export class SystemBusinessDictionariesService {
           status: HttpStatus.CONFLICT,
         });
     }
+    if ((await this.referencedItemIds(typeCode, uniqueIds)).length)
+      throw this.referenced('Business dictionary item is referenced');
     await this.dataSource.transaction(async (manager) => {
       await manager
         .getRepository(BusinessDictionaryItemEntity)
@@ -229,6 +240,82 @@ export class SystemBusinessDictionariesService {
         typeId: type.id,
       });
     });
+  }
+
+  getCatalog(typeCode: string, keyword?: string) {
+    const catalog = catalogFor(typeCode);
+    if (!catalog)
+      throw new BusinessException({
+        code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
+        message: 'Business dictionary type has no catalog',
+        status: HttpStatus.NOT_FOUND,
+      });
+    const word = keyword?.trim().toLowerCase();
+    return word
+      ? catalog.filter((entry) =>
+          [entry.code, entry.name, entry.englishName].some((value) =>
+            value.toLowerCase().includes(word),
+          ),
+        )
+      : catalog;
+  }
+
+  /** Catalog-backed types only accept a catalog code with its English name. */
+  private validateCatalogItem(
+    typeCode: string,
+    input: BusinessDictionaryItemInputDto,
+  ) {
+    if (catalogFor(typeCode)) {
+      if (
+        matchCatalog(typeCode, input.code, input.englishName)?.name !==
+        input.name
+      )
+        throw new BusinessException({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: 'Code and English name must match the standard catalog',
+          status: HttpStatus.BAD_REQUEST,
+        });
+    } else if (!/^[a-z]/.test(input.code)) {
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Item code must start with a lowercase letter',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+  }
+
+  private referenced(message: string) {
+    return new BusinessException({
+      code: ErrorCode.CONFLICT,
+      message,
+      status: HttpStatus.CONFLICT,
+    });
+  }
+
+  /** Ids of the given items still referenced by business records. */
+  private async referencedItemIds(
+    typeCode: string,
+    ids: string[],
+  ): Promise<string[]> {
+    const sources: Record<string, string[]> = {
+      'country-region': [
+        'SELECT country_item_id AS id FROM resource_agencies',
+        'SELECT country_item_id FROM inquiries',
+        'SELECT country_item_id FROM website_inquiries',
+        'SELECT country_item_id FROM tours',
+      ],
+      'city-airport': [
+        'SELECT departure_airport_id FROM resource_flights',
+        'SELECT arrival_airport_id FROM resource_flights',
+      ],
+    };
+    const queries = sources[typeCode];
+    if (!queries) return [];
+    const rows: { id: string }[] = await this.dataSource.query(
+      `SELECT DISTINCT id FROM (${queries.join(' UNION ALL ')}) refs WHERE id = ANY($1::uuid[])`,
+      [ids],
+    );
+    return rows.map((row) => row.id);
   }
 
   private validateResourceTypes(typeCode: string, resourceTypes: string[]) {

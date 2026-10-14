@@ -1,4 +1,3 @@
-import { ResourceScopeInterceptor } from './common/resource-scope';
 import { SelectionController } from './selections/selection.controller';
 import { SelectionService } from './selections/selection.service';
 import { Module } from '@nestjs/common';
@@ -8,10 +7,7 @@ import { BusinessDictionaryTypeEntity } from '../system/business-dictionaries/bu
 import { AgenciesController } from './agencies/agencies.controller';
 import { AgencyContactEntity, AgencyEntity } from './agencies/agency.entity';
 import { AgenciesService } from './agencies/agencies.service';
-import {
-  AttractionEntity,
-  AttractionPriceEntity,
-} from './attractions/attraction.entity';
+import { AttractionEntity } from './attractions/attraction.entity';
 import { AttractionsController } from './attractions/attractions.controller';
 import { AttractionsService } from './attractions/attractions.service';
 import { ResourceValidationService } from './common/resource-validation.service';
@@ -24,10 +20,7 @@ import { GuidesService } from './guides/guides.service';
 import { HotelEntity } from './hotels/hotel.entity';
 import { HotelsController } from './hotels/hotels.controller';
 import { HotelsService } from './hotels/hotels.service';
-import {
-  RestaurantEntity,
-  RestaurantPriceEntity,
-} from './restaurants/restaurant.entity';
+import { RestaurantEntity } from './restaurants/restaurant.entity';
 import { RestaurantsController } from './restaurants/restaurants.controller';
 import { RestaurantsService } from './restaurants/restaurants.service';
 import { TransportEntity } from './transports/transport.entity';
@@ -37,6 +30,9 @@ import { TransportsService } from './transports/transports.service';
 import { CityEntity } from './cities/city.entity';
 import { CitiesController } from './cities/cities.controller';
 import { CitiesService } from './cities/cities.service';
+import { FlightEntity } from './flights/flight.entity';
+import { FlightsController } from './flights/flights.controller';
+import { FlightsService } from './flights/flights.service';
 
 const entities = [
   CityEntity,
@@ -44,12 +40,11 @@ const entities = [
   AgencyContactEntity,
   HotelEntity,
   RestaurantEntity,
-  RestaurantPriceEntity,
   AttractionEntity,
-  AttractionPriceEntity,
   TransportEntity,
   GuideEntity,
   GuidePersonEntity,
+  FlightEntity,
   BusinessDictionaryTypeEntity,
   BusinessDictionaryItemEntity,
 ];
@@ -66,10 +61,10 @@ const entities = [
     TransportsController,
     GuidesController,
     GuidePeopleController,
+    FlightsController,
   ],
   exports: [AgenciesService],
   providers: [
-    ResourceScopeInterceptor,
     SelectionService,
     CitiesService,
     ResourceValidationService,
@@ -80,6 +75,7 @@ const entities = [
     TransportsService,
     GuidesService,
     GuidePeopleService,
+    FlightsService,
   ],
 })
 export class ResourcesModule {}

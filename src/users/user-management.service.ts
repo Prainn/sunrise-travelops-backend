@@ -187,7 +187,13 @@ export class UserManagementService {
     const [row] = await manager.query<
       Array<{ total: number; unfinished: number }>
     >(
-      `SELECT count(*)::int AS total, count(*) FILTER(WHERE status NOT IN ('lost','archived'))::int AS unfinished FROM inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}`,
+      `SELECT count(*)::int AS total,
+        count(*) FILTER(WHERE status NOT IN ('lost','archived'))::int AS unfinished
+       FROM (
+         SELECT status FROM inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
+         UNION ALL
+         SELECT status FROM website_inquiries WHERE owner_id=$1${scopes ? " AND 'website'=ANY($2)" : ''}
+       ) owned_inquiries`,
       scopes ? [id, scopes] : [id],
     );
     return row;
@@ -221,6 +227,8 @@ export class UserManagementService {
         manager.create(UserEntity, {
           username: input.username,
           nickname: input.nickname,
+          englishName: input.englishName,
+          tourCode: input.tourCode,
           avatar: input.avatar,
           gender: input.gender,
           mobile: input.mobile,
@@ -259,11 +267,6 @@ export class UserManagementService {
   async update(id: string, input: UpdateUserDto, actor: AuthenticatedUser) {
     return this.dataSource.transaction(async (manager) => {
       const user = await this.requireUser(id, actor, manager, true);
-      if (
-        (input.id && input.id !== id) ||
-        (input.username && input.username !== user.username)
-      )
-        denied('账号 ID 和登录名不能变更');
       if (id === actor.id && input.status === 0) denied('不能停用当前账号');
       const grants = await this.identities(input.identities, actor, manager);
       const removedScopes = user.identities
@@ -286,6 +289,8 @@ export class UserManagementService {
         await this.assertNoUnfinished(id, manager, removedScopes);
       Object.assign(user, {
         nickname: input.nickname,
+        englishName: input.englishName,
+        tourCode: input.tourCode,
         avatar: input.avatar,
         gender: input.gender,
         mobile: input.mobile,
@@ -362,6 +367,8 @@ export class UserManagementService {
       id: user.id,
       username: user.username,
       nickname: user.nickname,
+      englishName: user.englishName,
+      tourCode: user.tourCode,
       avatar: user.avatar,
       gender: user.gender,
       mobile: user.mobile,

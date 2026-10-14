@@ -103,7 +103,6 @@ export class SystemDictionariesService {
     input: DictionaryTypeInputDto,
     actorId: string,
   ): Promise<DictionaryTypeResponse> {
-    this.assertMatchingId(input.id, id);
     const entity = await this.requireDictionaryTypeById(id);
     await this.ensureDictionaryCodeAvailable(input.dictCode, id);
 
@@ -230,7 +229,6 @@ export class SystemDictionariesService {
     input: DictionaryItemInputDto,
     actorId: string,
   ): Promise<DictionaryItemResponse> {
-    this.assertMatchingDictCode(input.dictCode, dictCode);
     const dictionaryType = await this.requireDictionaryTypeByCode(dictCode);
     await this.ensureDictionaryItemValueAvailable(
       dictionaryType.id,
@@ -259,8 +257,6 @@ export class SystemDictionariesService {
     input: DictionaryItemInputDto,
     actorId: string,
   ): Promise<DictionaryItemResponse> {
-    this.assertMatchingId(input.id, id);
-    this.assertMatchingDictCode(input.dictCode, dictCode);
     const dictionaryType = await this.requireDictionaryTypeByCode(dictCode);
     const entity = await this.requireDictionaryItem(id, dictionaryType.id);
     await this.ensureDictionaryItemValueAvailable(
@@ -403,30 +399,6 @@ export class SystemDictionariesService {
         message: 'Dictionary item value already exists in this dictionary type',
         status: HttpStatus.CONFLICT,
         details: { value },
-      });
-    }
-  }
-
-  private assertMatchingId(inputId: string | undefined, pathId: string): void {
-    if (inputId && inputId !== pathId) {
-      throw new BusinessException({
-        code: ErrorCode.DICTIONARY_ID_MISMATCH,
-        message: 'The body ID does not match the path ID',
-        status: HttpStatus.BAD_REQUEST,
-      });
-    }
-  }
-
-  private assertMatchingDictCode(
-    inputCode: string | undefined,
-    pathCode: string,
-  ): void {
-    if (inputCode && inputCode !== pathCode) {
-      throw new BusinessException({
-        code: ErrorCode.DICTIONARY_CODE_MISMATCH,
-        message:
-          'The body dictionary code does not match the path dictionary code',
-        status: HttpStatus.BAD_REQUEST,
       });
     }
   }

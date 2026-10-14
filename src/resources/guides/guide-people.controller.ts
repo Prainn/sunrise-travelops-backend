@@ -10,7 +10,6 @@ import {
   Post,
   Put,
   Query,
-  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -27,7 +26,6 @@ import {
   ApiSuccessResponse,
 } from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
-import { ResourceScopeInterceptor } from '../common/resource-scope';
 import {
   CreateGuidePersonDto,
   GuidePersonQueryDto,
@@ -39,7 +37,6 @@ import { GuidePeopleService } from './guide-people.service';
 @ApiTags('Resources')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
-@UseInterceptors(ResourceScopeInterceptor)
 @Controller('resources/guide-people')
 export class GuidePeopleController {
   constructor(private readonly service: GuidePeopleService) {}

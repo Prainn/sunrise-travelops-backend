@@ -30,6 +30,10 @@ BREAKING_MIGRATIONS = {
     'AddPaxTierQuotes1790006400000',
     'ShareItineraryStaffCosts1790006600000',
     'RemoveGuideServiceTotal1790040600000',
+    'UnifyResourceLibrary1791619200000',
+    'DropUnusedItineraryFields1791705600000',
+    'UseHotelDiamondRatings1791878400000',
+    'FlattenAttractionAndRestaurantResources1791964800000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');
@@ -151,7 +155,7 @@ def activate_or_restore(candidate, previous):
     except Exception as failure:
         if previous is None:
             run(COMPOSE + ['stop', 'api'])
-            raise RuntimeError('Initial deployment failed; candidate API stopped') from failure
+            raise RuntimeError('Deployment failed without a compatible rollback image; candidate API stopped') from failure
         try:
             activate(previous)
         except Exception as restore_failure:
@@ -242,11 +246,20 @@ def publish(release_id, image, allow_migrations=False):
         state['migration_history'].update(target)
         state['last_migrated_at'] = now()
         save(STATE / 'state.json', state)
+    rollback_image = None
+    if previous:
+        try:
+            check_schema(previous['migrations'], state['migration_history'],
+                         sorted(set(database) | set(pending)), state['compatible_migrations'])
+            rollback_image = previous['image']
+        except ValueError:
+            # Maintenance may make the previous application unsafe; restore the database first.
+            pass
     record = {'release': release_id, 'image': image, 'migrations': target,
               'previous': state['current'], 'status': 'pending'}
     save(record_path, record)
     try:
-        activate_or_restore(image, previous['image'] if previous else None)
+        activate_or_restore(image, rollback_image)
     except Exception:
         record['status'] = 'failed'
         save(record_path, record)

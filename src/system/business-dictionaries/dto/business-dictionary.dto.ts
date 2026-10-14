@@ -92,7 +92,7 @@ export class BusinessDictionaryItemInputDto {
 
   @ApiProperty({ example: 'roomNight' })
   @Transform(trim)
-  @Matches(/^[a-z][a-zA-Z0-9-]*$/)
+  @Matches(/^[A-Za-z][a-zA-Z0-9-]*$/)
   @MaxLength(100)
   code: string;
 

@@ -28,6 +28,12 @@ export class UserEntity extends AuditedEntity {
   @Column({ type: 'varchar', length: 100 })
   nickname: string;
 
+  @Column({ name: 'english_name', type: 'varchar', length: 100 })
+  englishName: string;
+
+  @Column({ name: 'tour_code', type: 'varchar', length: 10, nullable: true })
+  tourCode: string | null;
+
   @Column({ type: 'varchar', length: 500, default: '' })
   avatar: string;
 

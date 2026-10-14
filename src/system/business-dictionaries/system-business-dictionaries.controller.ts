@@ -99,6 +99,16 @@ export class SystemBusinessDictionariesController {
     return this.businessDictionaries.deleteDictionaryTypes(query.ids, user.id);
   }
 
+  @Get('catalogs/:typeCode')
+  @Permissions('sys:business-dictionary:list')
+  @ApiOperation({ summary: 'Search the standard catalog behind a dictionary' })
+  getCatalog(
+    @Param() params: BusinessDictionaryCodeParamDto,
+    @Query() query: BusinessDictionaryItemQueryDto,
+  ) {
+    return this.businessDictionaries.getCatalog(params.typeCode, query.keyword);
+  }
+
   @Get(':typeCode/items')
   @Permissions('sys:business-dictionary:list')
   @ApiOperation({ summary: 'List items in a business dictionary type' })

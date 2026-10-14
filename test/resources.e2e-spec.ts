@@ -16,10 +16,8 @@ import { createValidationException } from '../src/common/validation/validation-e
 import { HotelsController } from '../src/resources/hotels/hotels.controller';
 import { HotelsService } from '../src/resources/hotels/hotels.service';
 import { RestaurantsController } from '../src/resources/restaurants/restaurants.controller';
-import { RestaurantsService } from '../src/resources/restaurants/restaurants.service';
 
 describe('Resources API authorization (e2e)', () => {
-  const uuidV5 = '448b98de-ff5f-55a4-b524-0d1d01511db9';
   let app: INestApplication;
   let server: Server;
   let jwt: JwtService;
@@ -64,12 +62,6 @@ describe('Resources API authorization (e2e)', () => {
               page: 1,
               pageSize: 20,
             }),
-          },
-        },
-        {
-          provide: RestaurantsService,
-          useValue: {
-            listPrices: jest.fn().mockResolvedValue([]),
           },
         },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -125,20 +117,5 @@ describe('Resources API authorization (e2e)', () => {
         message: 'success',
         data: { list: [], total: 0, page: 1, pageSize: 20 },
       });
-  });
-
-  it('accepts an existing UUID v5 parent id for a child-resource route', async () => {
-    if (!permissions.includes('resource:restaurant:list')) {
-      permissions.push('resource:restaurant:list');
-    }
-    const token = await jwt.signAsync(
-      { sub: '00000000-0000-4000-8000-000000000001', type: 'access' },
-      { secret: 'test-access-secret-that-is-at-least-32-characters' },
-    );
-
-    await request(server)
-      .get(`/api/resources/restaurants/${uuidV5}/prices`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200, { code: 'SUCCESS', message: 'success', data: [] });
   });
 });

@@ -1,16 +1,13 @@
-import {
-  assertResourceLibrary,
-  resourceLibrary,
-  scopeResources,
-} from '../common/resource-scope';
+import { requireDictionaryItem } from '../../common/dictionary-items';
 import { nextBusinessCode } from '../../common/business-code';
 import { ResourceValidationService } from '../common/resource-validation.service';
+import { ResourceStatus } from '../common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { UserEntity, UserStatus } from '../../users/user.entity';
-import { BusinessUnit, libraryFor } from '../../users/user-identity.entity';
+import { BusinessUnit } from '../../users/user-identity.entity';
 import { PageResult } from '../../common/types/page-result';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code';
@@ -53,15 +50,12 @@ export class AgenciesService {
     private readonly validation: ResourceValidationService,
   ) {}
 
-  async coordinators(businessUnit: BusinessUnit, actor: AuthenticatedUser) {
-    if (
-      !['shengxu', 'linxi', 'website'].includes(businessUnit) ||
-      (actor.scope !== 'headquarters' && actor.scope !== businessUnit)
-    )
+  async coordinators(businessUnit: BusinessUnit) {
+    if (!['shengxu', 'linxi', 'website'].includes(businessUnit))
       throw new BusinessException({
-        code: ErrorCode.AUTH_FORBIDDEN,
-        message: 'Business unit is not available',
-        status: HttpStatus.FORBIDDEN,
+        code: ErrorCode.VALIDATION_ERROR,
+        message: 'Invalid business unit',
+        status: HttpStatus.BAD_REQUEST,
       });
     const users = await this.dataSource.manager
       .createQueryBuilder(UserEntity, 'user')
@@ -115,24 +109,59 @@ export class AgenciesService {
     return new Map(users.map((user) => [user.id, user.nickname]));
   }
 
-  private agencyBusinessUnit(
-    input: CreateAgencyDto,
-    actor: AuthenticatedUser,
-    library: 'shengxu' | 'shared',
-  ): BusinessUnit {
-    const businessUnit =
-      actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
+  private async requireParent(
+    parentId: string | null,
+    agency: {
+      id?: string;
+      parentId?: string | null;
+    },
+    manager: DataSource['manager'],
+  ): Promise<AgencyEntity | null> {
+    if (!parentId) return null;
+    if (parentId === agency.id)
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '父级不能选择当前组团社',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    const repository = manager.getRepository(AgencyEntity);
+    const parent = await requireResourceForUpdate(
+      repository,
+      parentId,
+      ErrorCode.AGENCY_NOT_FOUND,
+    );
     if (
-      !businessUnit ||
-      (input.businessUnit && input.businessUnit !== businessUnit) ||
-      libraryFor(businessUnit) !== library
+      parent.parentId ||
+      (parent.status !== ResourceStatus.Enabled && parentId !== agency.parentId)
     )
       throw new BusinessException({
-        code: ErrorCode.AUTH_FORBIDDEN,
-        message: 'Business unit does not match agency library',
-        status: HttpStatus.FORBIDDEN,
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '父级必须是有效的一级组团社',
+        status: HttpStatus.BAD_REQUEST,
       });
-    return businessUnit;
+    if (agency.id && (await repository.existsBy({ parentId: agency.id })))
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '已有二级组团社的一级不能改为二级',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    return parent;
+  }
+
+  private agencyName(shortName: string, parent: AgencyEntity | null): string {
+    const name = parent ? `${parent.name}-${shortName}` : shortName;
+    if (name.length > 150)
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '组团社完整名称不能超过150字',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    return name;
+  }
+
+  // Business unit here is the coordinator binding, not a resource scope.
+  private agencyBusinessUnit(input: CreateAgencyDto): BusinessUnit {
+    return input.businessUnit;
   }
 
   async list(
@@ -141,13 +170,24 @@ export class AgenciesService {
     const page = actualPage(query);
     const builder = this.agencies
       .createQueryBuilder('agency')
+      .leftJoinAndSelect('agency.parent', 'parent')
       .loadRelationCountAndMap('agency.contactCount', 'agency.contacts')
-      .orderBy("CAST(SUBSTRING(agency.code FROM '[0-9]+$') AS bigint)", 'ASC')
+      .loadRelationCountAndMap('agency.childCount', 'agency.children')
+      .addSelect(
+        "CAST(SUBSTRING(agency.code FROM '[0-9]+$') AS bigint)",
+        'agency_sequence',
+      )
+      .orderBy('agency_sequence', 'ASC')
       .addOrderBy('agency.code', 'ASC')
       .addOrderBy('agency.id', 'ASC')
       .skip((page - 1) * query.pageSize)
       .take(query.pageSize);
-    scopeResources(builder, 'agency');
+    if (query.parentOnly === 'true')
+      builder.andWhere('agency.parentId IS NULL');
+    if (query.parentId)
+      builder.andWhere('agency.parentId = :parentId', {
+        parentId: query.parentId,
+      });
     if (query.businessUnit)
       builder.andWhere('agency.businessUnit = :businessUnit', {
         businessUnit: query.businessUnit,
@@ -180,7 +220,7 @@ export class AgenciesService {
   async get(id: string): Promise<AgencyDetailResponse> {
     const entity = await this.agencies.findOne({
       where: { id },
-      relations: { contacts: true },
+      relations: { contacts: true, parent: true },
     });
     if (!entity)
       throw new BusinessException({
@@ -188,7 +228,6 @@ export class AgenciesService {
         message: 'Agency was not found',
         status: HttpStatus.NOT_FOUND,
       });
-    assertResourceLibrary(entity);
     const coordinatorNames = await this.coordinatorNames([
       entity.coordinatorId,
     ]);
@@ -198,6 +237,7 @@ export class AgenciesService {
         coordinatorNames.get(entity.coordinatorId ?? '') ?? null,
       ),
       contactCount: entity.contacts.length,
+      childCount: await this.agencies.countBy({ parentId: id }),
       contacts: entity.contacts.map((item) => this.toContactResponse(item)),
     };
   }
@@ -206,15 +246,14 @@ export class AgenciesService {
     input: CreateAgencyDto,
     actor: AuthenticatedUser,
   ): Promise<AgencyDetailResponse> {
-    const library = resourceLibrary(true)!;
-    const businessUnit = this.agencyBusinessUnit(input, actor, library);
-    await this.validation.validateCity(
-      input.city,
-      undefined,
-      resourceLibrary(true)!,
-    );
+    const businessUnit = this.agencyBusinessUnit(input);
     return this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(AgencyEntity);
+      const parent = await this.requireParent(
+        input.parentId ?? null,
+        {},
+        manager,
+      );
       const coordinator = await this.requireCoordinator(
         input.coordinatorId,
         businessUnit,
@@ -223,11 +262,21 @@ export class AgenciesService {
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'AGY'));
       await ensureCodeAvailable(repository, code);
+      const country = input.countryItemId
+        ? await requireDictionaryItem(
+            manager,
+            'country-region',
+            input.countryItemId,
+          )
+        : { name: '' };
       const entity = repository.create({
         ...input,
+        countryOrRegion: country.name,
+        parentId: parent?.id ?? null,
+        parent,
+        name: this.agencyName(input.name, parent),
         businessUnit,
         code,
-        library,
         contacts: [],
         createdBy: actor.id,
         updatedBy: actor.id,
@@ -254,35 +303,72 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
-      const businessUnit = this.agencyBusinessUnit(
-        input,
-        actor,
-        entity.library,
+      const businessUnit = this.agencyBusinessUnit(input);
+      const parent = await this.requireParent(
+        input.parentId ?? null,
+        {
+          id,
+          parentId: entity.parentId,
+        },
+        manager,
       );
-      if (entity.businessUnit && entity.businessUnit !== businessUnit)
-        throw new BusinessException({
-          code: ErrorCode.AUTH_FORBIDDEN,
-          message: 'Agency business unit cannot be changed',
-          status: HttpStatus.FORBIDDEN,
-        });
       const coordinator = await this.requireCoordinator(
         input.coordinatorId,
         businessUnit,
         manager,
       );
-      await this.validation.validateCity(
-        input.city,
-        entity.city,
-        entity.library,
-      );
       input.code ??= entity.code;
       await ensureCodeAvailable(repository, input.code, id);
-      Object.assign(entity, input, { id, businessUnit, updatedBy: actor.id });
+      const previousName = entity.name;
+      const countryItemId =
+        input.countryItemId === undefined
+          ? entity.countryItemId
+          : input.countryItemId;
+      const country =
+        entity.countryItemId === countryItemId
+          ? { name: entity.countryOrRegion }
+          : countryItemId
+            ? await requireDictionaryItem(
+                manager,
+                'country-region',
+                countryItemId,
+              )
+            : { name: '' };
+      Object.assign(entity, input, {
+        id,
+        countryOrRegion: country.name,
+        countryItemId: countryItemId ?? null,
+        businessUnit,
+        parentId: parent?.id ?? null,
+        parent,
+        name: this.agencyName(input.name, parent),
+        updatedBy: actor.id,
+      });
       const saved = await repository.save(entity);
+      if (saved.name !== previousName) {
+        const children = await repository
+          .createQueryBuilder('child')
+          .where('child.parentId = :id', { id })
+          .setLock('pessimistic_write')
+          .getMany();
+        for (const child of children) {
+          child.name = this.agencyName(
+            child.name.slice(previousName.length + 1),
+            saved,
+          );
+          child.updatedBy = actor.id;
+        }
+        if (children.length) await repository.save(children);
+      }
       const contacts = await manager
         .getRepository(AgencyContactEntity)
         .findBy({ agencyId: id });
-      return this.getResponse(saved, contacts, coordinator.nickname);
+      return this.getResponse(
+        saved,
+        contacts,
+        coordinator.nickname,
+        await repository.countBy({ parentId: id }),
+      );
     });
   }
 
@@ -295,6 +381,23 @@ export class AgenciesService {
         ErrorCode.AGENCY_NOT_FOUND,
       );
       const uniqueIds = entities.map((entity) => entity.id);
+      await repository
+        .createQueryBuilder('agency')
+        .whereInIds([...uniqueIds].sort())
+        .orderBy('agency.id', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
+      if (
+        await repository.existsBy({
+          parentId: In(uniqueIds),
+          id: Not(In(uniqueIds)),
+        })
+      )
+        throw new BusinessException({
+          code: ErrorCode.RESOURCE_IN_USE,
+          message: '请先删除或移出父级下的二级组团社',
+          status: HttpStatus.CONFLICT,
+        });
       await manager
         .getRepository(AgencyContactEntity)
         .createQueryBuilder()
@@ -443,11 +546,12 @@ export class AgenciesService {
     entity: AgencyEntity,
     contacts: AgencyContactEntity[],
     coordinatorName: string,
+    childCount = 0,
   ): AgencyDetailResponse {
-    assertResourceLibrary(entity);
     return {
       ...this.toListResponse(entity, coordinatorName),
       contactCount: contacts.length,
+      childCount,
       contacts: contacts.map((item) => this.toContactResponse(item)),
     };
   }
@@ -457,19 +561,27 @@ export class AgenciesService {
   ): AgencyListItemResponse {
     return {
       ...auditResponse(entity),
-      library: entity.library,
       businessUnit: entity.businessUnit,
       coordinatorId: entity.coordinatorId,
       coordinatorName,
+      parentId: entity.parentId,
+      parentName: entity.parent?.name ?? null,
+      shortName: entity.parent
+        ? entity.name.slice(entity.parent.name.length + 1)
+        : entity.name,
       code: entity.code,
       name: entity.name,
       city: entity.city,
+      countryItemId: entity.countryItemId,
       countryOrRegion: entity.countryOrRegion,
       email: entity.email,
       status: entity.status,
       remark: entity.remark,
       contactCount: Number(
         (entity as AgencyEntity & { contactCount?: number }).contactCount ?? 0,
+      ),
+      childCount: Number(
+        (entity as AgencyEntity & { childCount?: number }).childCount ?? 0,
       ),
     };
   }

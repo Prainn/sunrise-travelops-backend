@@ -21,7 +21,6 @@ export class GuideQueryDto extends ResourceQueryDto {
   @IsOptional() @IsIn(['true', 'false']) shopping?: string;
 }
 export class CreateGuideDto {
-  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional() @IsUUID() id?: string;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) dailyPrice: string;
   @IsIn(GUIDE_LANGUAGES) secondLanguage: string;
@@ -32,7 +31,6 @@ export class UpdateGuideDto extends CreateGuideDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class GuideResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsString, MaxLength, Min } from 'class-validator';
+import { IsInt, IsString, MaxLength, Min, MinLength } from 'class-validator';
 import {
   ResourceInputDto,
   ResourceQueryDto,
@@ -9,13 +9,16 @@ import {
 export class CityQueryDto extends ResourceQueryDto {}
 export class CreateCityDto extends ResourceInputDto {
   @MaxLength(100) declare name: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) province: string = '';
+  @optionalTrimmedString
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  province: string;
 }
 export class UpdateCityDto extends CreateCityDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class CityResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   code: string;
   name: string;

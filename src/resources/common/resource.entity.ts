@@ -11,7 +11,6 @@ export abstract class VersionedResourceEntity extends AuditedEntity {
 }
 
 export abstract class TopLevelResourceEntity extends VersionedResourceEntity {
-  @Column({ type: 'text' }) library: 'shengxu' | 'shared';
   @Column({ type: 'varchar', length: 50 })
   code: string;
 

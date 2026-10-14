@@ -1,4 +1,3 @@
-import { ResourceLibrary } from '../users/user-identity.entity';
 import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -8,14 +7,8 @@ import { CityEntity } from '../resources/cities/city.entity';
 import { HotelEntity } from '../resources/hotels/hotel.entity';
 import { TransportEntity } from '../resources/transports/transport.entity';
 import { GuideEntity } from '../resources/guides/guide.entity';
-import {
-  RestaurantEntity,
-  RestaurantPriceEntity,
-} from '../resources/restaurants/restaurant.entity';
-import {
-  AttractionEntity,
-  AttractionPriceEntity,
-} from '../resources/attractions/attraction.entity';
+import { RestaurantEntity } from '../resources/restaurants/restaurant.entity';
+import { AttractionEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
 import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
@@ -72,7 +65,8 @@ export class ItineraryValidation {
       const key = item.resourceId
         ? `${item.type}:${item.resourceId}`
         : `custom:${item.resourceName.trim().toLowerCase()}`;
-      if (standard.has(key)) continue;
+      // 自定义餐食“待定”是占位名称，可跨天及同日午晚餐重复。
+      if (standard.has(key) || key === 'custom:待定') continue;
       if (seen.has(key))
         throw new BusinessException({
           code: 'ITINERARY_RESOURCE_DUPLICATE',
@@ -84,12 +78,66 @@ export class ItineraryValidation {
     }
   }
 
+  private async validateDailyItem(
+    manager: EntityManager,
+    item: ItineraryInput['dailyPlans'][number]['items'][number],
+    oldItem: ItineraryInput['dailyPlans'][number]['items'][number] | undefined,
+    checkReason: boolean,
+  ): Promise<void> {
+    if (oldItem)
+      Object.assign(item, {
+        resourceName: oldItem.resourceName,
+        priceName: oldItem.priceName,
+        unit: oldItem.unit,
+        dinerCount: oldItem.dinerCount ?? item.dinerCount ?? null,
+        referencePrice: oldItem.referencePrice ?? null,
+        referenceBasis: oldItem.referenceBasis ?? 'unknown',
+      });
+    else {
+      const isRestaurant = item.type === 'restaurant';
+      const resource = await manager.findOne<
+        RestaurantEntity | AttractionEntity
+      >(isRestaurant ? RestaurantEntity : AttractionEntity, {
+        where: { id: item.resourceId! },
+      });
+      if (
+        !resource ||
+        resource.deletedAt ||
+        resource.status !== ResourceStatus.Enabled ||
+        resource.price === null ||
+        !resource.description.trim()
+      )
+        invalid(
+          isRestaurant
+            ? 'Invalid restaurant resource'
+            : 'Invalid attraction resource',
+        );
+      Object.assign(item, {
+        resourceName: resource.name,
+        priceName: '',
+        unit: resource.unit,
+        dinerCount:
+          'dinerCount' in resource && resource.unit === 'table'
+            ? (resource.dinerCount ?? item.dinerCount ?? null)
+            : null,
+        referencePrice: Number(resource.price),
+        referenceBasis: 'resource_price',
+      });
+    }
+    requirePriceReason(
+      item.unitCost,
+      oldItem?.unitCost,
+      item,
+      oldItem,
+      checkReason,
+    );
+  }
+
   async normalize(
     manager: EntityManager,
     input: ItineraryInput,
     previous?: ItineraryInput,
     plannedDays = input.dailyPlans.length,
-    library?: ResourceLibrary,
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
@@ -105,7 +153,7 @@ export class ItineraryValidation {
     );
     if (newCities.length) {
       const cities = await manager.find(CityEntity, {
-        where: { name: In(newCities), library },
+        where: { name: In(newCities) },
       });
       if (
         cities.filter((city) => city.status === ResourceStatus.Enabled)
@@ -121,7 +169,7 @@ export class ItineraryValidation {
         ...day.items.map((item) => item.id),
       ]),
     );
-    unique(plan.hotelPlans.map((p) => p.tier));
+    unique(plan.hotelPlans.map((p) => String(p.tier)));
     unique(plan.vehiclePlans.map((p) => p.tier));
     unique(plan.guidePlans.map((p) => p.destination));
     unique(plan.quote.options.map((p) => p.id));
@@ -168,13 +216,10 @@ export class ItineraryValidation {
           (v) =>
             v.id === item.id &&
             v.type === item.type &&
-            v.resourceId === item.resourceId &&
-            v.resourcePriceId === item.resourcePriceId,
+            v.resourceId === item.resourceId,
         );
       const customRestaurant =
-        item.type === 'restaurant' &&
-        item.resourceId === null &&
-        item.resourcePriceId === null;
+        item.type === 'restaurant' && item.resourceId === null;
       if (customRestaurant) {
         item.resourceName = item.resourceName.trim();
         if (
@@ -189,59 +234,14 @@ export class ItineraryValidation {
         item.priceName = '';
         item.referencePrice = null;
         item.referenceBasis = 'unknown';
-      } else if (old)
-        Object.assign(item, {
-          resourceName: old.resourceName,
-          priceName: old.priceName,
-          unit: old.unit,
-          dinerCount: old.dinerCount ?? item.dinerCount ?? null,
-          referencePrice: old.referencePrice ?? null,
-          referenceBasis: old.referenceBasis ?? 'unknown',
-        });
-      else if (item.type === 'restaurant') {
-        const price = await manager.findOne(RestaurantPriceEntity, {
-          where: { id: item.resourcePriceId!, restaurantId: item.resourceId! },
-          relations: { restaurant: true },
-        });
-        if (
-          !price?.restaurant ||
-          price.restaurant.deletedAt ||
-          price.restaurant.status !== ResourceStatus.Enabled ||
-          (library && price.restaurant.library !== library)
-        )
-          invalid('Invalid restaurant price');
-        Object.assign(item, {
-          resourceName: price.restaurant.name,
-          priceName: price.menuName,
-          unit: price.unit,
-          dinerCount:
-            price.unit === 'table'
-              ? (price.dinerCount ?? item.dinerCount ?? null)
-              : null,
-          referencePrice: Number(price.price),
-          referenceBasis: 'resource_price',
-        });
-      } else {
-        const price = await manager.findOne(AttractionPriceEntity, {
-          where: { id: item.resourcePriceId!, attractionId: item.resourceId! },
-          relations: { attraction: true },
-        });
-        if (
-          !price?.attraction ||
-          price.attraction.deletedAt ||
-          price.attraction.status !== ResourceStatus.Enabled ||
-          (library && price.attraction.library !== library)
-        )
-          invalid('Invalid attraction price');
-        Object.assign(item, {
-          resourceName: price.attraction.name,
-          priceName: price.itemName,
-          unit: price.unit,
-          referencePrice: Number(price.settlementPrice),
-          referenceBasis: 'resource_price',
-        });
-      }
-      requirePriceReason(item.unitCost, old?.unitCost, item, old, checkReason);
+        requirePriceReason(
+          item.unitCost,
+          old?.unitCost,
+          item,
+          old,
+          checkReason,
+        );
+      } else await this.validateDailyItem(manager, item, old, checkReason);
       if (
         item.unit === 'table' &&
         !(
@@ -285,16 +285,11 @@ export class ItineraryValidation {
           const hotel = await manager.findOneBy(HotelEntity, {
             id: selection.hotelId,
           });
-          const rating =
-            group.tier === 'international_five_star'
-              ? 'international_five_star'
-              : 'ctrip_preferred';
           if (
             !hotel ||
             hotel.status !== ResourceStatus.Enabled ||
             hotel.city !== selection.destination ||
-            hotel.rating !== rating ||
-            (library && hotel.library !== library)
+            hotel.rating !== group.tier
           )
             invalid('Hotel does not match city or tier');
           const groupRate = selection.referenceBasis === 'hotel_group';
@@ -381,8 +376,7 @@ export class ItineraryValidation {
           if (
             !resource ||
             resource.status !== ResourceStatus.Enabled ||
-            resource.serviceLevel !== group.tier ||
-            (library && resource.library !== library)
+            resource.serviceLevel !== group.tier
           )
             invalid('Invalid vehicle');
           Object.assign(vehicle, {
@@ -451,11 +445,7 @@ export class ItineraryValidation {
         const resource = await manager.findOneBy(GuideEntity, {
           id: guide.guideId,
         });
-        if (
-          !resource ||
-          resource.status !== ResourceStatus.Enabled ||
-          (library && resource.library !== library)
-        )
+        if (!resource || resource.status !== ResourceStatus.Enabled)
           invalid('Invalid guide');
         Object.assign(guide, {
           guideName: resource.name,
@@ -675,42 +665,5 @@ export class ItineraryValidation {
         status: HttpStatus.BAD_REQUEST,
         details: { issues },
       });
-  }
-}
-
-export async function assertItineraryLibrary(
-  manager: EntityManager,
-  plan: ItineraryInput,
-  library: ResourceLibrary,
-) {
-  const references = [
-    {
-      entity: HotelEntity,
-      ids: plan.hotelPlans.flatMap((p) => p.hotels.map((h) => h.hotelId)),
-    },
-    { entity: GuideEntity, ids: plan.guidePlans.map((g) => g.guideId) },
-    {
-      entity: TransportEntity,
-      ids: plan.vehiclePlans.flatMap((p) =>
-        p.arrangements.flatMap((a) => a.vehicles.map((v) => v.vehicleId)),
-      ),
-    },
-  ];
-  for (const reference of references) {
-    const ids = [...new Set(reference.ids)];
-    if (!ids.length) continue;
-    const rows = await manager
-      .getRepository(reference.entity)
-      .find({ where: { id: In(ids), library }, withDeleted: true });
-    if (rows.length !== ids.length) invalid('Resource outside inquiry library');
-  }
-  for (const item of plan.dailyPlans.flatMap((d) => d.items)) {
-    if (item.resourceId === null && item.type === 'restaurant') continue;
-    const kind = item.type === 'restaurant' ? 'restaurants' : 'attractions';
-    const parent = await manager.query<Array<{ id: string }>>(
-      `SELECT id FROM resource_${kind} WHERE id=$1 AND library=$2`,
-      [item.resourceId, library],
-    );
-    if (!parent.length) invalid('Resource outside inquiry library');
   }
 }

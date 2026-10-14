@@ -18,15 +18,12 @@ export const LOGIN_SCOPES = [
 ] as const;
 export type LoginScope = (typeof LOGIN_SCOPES)[number];
 export type BusinessUnit = Exclude<LoginScope, 'headquarters'>;
-export type ResourceLibrary = 'shengxu' | 'shared';
 export const SCOPE_NAMES: Record<LoginScope, string> = {
   headquarters: '总部',
   shengxu: '盛旭',
   linxi: '霖熹',
   website: '独立站',
 };
-export const libraryFor = (scope: BusinessUnit): ResourceLibrary =>
-  scope === 'shengxu' ? 'shengxu' : 'shared';
 @Entity('user_identities')
 @Index('UQ_identity_login', ['scope', 'username'], { unique: true })
 @Index('UQ_identity_user_scope', ['userId', 'scope'], { unique: true })

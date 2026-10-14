@@ -44,14 +44,6 @@ export class DictionaryItemQueryDto extends PaginationQueryDto {
 }
 
 export class DictionaryTypeInputDto {
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description: 'Accepted on update for compatibility with frontend form data',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
   @ApiProperty({ example: '用户性别' })
   @Transform(trim)
   @IsString()
@@ -80,24 +72,6 @@ export class DictionaryTypeInputDto {
 }
 
 export class DictionaryItemInputDto {
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description: 'Accepted on update for compatibility with frontend form data',
-  })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
-  @ApiPropertyOptional({
-    description: 'Accepted for compatibility; the path remains authoritative',
-    example: 'gender',
-  })
-  @IsOptional()
-  @Transform(trimAndLowercase)
-  @Matches(/^[a-z][a-z0-9_]*$/)
-  @MaxLength(100)
-  dictCode?: string;
-
   @ApiProperty({ example: '男' })
   @Transform(trim)
   @IsString()

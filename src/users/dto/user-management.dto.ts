@@ -86,17 +86,26 @@ export class IdentityInput {
 }
 
 class UserEditableFieldsDto {
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID('4')
-  id?: string;
-
   @ApiProperty({ example: '李明' })
   @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(100)
   nickname: string;
+
+  @ApiProperty({ example: 'Li Ming' })
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  englishName: string;
+
+  @ApiProperty({ example: 'LM' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toUpperCase() : value,
+  )
+  @Matches(/^[A-Z0-9]{1,10}$/)
+  tourCode: string;
 
   @ApiPropertyOptional({ default: '' })
   @IsOptional()
@@ -153,16 +162,7 @@ export class CreateUserDto extends UserEditableFieldsDto {
   password?: string;
 }
 
-export class UpdateUserDto extends UserEditableFieldsDto {
-  @ApiPropertyOptional({
-    example: 'operations_li',
-    description: 'Optional compatibility field; it cannot be changed',
-  })
-  @IsOptional()
-  @Transform(trim)
-  @Matches(/^[a-z][a-z0-9_.-]{2,79}$/)
-  username?: string;
-}
+export class UpdateUserDto extends UserEditableFieldsDto {}
 
 export class ResetUserPasswordDto {
   @ApiProperty({ minLength: 6, maxLength: 128 })
@@ -213,6 +213,8 @@ export class UserItemResponse {
   id: string;
   username: string;
   nickname: string;
+  englishName: string;
+  tourCode: string | null;
   avatar: string;
   gender: number;
   mobile: string;

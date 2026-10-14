@@ -1,4 +1,4 @@
-import { LoginScope, ResourceLibrary } from '../../users/user-identity.entity';
+import { LoginScope } from '../../users/user-identity.entity';
 export class AuthTokensResponse {
   accessToken: string;
   refreshToken: string;
@@ -16,7 +16,6 @@ export class AuthenticatedUserResponse {
   deptId: number | null;
   deptName: string;
   roles: string[];
-  resourceLibrary: ResourceLibrary | null;
   permissions: string[];
 }
 

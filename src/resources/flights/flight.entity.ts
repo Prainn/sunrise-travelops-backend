@@ -1,0 +1,66 @@
+import { Check, Column, Entity, Index } from 'typeorm';
+import { ResourceStatus } from '../common/resource.constants';
+import { VersionedResourceEntity } from '../common/resource.entity';
+
+@Entity({ name: 'resource_flights' })
+@Index('IDX_resource_flights_status', ['status'], {
+  where: '"deleted_at" IS NULL',
+})
+@Index(
+  'UQ_resource_flights_schedule',
+  [
+    'departureCity',
+    'arrivalCity',
+    'flightNumber',
+    'departureTime',
+    'arrivalTime',
+  ],
+  {
+    unique: true,
+    where:
+      '"deleted_at" IS NULL AND ("departure_airport_id" IS NULL OR "arrival_airport_id" IS NULL)',
+  },
+)
+@Index(
+  'UQ_resource_flights_airport_schedule',
+  [
+    'departureAirportId',
+    'arrivalAirportId',
+    'flightNumber',
+    'departureTime',
+    'arrivalTime',
+  ],
+  {
+    unique: true,
+    where:
+      '"deleted_at" IS NULL AND "departure_airport_id" IS NOT NULL AND "arrival_airport_id" IS NOT NULL',
+  },
+)
+@Check('CHK_resource_flights_status', `"status" IN ('enabled','disabled')`)
+@Check(
+  'CHK_resource_flights_cities',
+  `length(btrim("departure_city")) > 0 AND length(btrim("arrival_city")) > 0`,
+)
+@Check('CHK_resource_flights_number', `"flight_number" ~ '^[A-Z0-9]{1,20}$'`)
+@Check(
+  'CHK_resource_flights_times',
+  `"departure_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' AND "arrival_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
+)
+export class FlightEntity extends VersionedResourceEntity {
+  @Column({ name: 'departure_city', type: 'varchar', length: 150 })
+  departureCity: string;
+  @Column({ name: 'arrival_city', type: 'varchar', length: 150 })
+  arrivalCity: string;
+  @Column({ name: 'departure_airport_id', type: 'uuid', nullable: true })
+  departureAirportId: string | null;
+  @Column({ name: 'arrival_airport_id', type: 'uuid', nullable: true })
+  arrivalAirportId: string | null;
+  @Column({ name: 'flight_number', type: 'varchar', length: 20 })
+  flightNumber: string;
+  @Column({ name: 'departure_time', type: 'varchar', length: 5 })
+  departureTime: string;
+  @Column({ name: 'arrival_time', type: 'varchar', length: 5 })
+  arrivalTime: string;
+  @Column({ type: 'varchar', length: 20, default: ResourceStatus.Enabled })
+  status: ResourceStatus;
+}

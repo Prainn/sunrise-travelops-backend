@@ -18,14 +18,21 @@ import {
   optionalTrimmedString,
 } from '../../common/resource.dto';
 
-export class AgencyQueryDto extends ResourceQueryDto {}
-
-export class CreateAgencyDto extends ResourceInputDto {
+export class AgencyQueryDto extends ResourceQueryDto {
+  @IsOptional() @IsIn(['true', 'false']) parentOnly?: string;
+  @IsOptional() @IsUUID('all') parentId?: string;
+  // Inquiry selection only: agencies bound to this business unit's coordinators.
   @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
     'shengxu' | 'linxi' | 'website';
+}
+
+export class CreateAgencyDto extends ResourceInputDto {
+  @IsOptional() @IsUUID('all') parentId?: string | null;
+  @IsIn(['shengxu', 'linxi', 'website'])
+  businessUnit: 'shengxu' | 'linxi' | 'website';
   @IsUUID() coordinatorId: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) countryOrRegion: string;
+  @IsOptional() @IsUUID() countryItemId?: string | null;
   @optionalTrimmedString
   @ValidateIf((_input: CreateAgencyDto, value: unknown) => value !== '')
   @IsEmail()
@@ -65,10 +72,12 @@ export class AgencyContactResponse implements ResourceAuditResponse {
 }
 
 export class AgencyListItemResponse implements ResourceAuditResponse {
+  parentId: string | null;
+  parentName: string | null;
+  shortName: string;
   businessUnit: 'shengxu' | 'linxi' | 'website' | null;
   coordinatorId: string | null;
   coordinatorName: string | null;
-  library: 'shengxu' | 'shared';
   id: string;
   version: number;
   createdAt: string;
@@ -78,11 +87,13 @@ export class AgencyListItemResponse implements ResourceAuditResponse {
   code: string;
   name: string;
   city: string;
+  countryItemId: string | null;
   countryOrRegion: string;
   email: string;
   status: string;
   remark: string;
   contactCount: number;
+  childCount: number;
 }
 
 export class AgencyDetailResponse extends AgencyListItemResponse {

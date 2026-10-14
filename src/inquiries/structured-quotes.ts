@@ -72,7 +72,7 @@ export async function saveFrozenDetails(
         type: i.type,
         name: i.resourceName,
         resourceId: i.resourceId,
-        priceId: i.resourcePriceId,
+        priceId: null,
         unit: i.unit,
         quantity: i.quantity,
         dinerCount: i.dinerCount,

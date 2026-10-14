@@ -22,6 +22,8 @@ import { SystemModule } from './system/system.module';
 import { UsersModule } from './users/users.module';
 import { OperationLogsModule } from './operation-logs/operation-logs.module';
 import { OperationLogInterceptor } from './operation-logs/operation-log.interceptor';
+import { ToursModule } from './tours/tours.module';
+import { WebsiteModule } from './website/website.module';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { OperationLogInterceptor } from './operation-logs/operation-log.intercep
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     AuthModule,
     InquiriesModule,
+    WebsiteModule,
+    ToursModule,
     UsersModule,
     OperationLogsModule,
     RolesModule,

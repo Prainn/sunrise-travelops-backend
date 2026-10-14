@@ -1,21 +1,18 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsDateString,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import {
   ATTRACTION_CATEGORIES,
-  ATTRACTION_PRICE_ITEM_TYPES,
   AttractionCategory,
-  AttractionPriceItemType,
 } from '../../common/resource.constants';
 import {
   ResourceAuditResponse,
@@ -25,76 +22,37 @@ import {
   optionalTrimmedString,
 } from '../../common/resource.dto';
 
-const nullableDate = Transform(({ value }: { value: unknown }) =>
-  value === '' ? null : value,
-);
-
 export class AttractionQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() area?: string;
   @IsOptional() @IsIn(ATTRACTION_CATEGORIES) category?: AttractionCategory;
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  isStandardPrice?: boolean;
 }
 export class CreateAttractionDto extends ResourceInputDto {
-  @optionalTrimmedString @IsString() @MaxLength(100) area: string;
-  @IsIn(ATTRACTION_CATEGORIES) category: AttractionCategory;
-  @optionalTrimmedString @IsString() @MaxLength(500) restroomLocation: string;
-  @IsOptional() @IsBoolean() isStandardPrice?: boolean;
-  @IsOptional() @optionalTrimmedString @IsString() description?: string;
-  @optionalTrimmedString @IsString() remark: string;
+  @optionalTrimmedString @IsString() @MinLength(1) @MaxLength(100) area: string;
+  @optionalTrimmedString @IsString() @MinLength(1) description: string;
+  @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
+  @IsOptional()
+  @IsIn(ATTRACTION_CATEGORIES)
+  category?: AttractionCategory | null;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(500)
+  restroomLocation?: string;
+  @IsOptional() @IsBoolean() isStandardPrice?: boolean;
+  @IsOptional() @optionalTrimmedString @IsString() remark?: string;
 }
 export class UpdateAttractionDto extends CreateAttractionDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
-export class CreateAttractionPriceDto {
-  @IsOptional() @IsUUID('all') id?: string;
-  @IsIn(ATTRACTION_PRICE_ITEM_TYPES) itemType: AttractionPriceItemType;
-  @optionalTrimmedString @IsString() @MaxLength(150) itemName: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) audience: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) periodName: string;
-  @IsOptional()
-  @nullableDate
-  @IsDateString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  startDate?: string | null;
-  @IsOptional()
-  @nullableDate
-  @IsDateString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  endDate?: string | null;
-  @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) rackPrice: string;
-  @moneyTransform
-  @Matches(/^\d{1,10}(?:\.\d{1,2})?$/)
-  settlementPrice: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
-  @IsBoolean() isFree: boolean;
-  @optionalTrimmedString @IsString() priceNote: string;
-}
-export class UpdateAttractionPriceDto extends CreateAttractionPriceDto {
-  @Type(() => Number) @IsInt() @Min(1) version: number;
-}
-export class AttractionPriceResponse implements ResourceAuditResponse {
-  id: string;
-  version: number;
-  createdAt: string;
-  createdBy: string | null;
-  updatedAt: string;
-  updatedBy: string | null;
-  attractionId: string;
-  itemType: AttractionPriceItemType;
-  itemName: string;
-  audience: string;
-  periodName: string;
-  startDate: string | null;
-  endDate: string | null;
-  rackPrice: string;
-  settlementPrice: string;
-  unit: string;
-  isFree: boolean;
-  priceNote: string;
-}
-export class AttractionListItemResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
+export class AttractionResponse implements ResourceAuditResponse {
   id: string;
   version: number;
   createdAt: string;
@@ -104,15 +62,13 @@ export class AttractionListItemResponse implements ResourceAuditResponse {
   code: string;
   name: string;
   area: string;
-  category: AttractionCategory;
+  category: AttractionCategory | null;
   restroomLocation: string;
   description: string;
   isStandardPrice: boolean;
   remark: string;
   unit: string;
+  /** Null for migrated records that still need a price. */
+  price: string | null;
   status: string;
-  priceCount: number;
-}
-export class AttractionDetailResponse extends AttractionListItemResponse {
-  prices: AttractionPriceResponse[];
 }

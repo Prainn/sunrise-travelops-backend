@@ -50,7 +50,7 @@ function prices(data: ItineraryInput) {
       d.items.map((i) => ({
         key: `item:${i.id}`,
         name: `D${d.dayNumber} · ${i.resourceName}`,
-        source: `${i.resourceId}:${i.resourcePriceId}`,
+        source: `${i.resourceId}`,
         price: i.unitCost,
         ...i,
       })),

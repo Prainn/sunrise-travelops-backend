@@ -1,21 +1,15 @@
-import {
-  Check,
-  Column,
-  Entity,
-  Index,
-  JoinColumn,
-  ManyToOne,
-  OneToMany,
-  Unique,
-} from 'typeorm';
-import {
-  TopLevelResourceEntity,
-  VersionedResourceEntity,
-} from '../common/resource.entity';
+import { Check, Column, Entity, Index, Unique } from 'typeorm';
+import { TopLevelResourceEntity } from '../common/resource.entity';
 
+/** One record is one restaurant package/price; several may be standard-price in a city. */
 @Entity({ name: 'resource_restaurants' })
 @Unique('UQ_resource_restaurants_code', ['code'])
 @Check('CHK_resource_restaurants_status', `"status" IN ('enabled', 'disabled')`)
+@Check('CHK_resource_restaurants_price', '"price" IS NULL OR "price" >= 0')
+@Check(
+  'CHK_resource_restaurants_diner_count',
+  '"diner_count" IS NULL OR "diner_count" > 0',
+)
 @Index(
   'IDX_resource_restaurants_status_city_unit',
   ['status', 'city', 'unit'],
@@ -23,10 +17,6 @@ import {
     where: '"deleted_at" IS NULL',
   },
 )
-@Index('UQ_resource_restaurants_standard_city', ['library', 'city'], {
-  unique: true,
-  where: '"deleted_at" IS NULL AND "is_standard_price"',
-})
 export class RestaurantEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' }) city: string;
   @Column({ type: 'varchar', length: 100, default: '' }) cuisine: string;
@@ -37,37 +27,12 @@ export class RestaurantEntity extends TopLevelResourceEntity {
   isStandardPrice: boolean;
   @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
+  /** personMeal (default) or table. */
   @Column({ type: 'varchar', length: 100 }) unit: string;
-
-  @OneToMany(() => RestaurantPriceEntity, (price) => price.restaurant)
-  prices: RestaurantPriceEntity[];
-}
-
-@Entity({ name: 'resource_restaurant_prices' })
-@Index('IDX_resource_restaurant_prices_restaurant', ['restaurantId'], {
-  where: '"deleted_at" IS NULL',
-})
-@Check('CHK_resource_restaurant_prices_price', '"price" >= 0')
-@Check(
-  'CHK_resource_restaurant_prices_diner_count',
-  '"diner_count" IS NULL OR "diner_count" > 0',
-)
-export class RestaurantPriceEntity extends VersionedResourceEntity {
-  @Column({ name: 'restaurant_id', type: 'uuid' }) restaurantId: string;
-  @ManyToOne(() => RestaurantEntity, (restaurant) => restaurant.prices, {
-    onDelete: 'RESTRICT',
-  })
-  @JoinColumn({
-    name: 'restaurant_id',
-    foreignKeyConstraintName: 'FK_resource_restaurant_prices_restaurant',
-  })
-  restaurant: RestaurantEntity;
-  @Column({ name: 'menu_name', type: 'varchar', length: 150 }) menuName: string;
-  @Column({ name: 'dish_details', type: 'text', default: '' })
-  dishDetails: string;
-  @Column({ type: 'varchar', length: 100 }) unit: string;
-  @Column({ type: 'numeric', precision: 12, scale: 2 }) price: string;
-  @Column({ name: 'diner_count', type: 'integer', nullable: true }) dinerCount:
-    number | null;
-  @Column({ type: 'text', default: '' }) remark: string;
+  /** Price per person-meal or per table; null only for legacy records awaiting a price. */
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  price: string | null;
+  /** Required positive integer only when the unit is per table. */
+  @Column({ name: 'diner_count', type: 'integer', nullable: true })
+  dinerCount: number | null;
 }

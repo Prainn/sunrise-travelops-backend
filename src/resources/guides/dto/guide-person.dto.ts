@@ -22,7 +22,6 @@ import { ResourceStatus } from '../../common/resource.constants';
 export class GuidePersonQueryDto extends ResourceQueryDto {}
 
 export class CreateGuidePersonDto {
-  @IsOptional() @IsIn(['shengxu', 'shared']) library?: 'shengxu' | 'shared';
   @IsOptional() @IsUUID('all') id?: string;
   @optionalTrimmedString
   @IsString()
@@ -78,7 +77,6 @@ export class UpdateGuidePersonDto extends CreateGuidePersonDto {
 }
 
 export class GuidePersonResponse implements ResourceAuditResponse {
-  library: 'shengxu' | 'shared';
   id: string;
   code: string;
   name: string;
