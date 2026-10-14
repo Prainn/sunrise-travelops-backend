@@ -64,6 +64,10 @@ export class AttractionsService {
       });
     if (query.unit)
       builder.andWhere('attraction.unit = :unit', { unit: query.unit });
+    if (query.isStandardPrice !== undefined)
+      builder.andWhere('attraction.isStandardPrice = :isStandardPrice', {
+        isStandardPrice: query.isStandardPrice,
+      });
     const [entities, total] = await builder.getManyAndCount();
     return {
       list: entities.map((item) => this.toResponse(item)),

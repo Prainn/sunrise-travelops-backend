@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
@@ -22,6 +22,12 @@ import {
 export class RestaurantQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() city?: string;
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  isStandardPrice?: boolean;
 }
 export class CreateRestaurantDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MinLength(1) @MaxLength(100) city: string;

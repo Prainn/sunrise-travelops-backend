@@ -60,6 +60,10 @@ export class RestaurantsService {
       builder.andWhere('restaurant.city = :city', { city: query.city });
     if (query.unit)
       builder.andWhere('restaurant.unit = :unit', { unit: query.unit });
+    if (query.isStandardPrice !== undefined)
+      builder.andWhere('restaurant.isStandardPrice = :isStandardPrice', {
+        isStandardPrice: query.isStandardPrice,
+      });
     const [entities, total] = await builder.getManyAndCount();
     return {
       list: entities.map((item) => this.toResponse(item)),
