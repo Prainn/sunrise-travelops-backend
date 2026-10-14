@@ -124,24 +124,10 @@ class ItemInput extends PriceInput {
   @IsIn(['restaurant', 'attraction']) type: 'restaurant' | 'attraction';
   @ValidateIf(
     (item: ItemInput) =>
-      !(
-        item.type === 'restaurant' &&
-        item.resourceId === null &&
-        item.resourcePriceId === null
-      ),
+      !(item.type === 'restaurant' && item.resourceId === null),
   )
   @IsUUID()
   resourceId: string | null;
-  @ValidateIf(
-    (item: ItemInput) =>
-      !(
-        item.type === 'restaurant' &&
-        item.resourceId === null &&
-        item.resourcePriceId === null
-      ),
-  )
-  @IsUUID()
-  resourcePriceId: string | null;
   @IsString() @MaxLength(500) resourceName: string;
   @IsString() @MaxLength(500) priceName: string;
   @IsInt() @Min(1) @Max(1) quantity: number;
@@ -183,14 +169,13 @@ class HotelInput extends PriceInput {
   @IsString() @MaxLength(100) destination: string;
   @IsUUID() hotelId: string;
   @IsString() @MaxLength(500) hotelName: string;
-  @IsString() @MaxLength(100) rating: string;
+  @IsIn([3, 4, 5]) rating: number;
   @IsString() @MaxLength(10000) breakfast: string;
   @IsString() @MaxLength(100) unit: string;
   @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
 }
 class HotelPlanInput {
-  @IsIn(['international_five_star', 'preferred_non_five_star']) tier:
-    'international_five_star' | 'preferred_non_five_star';
+  @IsIn([3, 4, 5]) tier: 3 | 4 | 5;
   @IsArray()
   @ArrayMaxSize(365)
   @ValidateNested({ each: true })
@@ -273,8 +258,7 @@ class StaffRoomCostInput {
 }
 class QuoteOptionInput {
   @IsString() @MinLength(1) @MaxLength(100) id: string;
-  @IsIn(['international_five_star', 'preferred_non_five_star']) hotelTier:
-    'international_five_star' | 'preferred_non_five_star';
+  @IsIn([3, 4, 5]) hotelTier: 3 | 4 | 5;
   @IsIn(['standard', 'vip']) vehicleTier: 'standard' | 'vip';
   @IsArray()
   @ArrayMaxSize(20)

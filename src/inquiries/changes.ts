@@ -10,7 +10,9 @@ function key(value: unknown): string | undefined {
     value.tier ??
     value.destination ??
     (typeof value.pax === 'number' ? String(value.pax) : undefined);
-  return typeof id === 'string' ? id : undefined;
+  return typeof id === 'string' || typeof id === 'number'
+    ? String(id)
+    : undefined;
 }
 /** Compare persisted versions; identify collection members by stable IDs rather than row positions. */
 export function diffChanges(

@@ -13,7 +13,7 @@
 | `src/inquiries` | 询盘、行程、成本试算、报价冻结、转交、调价、日志；没有独立 itineraries/quotations 模块 |
 | `src/website` | 独立站直客询盘、行程、人工报价与专属配置；独立 `/api/website` 合同 |
 | `src/tours` / `src/common/tour-lock.ts` | 成团、导游请假/评分及来源写入锁；实际人员与报价服务价格分离 |
-| `src/resources` / `src/system` | 资源主项、航班、独立导游人员及子价格/联系人；系统与业务字典 |
+| `src/resources` / `src/system` | 公共资源、航班、独立导游人员及组团社联系人；系统与业务字典 |
 | `src/operation-logs` | 系统管理操作日志；与询盘差异/调价历史独立 |
 | `src/health` / `src/lynx` | Terminus 探测；独立公开访问记录（不混入业务 API/Swagger） |
 | `src/config` / `src/database` / `src/migrations` | 环境校验、连接与 migration CLI、完整 schema 链 |
@@ -46,7 +46,7 @@
 - 金额沿用 numeric 与现有分币舍入工具、HTTP 两位小数字符串；迁移不得截断历史精度或用今天资源价伪造旧参考价。当前仅人民币，无汇率模型。
 - `effectivePermissions` 以当前身份决定权限，不叠加其他身份；公共资源访问仍须校验动作权限、状态及引用有效性；询盘、行程、成团和独立站专属配置的访问范围按对应需求及合同校验，不能以公共资源共享替代业务归属检查。
 - 每行程一份 V1 冻结报价，quoted 不可普通编辑，修改复制独立 Draft。冻结价格/数量/客户及计算结果不追随主数据更新；读取历史报价不得重新计算。
-- 稳定明细 ID、父版本、业务保存、调价历史和日志保持事务一致；试算/取消/失败不记成功历史。内部成本、利润和调价原因不进入客户 PDF。
+- 稳定明细 ID、父版本、业务保存、调价历史和日志保持事务一致；试算/取消/失败不记成功历史。内部成本、利润和调价原因不进入客户 PDF/Word。
 
 ## Testing / Verification
 

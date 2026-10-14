@@ -648,6 +648,16 @@ export class InquiriesService {
       this.checkVersion(itinerary.version, input.version, true);
       const data = structuredClone(itinerary.data);
       data.title = input.title;
+      // Legacy (frozen) hotel tier names become diamond ratings; prices are kept.
+      const diamonds = (v: unknown) =>
+        v === 'international_five_star' ? 5 : typeof v === 'string' ? 4 : v;
+      for (const p of data.hotelPlans) {
+        p.tier = diamonds(p.tier) as typeof p.tier;
+        for (const h of p.hotels)
+          h.rating = diamonds(h.rating) as typeof h.rating;
+      }
+      for (const o of data.quote.options)
+        o.hotelTier = diamonds(o.hotelTier) as typeof o.hotelTier;
       const ids = new Map(data.dailyPlans.map((d) => [d.id, randomUUID()]));
       data.dailyPlans.forEach((d) => {
         d.id = ids.get(d.id)!;

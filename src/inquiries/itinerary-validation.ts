@@ -7,14 +7,8 @@ import { CityEntity } from '../resources/cities/city.entity';
 import { HotelEntity } from '../resources/hotels/hotel.entity';
 import { TransportEntity } from '../resources/transports/transport.entity';
 import { GuideEntity } from '../resources/guides/guide.entity';
-import {
-  RestaurantEntity,
-  RestaurantPriceEntity,
-} from '../resources/restaurants/restaurant.entity';
-import {
-  AttractionEntity,
-  AttractionPriceEntity,
-} from '../resources/attractions/attraction.entity';
+import { RestaurantEntity } from '../resources/restaurants/restaurant.entity';
+import { AttractionEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
 import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
@@ -71,7 +65,8 @@ export class ItineraryValidation {
       const key = item.resourceId
         ? `${item.type}:${item.resourceId}`
         : `custom:${item.resourceName.trim().toLowerCase()}`;
-      if (standard.has(key)) continue;
+      // 自定义餐食“待定”是占位名称，可跨天及同日午晚餐重复。
+      if (standard.has(key) || key === 'custom:待定') continue;
       if (seen.has(key))
         throw new BusinessException({
           code: 'ITINERARY_RESOURCE_DUPLICATE',
@@ -100,48 +95,32 @@ export class ItineraryValidation {
       });
     else {
       const isRestaurant = item.type === 'restaurant';
-      const relation = isRestaurant ? 'restaurant' : 'attraction';
-      const price = await manager.findOne<
-        RestaurantPriceEntity | AttractionPriceEntity
-      >(isRestaurant ? RestaurantPriceEntity : AttractionPriceEntity, {
-        where: {
-          id: item.resourcePriceId!,
-          [`${relation}Id`]: item.resourceId!,
-        },
-        relations: { [relation]: true },
+      const resource = await manager.findOne<
+        RestaurantEntity | AttractionEntity
+      >(isRestaurant ? RestaurantEntity : AttractionEntity, {
+        where: { id: item.resourceId! },
       });
-      const resource =
-        price && ('restaurant' in price ? price.restaurant : price.attraction);
       if (
-        !price ||
         !resource ||
         resource.deletedAt ||
-        resource.status !== ResourceStatus.Enabled
+        resource.status !== ResourceStatus.Enabled ||
+        resource.price === null
       )
         invalid(
           isRestaurant
-            ? 'Invalid restaurant price'
-            : 'Invalid attraction price',
+            ? 'Invalid restaurant resource'
+            : 'Invalid attraction resource',
         );
-      const priceFields =
-        'menuName' in price
-          ? {
-              priceName: price.menuName,
-              dinerCount:
-                price.unit === 'table'
-                  ? (price.dinerCount ?? item.dinerCount ?? null)
-                  : null,
-              referencePrice: Number(price.price),
-            }
-          : {
-              priceName: price.itemName,
-              referencePrice: Number(price.settlementPrice),
-            };
       Object.assign(item, {
         resourceName: resource.name,
-        unit: price.unit,
+        priceName: '',
+        unit: resource.unit,
+        dinerCount:
+          'dinerCount' in resource && resource.unit === 'table'
+            ? (resource.dinerCount ?? item.dinerCount ?? null)
+            : null,
+        referencePrice: Number(resource.price),
         referenceBasis: 'resource_price',
-        ...priceFields,
       });
     }
     requirePriceReason(
@@ -189,7 +168,7 @@ export class ItineraryValidation {
         ...day.items.map((item) => item.id),
       ]),
     );
-    unique(plan.hotelPlans.map((p) => p.tier));
+    unique(plan.hotelPlans.map((p) => String(p.tier)));
     unique(plan.vehiclePlans.map((p) => p.tier));
     unique(plan.guidePlans.map((p) => p.destination));
     unique(plan.quote.options.map((p) => p.id));
@@ -236,13 +215,10 @@ export class ItineraryValidation {
           (v) =>
             v.id === item.id &&
             v.type === item.type &&
-            v.resourceId === item.resourceId &&
-            v.resourcePriceId === item.resourcePriceId,
+            v.resourceId === item.resourceId,
         );
       const customRestaurant =
-        item.type === 'restaurant' &&
-        item.resourceId === null &&
-        item.resourcePriceId === null;
+        item.type === 'restaurant' && item.resourceId === null;
       if (customRestaurant) {
         item.resourceName = item.resourceName.trim();
         if (
@@ -308,15 +284,11 @@ export class ItineraryValidation {
           const hotel = await manager.findOneBy(HotelEntity, {
             id: selection.hotelId,
           });
-          const rating =
-            group.tier === 'international_five_star'
-              ? 'international_five_star'
-              : 'ctrip_preferred';
           if (
             !hotel ||
             hotel.status !== ResourceStatus.Enabled ||
             hotel.city !== selection.destination ||
-            hotel.rating !== rating
+            hotel.rating !== group.tier
           )
             invalid('Hotel does not match city or tier');
           const groupRate = selection.referenceBasis === 'hotel_group';

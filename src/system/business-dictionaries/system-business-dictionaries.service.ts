@@ -176,8 +176,7 @@ export class SystemBusinessDictionariesService {
     await this.ensureItemCodeAvailable(type.id, input.code, id);
     if (
       (entity.code !== input.code ||
-        (typeCode !== 'attraction-price-item-type' &&
-          entity.englishName !== input.englishName)) &&
+        entity.englishName !== input.englishName) &&
       (await this.referencedItemIds(typeCode, [id])).length
     )
       throw this.referenced('Referenced item code cannot be changed');
@@ -299,12 +298,6 @@ export class SystemBusinessDictionariesService {
     ids: string[],
   ): Promise<string[]> {
     const sources: Record<string, string[]> = {
-      'attraction-price-item-type': [
-        `SELECT item.id FROM system_business_dictionary_items item
-         JOIN system_business_dictionary_types type ON type.id = item.type_id
-         JOIN resource_attraction_prices price ON price.item_type = item.code
-         WHERE type.code = 'attraction-price-item-type'`,
-      ],
       'country-region': [
         'SELECT country_item_id AS id FROM resource_agencies',
         'SELECT country_item_id FROM inquiries',

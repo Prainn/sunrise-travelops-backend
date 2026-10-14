@@ -8,15 +8,14 @@ export type ItineraryDailyItemType = Extract<
   'attraction' | 'restaurant'
 >;
 export type ItineraryPriceUnit = string;
-export type ItineraryHotelTier =
-  'international_five_star' | 'preferred_non_five_star';
+export type ItineraryHotelTier = 3 | 4 | 5;
 export type ItineraryVehicleTier = VehicleServiceLevel;
 
 export interface ItineraryHotelSelection extends ReferencePrice {
   destination: string;
   hotelId: string;
   hotelName: string;
-  rating: string;
+  rating: number;
   breakfast: string;
   unit: ItineraryPriceUnit;
   unitCost: number;
@@ -206,7 +205,6 @@ export interface ItineraryResourceItem extends ReferencePrice {
   type: ItineraryItemType;
   /** Both IDs are null for an itinerary-only custom restaurant. */
   resourceId: string | null;
-  resourcePriceId: string | null;
   resourceName: string;
   priceName: string;
   quantity: number;

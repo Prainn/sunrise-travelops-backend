@@ -27,14 +27,10 @@ import {
 } from '../../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import {
-  AttractionDetailResponse,
-  AttractionListItemResponse,
-  AttractionPriceResponse,
+  AttractionResponse,
   AttractionQueryDto,
   CreateAttractionDto,
-  CreateAttractionPriceDto,
   UpdateAttractionDto,
-  UpdateAttractionPriceDto,
 } from './dto/attraction.dto';
 import { AttractionsService } from './attractions.service';
 @ApiTags('Resources')
@@ -46,65 +42,14 @@ export class AttractionsController {
   @Get()
   @Permissions('resource:attraction:list')
   @ApiOperation({ summary: 'List attractions' })
-  @ApiPaginatedResponse(AttractionListItemResponse)
+  @ApiPaginatedResponse(AttractionResponse)
   list(@Query() query: AttractionQueryDto) {
     return this.service.list(query);
-  }
-  @Get(':attractionId/prices')
-  @Permissions('resource:attraction:list')
-  @ApiOperation({ summary: 'List attraction prices' })
-  @ApiSuccessResponse({ type: AttractionPriceResponse, isArray: true })
-  listPrices(
-    @Param('attractionId', new ParseUUIDPipe())
-    attractionId: string,
-  ) {
-    return this.service.listPrices(attractionId);
-  }
-  @Post(':attractionId/prices')
-  @Permissions('resource:attraction:create')
-  @ApiOperation({ summary: 'Create an attraction price' })
-  @ApiSuccessResponse({
-    status: HttpStatus.CREATED,
-    type: AttractionPriceResponse,
-  })
-  createPrice(
-    @Param('attractionId', new ParseUUIDPipe())
-    attractionId: string,
-    @Body() input: CreateAttractionPriceDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.createPrice(attractionId, input, user.id);
-  }
-  @Put(':attractionId/prices/:priceId')
-  @Permissions('resource:attraction:update')
-  @ApiOperation({ summary: 'Update an attraction price' })
-  @ApiSuccessResponse({ type: AttractionPriceResponse })
-  updatePrice(
-    @Param('attractionId', new ParseUUIDPipe())
-    attractionId: string,
-    @Param('priceId', new ParseUUIDPipe()) priceId: string,
-    @Body() input: UpdateAttractionPriceDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.updatePrice(attractionId, priceId, input, user.id);
-  }
-  @Delete(':attractionId/prices')
-  @Permissions('resource:attraction:delete')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete attraction prices' })
-  @ApiNoContentResponse()
-  deletePrices(
-    @Param('attractionId', new ParseUUIDPipe())
-    attractionId: string,
-    @Query() query: BatchIdsQueryDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.deletePrices(attractionId, query.ids, user.id);
   }
   @Get(':id')
   @Permissions('resource:attraction:list')
   @ApiOperation({ summary: 'Get an attraction' })
-  @ApiSuccessResponse({ type: AttractionDetailResponse })
+  @ApiSuccessResponse({ type: AttractionResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
@@ -113,7 +58,7 @@ export class AttractionsController {
   @ApiOperation({ summary: 'Create an attraction' })
   @ApiSuccessResponse({
     status: HttpStatus.CREATED,
-    type: AttractionDetailResponse,
+    type: AttractionResponse,
   })
   create(
     @Body() input: CreateAttractionDto,
@@ -124,7 +69,7 @@ export class AttractionsController {
   @Put(':id')
   @Permissions('resource:attraction:update')
   @ApiOperation({ summary: 'Update an attraction' })
-  @ApiSuccessResponse({ type: AttractionDetailResponse })
+  @ApiSuccessResponse({ type: AttractionResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateAttractionDto,

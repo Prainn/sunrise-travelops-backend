@@ -7,10 +7,7 @@ import { BusinessDictionaryTypeEntity } from '../system/business-dictionaries/bu
 import { AgenciesController } from './agencies/agencies.controller';
 import { AgencyContactEntity, AgencyEntity } from './agencies/agency.entity';
 import { AgenciesService } from './agencies/agencies.service';
-import {
-  AttractionEntity,
-  AttractionPriceEntity,
-} from './attractions/attraction.entity';
+import { AttractionEntity } from './attractions/attraction.entity';
 import { AttractionsController } from './attractions/attractions.controller';
 import { AttractionsService } from './attractions/attractions.service';
 import { ResourceValidationService } from './common/resource-validation.service';
@@ -23,10 +20,7 @@ import { GuidesService } from './guides/guides.service';
 import { HotelEntity } from './hotels/hotel.entity';
 import { HotelsController } from './hotels/hotels.controller';
 import { HotelsService } from './hotels/hotels.service';
-import {
-  RestaurantEntity,
-  RestaurantPriceEntity,
-} from './restaurants/restaurant.entity';
+import { RestaurantEntity } from './restaurants/restaurant.entity';
 import { RestaurantsController } from './restaurants/restaurants.controller';
 import { RestaurantsService } from './restaurants/restaurants.service';
 import { TransportEntity } from './transports/transport.entity';
@@ -46,9 +40,7 @@ const entities = [
   AgencyContactEntity,
   HotelEntity,
   RestaurantEntity,
-  RestaurantPriceEntity,
   AttractionEntity,
-  AttractionPriceEntity,
   TransportEntity,
   GuideEntity,
   GuidePersonEntity,

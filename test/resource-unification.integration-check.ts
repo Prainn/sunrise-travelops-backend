@@ -66,7 +66,7 @@ async function run() {
             code: `HTL-${prefix}`,
             name: prefix,
             city: '升级测试城市',
-            rating: 'international_five_star',
+            rating: 5,
             individual_price: '123.45',
             unit: 'roomNight',
           },
@@ -138,20 +138,6 @@ async function run() {
       agency_id: child,
       name: '测试联系人',
       name_key: '测试联系人',
-    });
-    await insert('resource_restaurant_prices', {
-      restaurant_id: removed.get('resource_restaurants'),
-      menu_name: '测试餐',
-      unit: 'person',
-      price: '12.34',
-    });
-    await insert('resource_attraction_prices', {
-      attraction_id: removed.get('resource_attractions'),
-      item_type: 'ticket',
-      item_name: '测试票',
-      rack_price: '45.67',
-      settlement_price: '34.56',
-      unit: 'person',
     });
     const before = new Map<string, unknown>();
     for (const [table, id] of retained)
@@ -292,7 +278,7 @@ async function run() {
     );
     await db.query<Record<string, unknown>[]>(
       `INSERT INTO itinerary_hotels(itinerary_id,position,tier,destination,hotel_id,hotel_name,rating,breakfast,unit,unit_cost)
-      VALUES($1,0,'A','升级测试城市',$2,'旧酒店','international_five_star','','roomNight',123.45)`,
+      VALUES($1,0,'A','升级测试城市',$2,'旧酒店',5,'','roomNight',123.45)`,
       [standard, removed.get('resource_hotels')],
     );
     db.migrations.push(pending);
@@ -377,11 +363,7 @@ async function run() {
         0,
       );
     }
-    for (const table of [
-      'resource_agency_contacts',
-      'resource_restaurant_prices',
-      'resource_attraction_prices',
-    ])
+    for (const table of ['resource_agency_contacts'])
       assert.equal(
         (await db.query<Record<string, unknown>[]>(`SELECT id FROM ${table}`))
           .length,

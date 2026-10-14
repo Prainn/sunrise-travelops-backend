@@ -24,7 +24,6 @@ export const ITINERARY_TABLES = {
     id: 'text',
     type: 'text',
     resourceId: 'uuid?',
-    resourcePriceId: 'uuid?',
     resourceName: 'text',
     priceName: 'text',
     quantity: 'numeric',
@@ -38,13 +37,13 @@ export const ITINERARY_TABLES = {
     referenceBasis: 'text?',
     adjustmentReason: 'text?',
   },
-  itinerary_hotel_plans: { tier: 'text' },
+  itinerary_hotel_plans: { tier: 'integer' },
   itinerary_hotels: {
-    tier: 'text',
+    tier: 'integer',
     destination: 'text',
     hotelId: 'uuid',
     hotelName: 'text',
-    rating: 'text',
+    rating: 'integer',
     breakfast: 'text',
     unit: 'text',
     unitCost: 'numeric',
@@ -99,7 +98,7 @@ export const ITINERARY_TABLES = {
   },
   itinerary_quote_options: {
     id: 'text',
-    hotelTier: 'text',
+    hotelTier: 'integer',
     vehicleTier: 'text',
   },
   itinerary_shared_staff_room_costs: {

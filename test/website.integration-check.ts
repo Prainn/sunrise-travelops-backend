@@ -245,7 +245,7 @@ async function main() {
     );
     await db.query(
       `INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit,breakfast,library)
-       VALUES($1,'HTL-901','既有霖熹酒店','昆明','international_five_star',500,'roomNight','早餐','shengxu')`,
+       VALUES($1,'HTL-901','既有霖熹酒店','昆明',5,500,'roomNight','早餐','shengxu')`,
       [hotelId],
     );
     await db.query(
@@ -308,13 +308,13 @@ async function main() {
       ],
       hotelPlans: [
         {
-          tier: 'international_five_star',
+          tier: 5,
           hotels: [
             {
               destination: '昆明',
               hotelId,
               hotelName: '既有霖熹酒店',
-              rating: 'international_five_star',
+              rating: 5,
               breakfast: '早餐',
               unit: 'roomNight',
               unitCost: 500,
@@ -359,7 +359,7 @@ async function main() {
         options: [
           {
             id: randomUUID(),
-            hotelTier: 'international_five_star',
+            hotelTier: 5,
             vehicleTier: 'standard',
             paxPrices: [{ pax: 2, adultUnitPrice: 2000 }],
           },

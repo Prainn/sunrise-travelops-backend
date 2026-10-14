@@ -60,31 +60,4 @@ export class ResourceValidationService {
       });
     }
   }
-
-  async validateAttractionPriceItemType(
-    itemType: string,
-    previousItemType?: string,
-  ): Promise<void> {
-    const type = await this.dictionaryTypes.findOneBy({
-      code: 'attraction-price-item-type',
-    });
-    const item = type
-      ? await this.dictionaryItems.findOneBy({
-          typeId: type.id,
-          code: itemType,
-        })
-      : null;
-    if (
-      !item ||
-      (item.status !== BusinessDictionaryStatus.Enabled &&
-        itemType !== previousItemType)
-    ) {
-      throw new BusinessException({
-        code: ErrorCode.VALIDATION_ERROR,
-        message: 'The attraction price item type is missing or disabled',
-        status: HttpStatus.BAD_REQUEST,
-        details: { itemType },
-      });
-    }
-  }
 }

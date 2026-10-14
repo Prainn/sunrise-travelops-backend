@@ -190,8 +190,17 @@ export interface PdfData extends Omit<
 > {
   itinerary: Omit<
     CurrentPdfData['itinerary'],
-    'paxTiers' | 'childRate' | 'childWithoutBedRate' | 'quote'
+    'paxTiers' | 'childRate' | 'childWithoutBedRate' | 'quote' | 'dailyPlans'
   > & {
+    dailyPlans: Array<
+      Omit<ItineraryRecord['dailyPlans'][number], 'items'> & {
+        items: Array<
+          ItineraryRecord['dailyPlans'][number]['items'][number] & {
+            resourcePriceId?: string | null;
+          }
+        >;
+      }
+    >;
     adults: number;
     childrenCount: number;
     leaderCount: number;

@@ -28,13 +28,9 @@ import {
 import { BatchIdsQueryDto } from '../common/resource.dto';
 import {
   CreateRestaurantDto,
-  CreateRestaurantPriceDto,
-  RestaurantDetailResponse,
-  RestaurantListItemResponse,
-  RestaurantPriceResponse,
+  RestaurantResponse,
   RestaurantQueryDto,
   UpdateRestaurantDto,
-  UpdateRestaurantPriceDto,
 } from './dto/restaurant.dto';
 import { RestaurantsService } from './restaurants.service';
 @ApiTags('Resources')
@@ -46,65 +42,14 @@ export class RestaurantsController {
   @Get()
   @Permissions('resource:restaurant:list')
   @ApiOperation({ summary: 'List restaurants' })
-  @ApiPaginatedResponse(RestaurantListItemResponse)
+  @ApiPaginatedResponse(RestaurantResponse)
   list(@Query() query: RestaurantQueryDto) {
     return this.service.list(query);
-  }
-  @Get(':restaurantId/prices')
-  @Permissions('resource:restaurant:list')
-  @ApiOperation({ summary: 'List restaurant prices' })
-  @ApiSuccessResponse({ type: RestaurantPriceResponse, isArray: true })
-  listPrices(
-    @Param('restaurantId', new ParseUUIDPipe())
-    restaurantId: string,
-  ) {
-    return this.service.listPrices(restaurantId);
-  }
-  @Post(':restaurantId/prices')
-  @Permissions('resource:restaurant:create')
-  @ApiOperation({ summary: 'Create a restaurant price' })
-  @ApiSuccessResponse({
-    status: HttpStatus.CREATED,
-    type: RestaurantPriceResponse,
-  })
-  createPrice(
-    @Param('restaurantId', new ParseUUIDPipe())
-    restaurantId: string,
-    @Body() input: CreateRestaurantPriceDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.createPrice(restaurantId, input, user.id);
-  }
-  @Put(':restaurantId/prices/:priceId')
-  @Permissions('resource:restaurant:update')
-  @ApiOperation({ summary: 'Update a restaurant price' })
-  @ApiSuccessResponse({ type: RestaurantPriceResponse })
-  updatePrice(
-    @Param('restaurantId', new ParseUUIDPipe())
-    restaurantId: string,
-    @Param('priceId', new ParseUUIDPipe()) priceId: string,
-    @Body() input: UpdateRestaurantPriceDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.updatePrice(restaurantId, priceId, input, user.id);
-  }
-  @Delete(':restaurantId/prices')
-  @Permissions('resource:restaurant:delete')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete restaurant prices' })
-  @ApiNoContentResponse()
-  deletePrices(
-    @Param('restaurantId', new ParseUUIDPipe())
-    restaurantId: string,
-    @Query() query: BatchIdsQueryDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.deletePrices(restaurantId, query.ids, user.id);
   }
   @Get(':id')
   @Permissions('resource:restaurant:list')
   @ApiOperation({ summary: 'Get a restaurant' })
-  @ApiSuccessResponse({ type: RestaurantDetailResponse })
+  @ApiSuccessResponse({ type: RestaurantResponse })
   get(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.get(id);
   }
@@ -113,7 +58,7 @@ export class RestaurantsController {
   @ApiOperation({ summary: 'Create a restaurant' })
   @ApiSuccessResponse({
     status: HttpStatus.CREATED,
-    type: RestaurantDetailResponse,
+    type: RestaurantResponse,
   })
   create(
     @Body() input: CreateRestaurantDto,
@@ -124,7 +69,7 @@ export class RestaurantsController {
   @Put(':id')
   @Permissions('resource:restaurant:update')
   @ApiOperation({ summary: 'Update a restaurant' })
-  @ApiSuccessResponse({ type: RestaurantDetailResponse })
+  @ApiSuccessResponse({ type: RestaurantResponse })
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateRestaurantDto,

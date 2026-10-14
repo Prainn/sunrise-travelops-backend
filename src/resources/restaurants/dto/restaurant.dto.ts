@@ -1,13 +1,15 @@
 import { Type } from 'class-transformer';
 import {
-  IsInt,
   IsBoolean,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   Min,
+  MinLength,
+  ValidateIf,
 } from 'class-validator';
 import {
   ResourceAuditResponse,
@@ -22,47 +24,42 @@ export class RestaurantQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateRestaurantDto extends ResourceInputDto {
-  @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) cuisine: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) contact: string;
-  @optionalTrimmedString @IsString() @MaxLength(50) phone: string;
-  @optionalTrimmedString @IsString() @MaxLength(500) address: string;
+  @optionalTrimmedString @IsString() @MinLength(1) @MaxLength(100) city: string;
+  @optionalTrimmedString @IsString() @MinLength(1) description: string;
+  @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
+  @IsIn(['personMeal', 'table']) unit: string;
+  @ValidateIf((o: CreateRestaurantDto) => o.unit === 'table')
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  dinerCount?: number | null;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(100)
+  cuisine?: string;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(100)
+  contact?: string;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(50)
+  phone?: string;
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(500)
+  address?: string;
   @IsOptional() @IsBoolean() isStandardPrice?: boolean;
-  @IsOptional() @optionalTrimmedString @IsString() description?: string;
-  @optionalTrimmedString @IsString() remark: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
+  @IsOptional() @optionalTrimmedString @IsString() remark?: string;
 }
 export class UpdateRestaurantDto extends CreateRestaurantDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
-export class CreateRestaurantPriceDto {
-  @IsOptional() @IsUUID('all') id?: string;
-  @optionalTrimmedString @IsString() @MaxLength(150) menuName: string;
-  @optionalTrimmedString @IsString() dishDetails: string;
-  @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
-  @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) dinerCount?: number | null;
-  @optionalTrimmedString @IsString() remark: string;
-}
-export class UpdateRestaurantPriceDto extends CreateRestaurantPriceDto {
-  @Type(() => Number) @IsInt() @Min(1) version: number;
-}
-export class RestaurantPriceResponse implements ResourceAuditResponse {
-  id: string;
-  version: number;
-  createdAt: string;
-  createdBy: string | null;
-  updatedAt: string;
-  updatedBy: string | null;
-  restaurantId: string;
-  menuName: string;
-  dishDetails: string;
-  unit: string;
-  price: string;
-  dinerCount: number | null;
-  remark: string;
-}
-export class RestaurantListItemResponse implements ResourceAuditResponse {
+export class RestaurantResponse implements ResourceAuditResponse {
   id: string;
   version: number;
   createdAt: string;
@@ -80,9 +77,8 @@ export class RestaurantListItemResponse implements ResourceAuditResponse {
   isStandardPrice: boolean;
   remark: string;
   unit: string;
+  /** Null for migrated records that still need a price. */
+  price: string | null;
+  dinerCount: number | null;
   status: string;
-  priceCount: number;
-}
-export class RestaurantDetailResponse extends RestaurantListItemResponse {
-  prices: RestaurantPriceResponse[];
 }

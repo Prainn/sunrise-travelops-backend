@@ -7,8 +7,8 @@ import { AgencyEntity } from '../agencies/agency.entity';
 import { HotelEntity } from '../hotels/hotel.entity';
 import { GuideEntity } from '../guides/guide.entity';
 import { TransportEntity } from '../transports/transport.entity';
-import { RestaurantPriceEntity } from '../restaurants/restaurant.entity';
-import { AttractionPriceEntity } from '../attractions/attraction.entity';
+import { RestaurantEntity } from '../restaurants/restaurant.entity';
+import { AttractionEntity } from '../attractions/attraction.entity';
 import {
   SelectionQuery,
   PriceOptionResponse,
@@ -19,44 +19,38 @@ type Kind = 'restaurant' | 'attraction';
 export class SelectionService {
   constructor(private readonly dataSource: DataSource) {}
   private query(kind: Kind) {
-    const entity =
-      kind === 'restaurant' ? RestaurantPriceEntity : AttractionPriceEntity;
+    const entity = kind === 'restaurant' ? RestaurantEntity : AttractionEntity;
     return this.dataSource
-      .getRepository<RestaurantPriceEntity | AttractionPriceEntity>(entity)
-      .createQueryBuilder('price')
-      .innerJoin(`price.${kind}`, 'resource')
+      .getRepository<RestaurantEntity | AttractionEntity>(entity)
+      .createQueryBuilder('resource')
       .where('resource.status = :status', { status: 'enabled' })
-      .andWhere('resource.deletedAt IS NULL');
+      .andWhere('resource.deletedAt IS NULL')
+      .andWhere('resource.price IS NOT NULL');
   }
   async list(kind: Kind, query: SelectionQuery) {
     const city = kind === 'restaurant' ? 'city' : 'area';
-    const name = kind === 'restaurant' ? 'menuName' : 'itemName';
-    const amount = kind === 'restaurant' ? 'price' : 'settlementPrice';
     const qb = this.query(kind);
     if (query.city?.trim())
       qb.andWhere(`resource.${city} = :city`, { city: query.city.trim() });
     if (query.keyword?.trim())
       qb.andWhere(
-        `(resource.name ILIKE :keyword OR price.${name} ILIKE :keyword)`,
+        '(resource.name ILIKE :keyword OR resource.description ILIKE :keyword)',
         { keyword: `%${query.keyword.trim()}%` },
       );
     const total = await qb.getCount();
-    const list = await qb
-      .select('price.id', 'id')
+    qb.select('resource.id', 'id')
       .addSelect('resource.id', 'resourceId')
       .addSelect('resource.isStandardPrice', 'isStandardPrice')
       .addSelect('resource.name', 'resourceName')
       .addSelect(`resource.${city}`, 'city')
-      .addSelect(
-        kind === 'restaurant'
-          ? 'price.menuName'
-          : "concat_ws(' · ', price.itemName, NULLIF(price.audience, ''), NULLIF(price.periodName, ''))",
-        'priceName',
-      )
-      .addSelect('price.unit', 'unit')
-      .addSelect(`price.${amount}`, 'unitCost')
+      .addSelect('resource.unit', 'unit')
+      .addSelect('resource.price', 'unitCost');
+    if (kind === 'restaurant')
+      qb.addSelect('resource.dinerCount', 'dinerCount');
+    else qb.addSelect('NULL', 'dinerCount');
+    const list = await qb
       .orderBy('resource.name', 'ASC')
-      .addOrderBy('price.id', 'ASC')
+      .addOrderBy('resource.id', 'ASC')
       .offset((query.page - 1) * query.pageSize)
       .limit(query.pageSize)
       .getRawMany<PriceOptionResponse>();
@@ -133,33 +127,17 @@ export class SelectionService {
   }
   async detail(kind: Kind, id: string) {
     const row = await this.query(kind)
-      .addSelect('resource')
-      .andWhere('price.id = :id', { id })
+      .andWhere('resource.id = :id', { id })
       .getOne();
     if (!row)
       throw new BusinessException({
         code:
           kind === 'restaurant'
-            ? ErrorCode.RESTAURANT_PRICE_NOT_FOUND
-            : ErrorCode.ATTRACTION_PRICE_NOT_FOUND,
-        message: 'Resource price not found',
+            ? ErrorCode.RESTAURANT_NOT_FOUND
+            : ErrorCode.ATTRACTION_NOT_FOUND,
+        message: 'Resource not found',
         status: HttpStatus.NOT_FOUND,
       });
-    if (row instanceof RestaurantPriceEntity) {
-      const { restaurant, ...price } = row;
-      const resource = { ...restaurant, deletedAt: undefined };
-      const selectedPrice = { ...price, deletedAt: undefined };
-      return {
-        resource: { ...resource, ...auditResponse(restaurant) },
-        price: { ...selectedPrice, ...auditResponse(row) },
-      };
-    }
-    const { attraction, ...price } = row;
-    const resource = { ...attraction, deletedAt: undefined };
-    const selectedPrice = { ...price, deletedAt: undefined };
-    return {
-      resource: { ...resource, ...auditResponse(attraction) },
-      price: { ...selectedPrice, ...auditResponse(row) },
-    };
+    return { ...row, deletedAt: undefined, ...auditResponse(row) };
   }
 }

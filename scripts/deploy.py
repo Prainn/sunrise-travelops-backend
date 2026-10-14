@@ -32,6 +32,8 @@ BREAKING_MIGRATIONS = {
     'RemoveGuideServiceTotal1790040600000',
     'UnifyResourceLibrary1791619200000',
     'DropUnusedItineraryFields1791705600000',
+    'UseHotelDiamondRatings1791878400000',
+    'FlattenAttractionAndRestaurantResources1791964800000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');

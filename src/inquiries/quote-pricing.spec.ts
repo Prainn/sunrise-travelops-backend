@@ -69,7 +69,7 @@ function quoteInput(
       options: [
         {
           id: 'preferred-standard',
-          hotelTier: 'preferred_non_five_star',
+          hotelTier: 4,
           vehicleTier: 'standard',
           paxPrices: [],
         },
@@ -157,11 +157,11 @@ describe('calculateItineraryQuote', () => {
       quoteInput({
         hotelPlans: [
           {
-            tier: 'preferred_non_five_star',
+            tier: 4,
             hotels: [{ destination: 'Kunming', unitCost: 100 }],
           },
           {
-            tier: 'international_five_star',
+            tier: 5,
             hotels: [{ destination: 'Kunming', unitCost: 200 }],
           },
         ],
@@ -177,25 +177,25 @@ describe('calculateItineraryQuote', () => {
           options: [
             {
               id: 'preferred-standard',
-              hotelTier: 'preferred_non_five_star',
+              hotelTier: 4,
               vehicleTier: 'standard',
               paxPrices: [],
             },
             {
               id: 'preferred-vip',
-              hotelTier: 'preferred_non_five_star',
+              hotelTier: 4,
               vehicleTier: 'vip',
               paxPrices: [],
             },
             {
               id: 'five-star-standard',
-              hotelTier: 'international_five_star',
+              hotelTier: 5,
               vehicleTier: 'standard',
               paxPrices: [],
             },
             {
               id: 'five-star-vip',
-              hotelTier: 'international_five_star',
+              hotelTier: 5,
               vehicleTier: 'vip',
               paxPrices: [],
             },
@@ -345,7 +345,7 @@ describe('calculateItineraryQuote', () => {
             options: [
               {
                 id: 'preferred-standard',
-                hotelTier: 'preferred_non_five_star',
+                hotelTier: 4,
                 vehicleTier: 'standard',
                 paxPrices: [{ pax: 2, adultUnitPrice }],
               },
@@ -421,7 +421,7 @@ describe('calculateItineraryQuote', () => {
             options: [
               {
                 id: 'preferred-standard',
-                hotelTier: 'preferred_non_five_star',
+                hotelTier: 4,
                 vehicleTier: 'standard',
                 paxPrices: [{ pax: 2, adultUnitPrice }],
               },

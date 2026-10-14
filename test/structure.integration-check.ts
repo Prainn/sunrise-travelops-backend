@@ -295,7 +295,7 @@ async function main() {
       [ids.contact, ids.agency],
     );
     await db.query(
-      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明','international_five_star',900,'roomNight')",
+      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明',5,900,'roomNight')",
       [ids.hotel],
     );
     await db.query(
@@ -348,7 +348,6 @@ async function main() {
             id: `meal-${n}`,
             type: 'restaurant',
             resourceId: null,
-            resourcePriceId: null,
             resourceName: '历史自定义餐厅',
             priceName: '',
             quantity: 11,
@@ -362,13 +361,13 @@ async function main() {
       })),
       hotelPlans: [
         {
-          tier: 'international_five_star',
+          tier: 5,
           hotels: [
             {
               destination: '昆明',
               hotelId: ids.hotel,
               hotelName: '历史名称酒店',
-              rating: 'international_five_star',
+              rating: 5,
               breakfast: '早餐',
               unit: 'roomNight',
               unitCost: 555.55,
@@ -433,7 +432,7 @@ async function main() {
         options: [
           {
             id: 'option-old',
-            hotelTier: 'international_five_star',
+            hotelTier: 5,
             vehicleTier: 'standard',
             adultUnitPrice: 2000,
             leaderFocEnabled: false,
@@ -503,7 +502,7 @@ async function main() {
         options: [
           {
             optionId: 'option-old',
-            hotelTier: 'international_five_star',
+            hotelTier: 5,
             vehicleTier: 'standard',
             hotelCost: 6666.6,
             vehicleCost: 1234.56,
@@ -1214,28 +1213,16 @@ async function main() {
     );
     // Exercise both daily resource price queries and preserve their snapshots/errors.
     const restaurantId = randomUUID();
-    const restaurantPriceId = randomUUID();
     const attractionId = randomUUID();
-    const attractionPriceId = randomUUID();
     await db.query(
-      `INSERT INTO resource_restaurants(id,code,name,city,unit)
-       VALUES ($1,'RES-901','验证餐厅','昆明','table')`,
+      `INSERT INTO resource_restaurants(id,code,name,city,unit,price,diner_count,description)
+       VALUES ($1,'RES-901','验证餐厅','昆明','table',100,8,'验证桌餐')`,
       [restaurantId],
     );
     await db.query(
-      `INSERT INTO resource_restaurant_prices(id,restaurant_id,menu_name,unit,price,diner_count)
-       VALUES ($1,$2,'验证桌餐','table',100,8)`,
-      [restaurantPriceId, restaurantId],
-    );
-    await db.query(
-      `INSERT INTO resource_attractions(id,code,name,area,category,unit)
-       VALUES ($1,'ATT-901','验证景点','昆明','scenic','person')`,
+      `INSERT INTO resource_attractions(id,code,name,area,category,unit,price,description)
+       VALUES ($1,'ATT-901','验证景点','昆明','scenic','person',40,'验证门票')`,
       [attractionId],
-    );
-    await db.query(
-      `INSERT INTO resource_attraction_prices(id,attraction_id,item_type,item_name,unit,rack_price,settlement_price)
-       VALUES ($1,$2,'ticket','验证门票','person',50,40)`,
-      [attractionPriceId, attractionId],
     );
     const dailyResourcePlan = structuredClone(normalized);
     dailyResourcePlan.hotelPlans = [];
@@ -1247,7 +1234,6 @@ async function main() {
       {
         type: 'restaurant' as const,
         resourceId: restaurantId,
-        resourcePriceId: restaurantPriceId,
         resourceName: '验证餐厅',
         priceName: '验证桌餐',
         unit: 'table',
@@ -1255,12 +1241,11 @@ async function main() {
         dinerCount: 8,
         totalCost: 12.5,
         table: 'resource_restaurants',
-        error: 'Invalid restaurant price',
+        error: 'Invalid restaurant resource',
       },
       {
         type: 'attraction' as const,
         resourceId: attractionId,
-        resourcePriceId: attractionPriceId,
         resourceName: '验证景点',
         priceName: '验证门票',
         unit: 'person',
@@ -1268,7 +1253,7 @@ async function main() {
         dinerCount: null,
         totalCost: 40,
         table: 'resource_attractions',
-        error: 'Invalid attraction price',
+        error: 'Invalid attraction resource',
       },
     ]) {
       const resourceInput = structuredClone(dailyResourcePlan);
@@ -1278,7 +1263,6 @@ async function main() {
           id: 'daily-resource-check',
           type: resource.type,
           resourceId: resource.resourceId,
-          resourcePriceId: resource.resourcePriceId,
           resourceName: '客户端资源名称',
           priceName: '客户端价格名称',
           unit: 'personMeal',

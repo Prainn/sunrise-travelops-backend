@@ -1,15 +1,8 @@
 import { IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
-import { OmitType } from '@nestjs/swagger';
-import {
-  RestaurantListItemResponse,
-  RestaurantPriceResponse,
-} from '../restaurants/dto/restaurant.dto';
-import {
-  AttractionListItemResponse,
-  AttractionPriceResponse,
-} from '../attractions/dto/attraction.dto';
+import { RestaurantResponse } from '../restaurants/dto/restaurant.dto';
+import { AttractionResponse } from '../attractions/dto/attraction.dto';
 export class SelectionQuery {
   @IsOptional() @IsIn(['true', 'false']) parentOnly?: string;
   @IsOptional() @IsUUID('all') excludeId?: string;
@@ -20,7 +13,7 @@ export class SelectionQuery {
   @IsOptional() @IsString() keyword?: string;
   @IsOptional() @IsString() city?: string;
   @IsOptional() @IsString() code?: string;
-  @IsOptional() @IsString() rating?: string;
+  @IsOptional() @Type(() => Number) @IsIn([3, 4, 5]) rating?: number;
   @IsOptional() @IsString() secondLanguage?: string;
   @IsOptional() @IsString() shopping?: string;
   @IsOptional() @IsString() serviceLevel?: string;
@@ -32,10 +25,10 @@ export class PriceOptionResponse {
   id: string;
   resourceId: string;
   resourceName: string;
-  priceName: string;
   city: string;
   unit: string;
   unitCost: string;
+  dinerCount: number | null;
 }
 export class ResourceOptionResponse {
   id: string;
@@ -47,17 +40,4 @@ export class ResourceOptionResponse {
   seats?: number;
   city?: string;
 }
-class RestaurantSelectionResource extends OmitType(RestaurantListItemResponse, [
-  'priceCount',
-] as const) {}
-class AttractionSelectionResource extends OmitType(AttractionListItemResponse, [
-  'priceCount',
-] as const) {}
-export class RestaurantSelectionResponse {
-  resource: RestaurantSelectionResource;
-  price: RestaurantPriceResponse;
-}
-export class AttractionSelectionResponse {
-  resource: AttractionSelectionResource;
-  price: AttractionPriceResponse;
-}
+export { RestaurantResponse, AttractionResponse };
