@@ -339,7 +339,7 @@ class QuoteInput {
   staffRoomCosts: StaffRoomCostInput[];
 
   @IsArray()
-  @ArrayMaxSize(4)
+  @ArrayMaxSize(6)
   @ValidateNested({ each: true })
   @Type(() => QuoteOptionInput)
   options: QuoteOptionInput[];
@@ -391,7 +391,7 @@ export class ItineraryInput {
   @Type(() => DayInput)
   dailyPlans: DayInput[];
   @IsArray()
-  @ArrayMaxSize(2)
+  @ArrayMaxSize(3)
   @ValidateNested({ each: true })
   @Type(() => HotelPlanInput)
   hotelPlans: HotelPlanInput[];
