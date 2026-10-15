@@ -105,7 +105,7 @@ export class ItineraryValidation {
         resource.deletedAt ||
         resource.status !== ResourceStatus.Enabled ||
         resource.price === null ||
-        !resource.description.trim()
+        (isRestaurant && !resource.description.trim())
       )
         invalid(
           isRestaurant
