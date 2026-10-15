@@ -105,14 +105,22 @@ describe.each(['attraction', 'restaurant'] as const)(
     const validation = new ItineraryValidation();
 
     it.each(['', '   ', '\t\n', '　'])(
-      'rejects new selection with blank description %j',
+      'applies the description requirement by resource kind for %j',
       async (description) => {
-        await expect(
-          validation.normalize(
-            manager(type, description, '100.00'),
-            await input(type),
-          ),
-        ).rejects.toMatchObject({ code: 'ITINERARY_INVALID', status: 400 });
+        const result = validation.normalize(
+          manager(type, description, '0.00'),
+          await input(type, 0),
+        );
+        if (type === 'restaurant')
+          await expect(result).rejects.toMatchObject({
+            code: 'ITINERARY_INVALID',
+            status: 400,
+          });
+        else
+          expect((await result).dailyPlans[0].items[0]).toMatchObject({
+            referencePrice: 0,
+            resourceName: '资源当前名称',
+          });
       },
     );
 
