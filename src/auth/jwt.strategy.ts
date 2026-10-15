@@ -6,6 +6,7 @@ import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { AuthenticatedUser, JwtPayload } from './auth.types';
 import { AuthService } from './auth.service';
+import { validMenuSnapshot } from '../roles/menu-definitions';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -21,7 +22,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    if (payload.type !== 'access') {
+    if (payload.type !== 'access' || !validMenuSnapshot(payload.menuKeys)) {
       throw new BusinessException({
         code: ErrorCode.AUTH_TOKEN_INVALID,
         message: '访问令牌无效',
@@ -32,6 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.sub,
       payload.identityId,
       payload.scope,
+      payload.menuKeys,
     );
   }
 }

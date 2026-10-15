@@ -161,6 +161,7 @@ async function run() {
       deptId: null,
       deptName: '',
       roles: ['ROOT'],
+      menuKeys: [],
       permissions: [],
     };
     const agencyRepository = db.getRepository(AgencyEntity);

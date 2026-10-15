@@ -199,13 +199,17 @@ export class ToursService {
     const keyword = query.keyword?.trim();
     const like = keyword ? `$${params.push(`%${keyword}%`)}` : null;
     if (query.sourceModule === 'website') {
-      if (!['website', 'headquarters'].includes(user.scope)) forbidden();
-      let scope = '';
+      if (!['linxi', 'website', 'headquarters'].includes(user.scope))
+        forbidden();
+      let scope =
+        user.scope === 'headquarters'
+          ? ''
+          : ` AND i.business_unit=$${params.push(user.scope)}`;
       if (user.scope !== 'headquarters' && !this.isAdmin(user))
-        scope = ` AND i.owner_id = $${params.push(user.id)}`;
+        scope += ` AND i.owner_id = $${params.push(user.id)}`;
       return this.db.query<Row[]>(
         `SELECT i.id AS "inquiryId", i.code AS "inquiryCode", i.customer_name AS "agencyName", '' AS "contactName",
-          i.owner AS "ownerName", 'website' AS "businessUnit", i.country_code AS "countryCode",
+          i.owner AS "ownerName", i.business_unit AS "businessUnit", i.country_code AS "countryCode",
           i.country_or_region AS "countryName", q.id AS "quoteId", q.code AS "quoteCode",
           it.code AS "itineraryCode", it.start_date::text AS "startDate", it.duration AS days,
           (q.first_downloaded_at IS NOT NULL) AS downloaded
@@ -404,19 +408,21 @@ export class ToursService {
     user: AuthenticatedUser,
   ): Promise<Resolved> {
     if (module === 'website') {
-      if (!['website', 'headquarters'].includes(user.scope)) forbidden();
+      if (!['linxi', 'website', 'headquarters'].includes(user.scope))
+        forbidden();
       const rows = await manager.query<Row[]>(
         `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.customer_name, i.country_item_id, i.country_code,
-           i.country_or_region FROM website_inquiries i WHERE i.id = $1 FOR UPDATE`,
+           i.country_or_region, i.business_unit FROM website_inquiries i WHERE i.id = $1 FOR UPDATE`,
         [inquiryId],
       );
       const i = rows[0];
       if (!i)
         fail(ErrorCode.INQUIRY_NOT_FOUND, '询盘不存在', HttpStatus.NOT_FOUND);
       if (
-        user.scope !== 'headquarters' &&
-        !this.isAdmin(user) &&
-        i.owner_id !== user.id
+        !this.unitAllowed(user, i.business_unit as Unit) ||
+        (user.scope !== 'headquarters' &&
+          !this.isAdmin(user) &&
+          i.owner_id !== user.id)
       )
         fail(ErrorCode.INQUIRY_NOT_FOUND, '询盘不存在', HttpStatus.NOT_FOUND);
       const q = await manager.query<Row[]>(
@@ -426,7 +432,7 @@ export class ToursService {
          WHERE it.inquiry_id = $1 ORDER BY wq.confirmed_at DESC, wq.id DESC LIMIT 1`,
         [inquiryId],
       );
-      return this.assemble(module, i, 'website', q[0], {
+      return this.assemble(module, i, i.business_unit as Unit, q[0], {
         startDate: q[0]?.start_date as string | null,
         days: Number(q[0]?.duration),
         agency: i.customer_name as string,

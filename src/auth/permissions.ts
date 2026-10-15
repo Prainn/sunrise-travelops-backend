@@ -89,6 +89,8 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:menu-permission:list': '查看菜单权限',
+  'sys:menu-permission:update': '配置菜单权限',
   'sys:operation-log:list': '查看操作日志',
   'sys:user:list': '查看用户',
   'sys:user:create': '新增用户',

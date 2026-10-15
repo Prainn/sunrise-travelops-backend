@@ -17,6 +17,7 @@ export class AuthenticatedUserResponse {
   deptName: string;
   roles: string[];
   permissions: string[];
+  menuKeys: string[];
 }
 
 export class ProfileRoleResponse {

@@ -192,7 +192,7 @@ export class UserManagementService {
        FROM (
          SELECT status FROM inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
          UNION ALL
-         SELECT status FROM website_inquiries WHERE owner_id=$1${scopes ? " AND 'website'=ANY($2)" : ''}
+         SELECT status FROM website_inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
        ) owned_inquiries`,
       scopes ? [id, scopes] : [id],
     );

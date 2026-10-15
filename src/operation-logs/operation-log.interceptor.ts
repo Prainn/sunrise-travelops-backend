@@ -16,7 +16,10 @@ import {
   OperationLogsService,
 } from './operation-logs.service';
 
-type AuditRequest = Request & { user?: AuthenticatedUser };
+type AuditRequest = Request & {
+  user?: AuthenticatedUser;
+  menuPermissionChange?: unknown;
+};
 type Action = {
   category: OperationCategory;
   label: string;
@@ -41,6 +44,8 @@ function actionFor(
   handler: string,
   body: Record<string, unknown>,
 ): Action | null {
+  if (controller === 'MenuPermissionsController' && handler === 'save')
+    return { category: 'system-category', label: '配置菜单权限' };
   if (controller === 'AuthController') {
     if (handler === 'login') return { category: 'login', label: '登录' };
     if (handler === 'logout') return { category: 'login', label: '退出登录' };
@@ -248,6 +253,8 @@ export class OperationLogInterceptor implements NestInterceptor {
     });
     const detail = (id: unknown, error?: unknown): string => {
       const data: Record<string, string | number> = {};
+      if (request.menuPermissionChange)
+        return JSON.stringify(request.menuPermissionChange);
       if (typeof id === 'string') data.recordId = id.slice(0, 100);
       if (action.parentKey && request.params[action.parentKey] != null)
         data.parentId = String(request.params[action.parentKey]).slice(0, 100);

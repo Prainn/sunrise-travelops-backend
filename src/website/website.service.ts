@@ -9,6 +9,7 @@ import { requireDictionaryItem } from '../common/dictionary-items';
 import { nextBusinessCode } from '../common/business-code';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import type {
+  WebsiteBusinessUnit,
   WebsiteConfig,
   WebsiteInquiry,
   WebsiteInquiryInput,
@@ -60,7 +61,7 @@ const resourceTables: Record<ResourceKind, string> = {
   restaurant: 'resource_restaurants',
   transport: 'resource_transports',
 };
-const inquiryColumns = `i.id,i.code,i.customer_name AS "customerName",i.planned_days AS "plannedDays",
+const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer_name AS "customerName",i.planned_days AS "plannedDays",
   EXISTS(SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active') AS "hasActiveTour",
   i.country_item_id AS "countryItemId",i.country_code AS "countryCode",i.country_or_region AS "countryOrRegion",
   i.requirements,i.owner_id AS "ownerId",i.owner,i.phone,i.email,i.start_date::text AS "startDate",i.pax,
@@ -68,7 +69,7 @@ const inquiryColumns = `i.id,i.code,i.customer_name AS "customerName",i.planned_
   i.internal_remark AS "internalRemark",i.lost_reason AS "lostReason",i.status,i.version,
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
-const itineraryColumns = `id,inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
+const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
   arrival_time AS "arrivalTime",departure_time AS "departureTime",config_version AS "configVersion",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
@@ -93,10 +94,26 @@ export class WebsiteService {
 
   private permission(user: AuthenticatedUser, permission: string) {
     if (
-      !['website', 'headquarters'].includes(user.scope) ||
+      !['linxi', 'website', 'headquarters'].includes(user.scope) ||
       !user.permissions.includes(permission)
     )
       fail('AUTH_FORBIDDEN', '无独立站访问权限', HttpStatus.FORBIDDEN);
+  }
+  private businessUnit(
+    user: AuthenticatedUser,
+    requested?: WebsiteBusinessUnit,
+  ): WebsiteBusinessUnit {
+    if (user.scope === 'headquarters') {
+      if (!requested)
+        fail('VALIDATION_ERROR', '请选择所属业务部', HttpStatus.BAD_REQUEST);
+      return requested;
+    }
+    if (
+      !['linxi', 'website'].includes(user.scope) ||
+      (requested && requested !== user.scope)
+    )
+      fail('AUTH_FORBIDDEN', '不能访问其他业务', HttpStatus.FORBIDDEN);
+    return user.scope as WebsiteBusinessUnit;
   }
   private allInquiries(user: AuthenticatedUser) {
     return (
@@ -133,9 +150,12 @@ export class WebsiteService {
   ): Promise<WebsiteInquiry> {
     this.permission(user, 'website:inquiry:list');
     const params: unknown[] = [id];
-    const scope = this.allInquiries(user)
-      ? ''
-      : ` AND i.owner_id=$${params.push(user.id)}`;
+    let scope =
+      user.scope === 'headquarters'
+        ? ''
+        : ` AND i.business_unit=$${params.push(this.businessUnit(user))}`;
+    if (!this.allInquiries(user))
+      scope += ` AND i.owner_id=$${params.push(user.id)}`;
     const rows = await manager.query<WebsiteInquiry[]>(
       `SELECT ${inquiryColumns} FROM website_inquiries i
       WHERE i.id=$1${scope}${lock ? ' FOR UPDATE OF i' : ''}`,
@@ -179,13 +199,14 @@ export class WebsiteService {
   }
   private async config(
     manager: EntityManager,
+    businessUnit: WebsiteBusinessUnit,
     version?: number,
   ): Promise<WebsiteConfig> {
     const rows = await manager.query<{ config: WebsiteConfig }[]>(
       version === undefined
-        ? 'SELECT v.config FROM website_config_versions v JOIN website_config_current c ON c.version=v.version WHERE c.id=1'
-        : 'SELECT config FROM website_config_versions WHERE version=$1',
-      version === undefined ? [] : [version],
+        ? 'SELECT v.config FROM website_config_versions v JOIN website_config_current c ON c.version=v.version WHERE c.business_unit=$1'
+        : 'SELECT config FROM website_config_versions WHERE business_unit=$1 AND version=$2',
+      version === undefined ? [businessUnit] : [businessUnit, version],
     );
     if (!rows[0])
       fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND, {
@@ -193,9 +214,17 @@ export class WebsiteService {
       });
     return rows[0].config;
   }
-  async getConfig(user: AuthenticatedUser, version?: number) {
+  async getConfig(
+    user: AuthenticatedUser,
+    version?: number,
+    businessUnit?: WebsiteBusinessUnit,
+  ) {
     this.permission(user, 'website:config:list');
-    return this.config(this.db.manager, version);
+    return this.config(
+      this.db.manager,
+      this.businessUnit(user, businessUnit),
+      version,
+    );
   }
   private configReferences(config: WebsiteConfig): ResourceReference[] {
     return [
@@ -322,14 +351,20 @@ export class WebsiteService {
     }
     return issues;
   }
-  async saveConfig(input: WebsiteConfig, user: AuthenticatedUser) {
+  async saveConfig(
+    input: WebsiteConfig,
+    user: AuthenticatedUser,
+    requested?: WebsiteBusinessUnit,
+  ) {
     this.permission(user, 'website:config:update');
+    const businessUnit = this.businessUnit(user, requested);
     validateWebsiteConfig(input);
     return this.db.transaction(async (manager) => {
       await manager.query(
-        'SELECT id FROM website_config_current WHERE id=1 FOR UPDATE',
+        'SELECT id FROM website_config_current WHERE business_unit=$1 FOR UPDATE',
+        [businessUnit],
       );
-      const old = await this.config(manager);
+      const old = await this.config(manager, businessUnit);
       if (old.version !== input.version)
         fail('CONFLICT', '配置已更新，请重新加载', HttpStatus.CONFLICT, {
           currentVersion: old.version,
@@ -340,14 +375,17 @@ export class WebsiteService {
         this.configReferences(old),
       );
       if (issues.length) invalid('配置引用的基础资源不可用', { issues });
-      const saved: WebsiteConfig = { ...input, version: input.version + 1 };
+      const [next] = await manager.query<Array<{ version: number }>>(
+        "SELECT nextval('website_config_version_seq')::integer AS version",
+      );
+      const saved: WebsiteConfig = { ...input, version: next.version };
       await manager.query(
-        'INSERT INTO website_config_versions(version,config,created_by) VALUES($1,$2::jsonb,$3)',
-        [saved.version, JSON.stringify(saved), user.id],
+        'INSERT INTO website_config_versions(version,config,created_by,business_unit) VALUES($1,$2::jsonb,$3,$4)',
+        [saved.version, JSON.stringify(saved), user.id, businessUnit],
       );
       await manager.query(
-        'UPDATE website_config_current SET version=$1 WHERE id=1',
-        [saved.version],
+        'UPDATE website_config_current SET version=$1 WHERE business_unit=$2',
+        [saved.version, businessUnit],
       );
       return saved;
     });
@@ -355,6 +393,7 @@ export class WebsiteService {
   private async owner(
     manager: EntityManager,
     id: string,
+    businessUnit: WebsiteBusinessUnit,
   ): Promise<OwnerOption> {
     const user = await manager
       .createQueryBuilder(UserEntity, 'u')
@@ -364,8 +403,8 @@ export class WebsiteService {
     const eligible = await manager.query<{ id: string }[]>(
       `SELECT i.id FROM user_identities i
       JOIN identity_roles ir ON ir.identity_id=i.id JOIN roles r ON r.id=ir.role_id
-      WHERE i.user_id=$1 AND i.scope='website' AND r.code='COORDINATOR' AND r.is_enabled=true`,
-      [id],
+      WHERE i.user_id=$1 AND i.scope=$2 AND r.code='COORDINATOR' AND r.is_enabled=true`,
+      [id, businessUnit],
     );
     if (
       !user ||
@@ -380,21 +419,29 @@ export class WebsiteService {
       );
     return { id: user.id, name: user.nickname, username: user.username };
   }
-  async owners(user: AuthenticatedUser): Promise<OwnerOption[]> {
+  async owners(
+    user: AuthenticatedUser,
+    requested?: WebsiteBusinessUnit,
+  ): Promise<OwnerOption[]> {
     this.permission(user, 'website:inquiry:list');
-    const scope = this.allInquiries(user) ? '' : ' AND u.id=$1';
+    const businessUnit = this.businessUnit(user, requested);
+    const scope = this.allInquiries(user) ? '' : ' AND u.id=$2';
     return this.db.manager.query<OwnerOption[]>(
       `SELECT DISTINCT u.id,u.nickname AS name,u.username FROM users u
       JOIN user_identities i ON i.user_id=u.id JOIN identity_roles ir ON ir.identity_id=i.id JOIN roles r ON r.id=ir.role_id
-      WHERE u.deleted_at IS NULL AND u.status='enabled' AND i.scope='website'
+      WHERE u.deleted_at IS NULL AND u.status='enabled' AND i.scope=$1
       AND r.code='COORDINATOR' AND r.is_enabled=true${scope} ORDER BY name,id`,
-      scope ? [user.id] : [],
+      scope ? [businessUnit, user.id] : [businessUnit],
     );
   }
   async list(query: WebsiteInquiryQuery, user: AuthenticatedUser) {
     this.permission(user, 'website:inquiry:list');
     const params: unknown[] = [];
     const clauses: string[] = [];
+    if (user.scope !== 'headquarters' || query.businessUnit)
+      clauses.push(
+        `i.business_unit=$${params.push(this.businessUnit(user, query.businessUnit))}`,
+      );
     if (!this.allInquiries(user))
       clauses.push(`i.owner_id=$${params.push(user.id)}`);
     if (query.ownerId)
@@ -434,10 +481,11 @@ export class WebsiteService {
   private async inquiryDestinations(
     manager: EntityManager,
     input: WebsiteInquiryInput,
+    businessUnit: WebsiteBusinessUnit,
     old?: WebsiteInquiry,
   ) {
     if (!input.destinations.length) return;
-    const config = await this.config(manager);
+    const config = await this.config(manager, businessUnit);
     for (const id of input.destinations) {
       const city = config.cities.find((c) => c.id === id);
       if (
@@ -471,6 +519,7 @@ export class WebsiteService {
   }
   async create(input: WebsiteInquiryInput, user: AuthenticatedUser) {
     this.permission(user, 'website:inquiry:create');
+    const businessUnit = this.businessUnit(user, input.businessUnit);
     if (input.status && input.status !== 'new') invalid('新询盘状态必须为new');
     return this.db.transaction(async (manager) => {
       let ownerId = input.ownerId;
@@ -492,8 +541,8 @@ export class WebsiteService {
           '请选择独立站计调负责人',
           HttpStatus.BAD_REQUEST,
         );
-      const owner = await this.owner(manager, ownerId);
-      await this.inquiryDestinations(manager, input);
+      const owner = await this.owner(manager, ownerId, businessUnit);
+      await this.inquiryDestinations(manager, input, businessUnit);
       const country = await requireDictionaryItem(
         manager,
         'country-region',
@@ -504,8 +553,8 @@ export class WebsiteService {
       await manager.query(
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
         phone,email,start_date,pax,arrival_time,departure_time,destinations,internal_remark,lost_reason,status,
-        country_item_id,country_code,country_or_region)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'','new',$16,$17,$18)`,
+        country_item_id,country_code,country_or_region,business_unit)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'','new',$16,$17,$18,$19)`,
         [
           id,
           code,
@@ -525,6 +574,7 @@ export class WebsiteService {
           country.id,
           country.code,
           country.name,
+          businessUnit,
         ],
       );
       await this.log(manager, id, 'inquiry_created', id, user);
@@ -548,7 +598,7 @@ export class WebsiteService {
         invalid('状态由行程和报价流程推进；结束请使用流失或归档操作');
       if (status === 'lost' && !input.lostReason.trim())
         invalid('请填写流失原因');
-      await this.inquiryDestinations(manager, input, old);
+      await this.inquiryDestinations(manager, input, old.businessUnit, old);
       const country =
         old.countryItemId === input.countryItemId
           ? {
@@ -604,7 +654,12 @@ export class WebsiteService {
     this.permission(user, 'website:inquiry:transfer');
     return this.db.transaction(async (manager) => {
       // Account updates also lock users before checking outstanding inquiries.
-      const owner = await this.owner(manager, input.ownerId);
+      const source = await this.inquiry(id, user, manager);
+      const owner = await this.owner(
+        manager,
+        input.ownerId,
+        source.businessUnit,
+      );
       const old = await this.inquiry(id, user, manager, true);
       await this.mutable(old, manager);
       this.version(old.version, input.version);
@@ -682,11 +737,16 @@ export class WebsiteService {
   private async preparePlan(
     manager: EntityManager,
     input: WebsiteItineraryInput,
+    businessUnit: WebsiteBusinessUnit,
     old?: WebsiteItinerary,
   ): Promise<WebsiteItineraryInput> {
-    const config = await this.config(manager, input.configVersion);
+    const config = await this.config(
+      manager,
+      businessUnit,
+      input.configVersion,
+    );
     const oldConfig = old
-      ? await this.config(manager, old.configVersion)
+      ? await this.config(manager, businessUnit, old.configVersion)
       : config;
     const ids = input.days.flatMap((d) => [
       d.id,
@@ -814,8 +874,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version,business_unit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
       [
         id,
         inquiryId,
@@ -850,7 +910,7 @@ export class WebsiteService {
       return this.insertItinerary(
         manager,
         inquiryId,
-        await this.preparePlan(manager, input),
+        await this.preparePlan(manager, input, inquiry.businessUnit),
         user,
         'itinerary_created',
       );
@@ -905,7 +965,7 @@ export class WebsiteService {
       return this.savePlan(
         manager,
         itinerary,
-        await this.preparePlan(manager, input, itinerary),
+        await this.preparePlan(manager, input, inquiry.businessUnit, itinerary),
         user,
       );
     });
@@ -964,7 +1024,7 @@ export class WebsiteService {
       await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, version, true);
-      const config = await this.config(manager);
+      const config = await this.config(manager, inquiry.businessUnit);
       if (config.version !== itinerary.configVersion)
         fail('CONFLICT', '生成前请明确保存当前配置版本', HttpStatus.CONFLICT, {
           currentConfigVersion: config.version,
@@ -973,7 +1033,12 @@ export class WebsiteService {
       return this.savePlan(
         manager,
         itinerary,
-        await this.preparePlan(manager, generated, itinerary),
+        await this.preparePlan(
+          manager,
+          generated,
+          inquiry.businessUnit,
+          itinerary,
+        ),
         user,
         'itinerary_generated',
       );
@@ -984,9 +1049,13 @@ export class WebsiteService {
     inquiry: WebsiteInquiry,
     itinerary: WebsiteItinerary,
   ) {
-    const config = await this.config(manager, itinerary.configVersion);
+    const config = await this.config(
+      manager,
+      inquiry.businessUnit,
+      itinerary.configVersion,
+    );
     const result = buildWebsitePreview(inquiry, itinerary, config);
-    const current = await this.config(manager);
+    const current = await this.config(manager, inquiry.businessUnit);
     if (current.version !== itinerary.configVersion)
       result.issues.push({
         code: 'CONFIG_VERSION_OUTDATED',
@@ -1072,9 +1141,10 @@ export class WebsiteService {
       this.version(itinerary.version, input.version, true);
       this.version(inquiry.version, input.inquiryVersion);
       await manager.query(
-        'SELECT id FROM website_config_current WHERE id=1 FOR SHARE',
+        'SELECT id FROM website_config_current WHERE business_unit=$1 FOR SHARE',
+        [inquiry.businessUnit],
       );
-      const current = await this.config(manager);
+      const current = await this.config(manager, inquiry.businessUnit);
       if (current.version !== itinerary.configVersion)
         fail(
           'CONFLICT',
