@@ -33,6 +33,7 @@ async function main() {
         {
           sub: id,
           type: 'access',
+          menuKeys: [],
           identityId: fixtureIdentity(
             users.find((u) => u.id === id)!,
             users.find((u) => u.id === id)!.isSuperuser

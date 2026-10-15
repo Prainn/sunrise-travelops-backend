@@ -18,6 +18,8 @@ const reads = [
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
+    'sys:menu-permission:list',
+    'sys:menu-permission:update',
     ...ADMIN_PERMISSIONS,
     'inquiry:transfer',
     'itinerary:download',
@@ -96,7 +98,7 @@ export function effectivePermissions(
     ...new Set(
       selected.flatMap((role) => [
         ...(ROLE_PERMISSIONS[role] ?? []),
-        ...(scope === 'website' || scope === 'headquarters'
+        ...(scope === 'website' || scope === 'linxi' || scope === 'headquarters'
           ? (WEBSITE_ROLE_PERMISSIONS[role] ?? [])
           : []),
       ]),

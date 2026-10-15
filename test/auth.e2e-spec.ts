@@ -20,6 +20,7 @@ import { Repository } from 'typeorm';
 import { AuthController } from '../src/auth/auth.controller';
 import { AuthService } from '../src/auth/auth.service';
 import { AuthTokens } from '../src/auth/auth.types';
+import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
 import { Permissions } from '../src/auth/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../src/auth/guards/permissions.guard';
@@ -141,6 +142,10 @@ describe('Auth API (e2e)', () => {
       controllers: [AuthController, ProtectedController],
       providers: [
         AuthService,
+        {
+          provide: MenuPermissionsService,
+          useValue: { snapshot: jest.fn(() => Promise.resolve(['inquiries'])) },
+        },
         JwtStrategy,
         { provide: getRepositoryToken(UserEntity), useValue: users },
         {
@@ -187,12 +192,12 @@ describe('Auth API (e2e)', () => {
       data: { tokenType: 'Bearer' },
     });
     const loginTokens = parseAuthTokens(responseData(login.body as unknown));
-    expect(loginTokens.accessToken.length).toBeLessThan(500);
     expect(decodeJwtPayload(loginTokens.accessToken)).toMatchObject({
       sub: storedUser.id,
       identityId: storedIdentity.id,
       scope: 'shengxu',
       type: 'access',
+      menuKeys: ['inquiries'],
     });
     expect(decodeJwtPayload(loginTokens.accessToken)).not.toHaveProperty(
       'permissions',

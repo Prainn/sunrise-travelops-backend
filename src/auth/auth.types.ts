@@ -10,6 +10,7 @@ export interface AuthenticatedUser {
   deptId: number | null;
   deptName: string;
   roles: string[];
+  menuKeys: string[];
 }
 
 export interface JwtPayload {
@@ -17,6 +18,7 @@ export interface JwtPayload {
   type: 'access' | 'refresh';
   identityId: string;
   scope: LoginScope;
+  menuKeys: string[];
 }
 
 export interface AuthTokens {

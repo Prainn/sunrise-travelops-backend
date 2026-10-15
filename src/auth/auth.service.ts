@@ -23,6 +23,8 @@ import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { AuthenticatedUser, AuthTokens, JwtPayload } from './auth.types';
+import { MenuPermissionsService } from '../roles/menu-permissions.service';
+import { validMenuSnapshot } from '../roles/menu-definitions';
 
 @Injectable()
 export class AuthService {
@@ -33,6 +35,7 @@ export class AuthService {
     private readonly config: ConfigService,
     @InjectRepository(UserLoginRecordEntity)
     private readonly loginRecords: Repository<UserLoginRecordEntity>,
+    private readonly menus: MenuPermissionsService,
   ) {}
 
   async login(
@@ -80,7 +83,12 @@ export class AuthService {
       throw this.invalidRefreshToken();
     }
 
-    if (payload.type !== 'refresh' || !payload.identityId || !payload.scope) {
+    if (
+      payload.type !== 'refresh' ||
+      !payload.identityId ||
+      !payload.scope ||
+      !validMenuSnapshot(payload.menuKeys)
+    ) {
       throw this.invalidRefreshToken();
     }
 
@@ -101,7 +109,7 @@ export class AuthService {
       !(await argon2.verify(identity.refreshTokenHash, refreshToken))
     )
       throw this.invalidRefreshToken();
-    return this.issueTokens(identity.user, identity);
+    return this.issueTokens(identity.user, identity, payload.menuKeys);
   }
 
   async logout(identityId: string): Promise<void> {
@@ -114,6 +122,7 @@ export class AuthService {
     userId: string,
     identityId: string,
     scope: LoginScope,
+    menuKeys: string[],
   ): Promise<AuthenticatedUser> {
     if (!identityId || !scope) throw this.invalidRefreshToken();
     const identity = await this.users.manager.findOne(UserIdentityEntity, {
@@ -147,6 +156,7 @@ export class AuthService {
         '',
       roles,
       permissions: effectivePermissions(scope, roles),
+      menuKeys,
     };
   }
 
@@ -276,18 +286,29 @@ export class AuthService {
   private async issueTokens(
     user: UserEntity,
     identity: UserIdentityEntity,
+    snapshot?: string[],
   ): Promise<AuthTokens> {
+    const menuKeys =
+      snapshot ??
+      (await this.menus.snapshot(
+        identity.scope,
+        identity.roles
+          .filter((role) => role.isEnabled)
+          .map((role) => role.code),
+      ));
     const accessPayload: JwtPayload = {
       sub: user.id,
       identityId: identity.id,
       scope: identity.scope,
       type: 'access',
+      menuKeys,
     };
     const refreshPayload: JwtPayload = {
       sub: user.id,
       identityId: identity.id,
       scope: identity.scope,
       type: 'refresh',
+      menuKeys,
     };
     const accessExpiresIn = this.config.getOrThrow<string>('JWT_EXPIRES_IN');
 

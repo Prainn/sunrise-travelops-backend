@@ -18,6 +18,8 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
   '"minimum_group_size" IS NULL OR "minimum_group_size" > 0',
 )
 export class HotelEntity extends TopLevelResourceEntity {
+  @Column({ name: 'english_name', type: 'varchar', length: 150, default: '' })
+  englishName: string;
   @Column({ type: 'varchar', length: 100, default: '' })
   province: string;
 

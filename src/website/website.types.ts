@@ -1,3 +1,4 @@
+export type WebsiteBusinessUnit = 'linxi' | 'website';
 export type FeeState =
   | 'INCLUDED'
   | 'EXCLUDED'
@@ -75,6 +76,7 @@ export interface WebsiteConfig {
   templates: WebsiteTemplate[];
 }
 export interface WebsiteInquiryInput {
+  businessUnit?: WebsiteBusinessUnit;
   countryItemId: string;
   customerName: string;
   plannedDays: number;
@@ -92,6 +94,7 @@ export interface WebsiteInquiryInput {
   lostReason: string;
 }
 export interface WebsiteInquiry extends WebsiteInquiryInput {
+  businessUnit: WebsiteBusinessUnit;
   hasActiveTour: boolean;
   countryCode: string | null;
   countryOrRegion: string;
@@ -181,6 +184,7 @@ export interface WebsiteItineraryInput {
   vehiclePrices: WebsiteVehiclePrice[];
 }
 export interface WebsiteItinerary extends WebsiteItineraryInput {
+  businessUnit: WebsiteBusinessUnit;
   id: string;
   inquiryId: string;
   code: string;

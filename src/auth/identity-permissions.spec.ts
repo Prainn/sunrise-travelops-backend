@@ -52,7 +52,7 @@ const websitePermissions = (
   );
 
 describe('independent website permissions', () => {
-  it.each(['shengxu', 'linxi'] as const)(
+  it.each(['shengxu'] as const)(
     'does not grant website permissions to %s business roles',
     (scope) => {
       expect(
@@ -144,4 +144,15 @@ describe('independent website permissions', () => {
       ]),
     );
   });
+});
+
+it('linxi roles receive the same website function grants without gaining role-menu management', () => {
+  for (const role of ['COORDINATOR', 'BUSINESS_MANAGER', 'RESOURCE_MANAGER']) {
+    expect(websitePermissions('linxi', [role])).toEqual(
+      websitePermissions('website', [role]),
+    );
+    expect(effectivePermissions('linxi', [role])).not.toContain(
+      'sys:menu-permission:update',
+    );
+  }
 });

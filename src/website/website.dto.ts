@@ -21,6 +21,7 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type {
+  WebsiteBusinessUnit,
   FeeState,
   TransportMode,
   VehicleType,
@@ -107,6 +108,9 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @IsOptional() @IsIn(statuses) status?: WebsiteInquiryInput['status'];
   @IsString() @MaxLength(2000) lostReason = '';
 }
+export class WebsiteCreateInquiryDto extends WebsiteInquiryDto {
+  @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;
+}
 export class WebsiteUpdateInquiryDto extends WebsiteInquiryDto {
   @IsInt() @Min(1) version: number;
 }
@@ -115,6 +119,7 @@ export class WebsiteTransferDto extends WebsiteVersionDto {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(2000) reason: string;
 }
 export class WebsiteInquiryQuery extends PaginationQueryDto {
+  @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;
   @IsOptional() @IsString() @MaxLength(100) keyword: string | undefined =
     undefined;
   @IsOptional() @IsIn(statuses) status?: WebsiteInquiryInput['status'];
@@ -124,7 +129,10 @@ export class WebsiteResourceQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(100) keyword: string | undefined =
     undefined;
 }
-export class WebsiteConfigQuery {
+export class WebsiteBusinessQuery {
+  @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;
+}
+export class WebsiteConfigQuery extends WebsiteBusinessQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) version?: number;
 }
 export class WebsiteItemDto implements WebsiteItem {

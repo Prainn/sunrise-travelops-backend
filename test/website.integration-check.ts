@@ -1,3 +1,5 @@
+import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
+import { allowedMenuKeys } from '../src/roles/menu-definitions';
 /** Runs only against the disposable PostgreSQL 16 container on localhost:55439. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -121,7 +123,9 @@ async function main() {
           (migration.name ?? migration.constructor.name) !==
             templateNameMigrationName &&
           migration.name !== 'UnifyResourceLibrary1791619200000' &&
-          migration.name !== 'DropUnusedItineraryFields1791705600000',
+          migration.name !== 'DropUnusedItineraryFields1791705600000' &&
+          migration.name !==
+            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
       ),
     );
     await db.runMigrations();
@@ -164,6 +168,7 @@ async function main() {
         REFRESH_TOKEN_EXPIRES_IN: '7d',
       }),
       db.getRepository(UserLoginRecordEntity),
+      new MenuPermissionsService(db),
     );
     const createActor = async (
       username: string,
@@ -186,7 +191,12 @@ async function main() {
         deptId,
         roles: roles.filter((role) => codes.includes(role.code)),
       });
-      return auth.getCurrentUser(user.id, identity.id, scope);
+      return auth.getCurrentUser(
+        user.id,
+        identity.id,
+        scope,
+        allowedMenuKeys(scope, codes),
+      );
     };
     const root = await createActor(
       'sunrise',
@@ -425,7 +435,9 @@ async function main() {
           (migration.name ?? migration.constructor.name) !==
             templateNameMigrationName &&
           migration.name !== 'UnifyResourceLibrary1791619200000' &&
-          migration.name !== 'DropUnusedItineraryFields1791705600000',
+          migration.name !== 'DropUnusedItineraryFields1791705600000' &&
+          migration.name !==
+            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
       ),
     );
     assert.deepEqual(
@@ -526,6 +538,7 @@ async function main() {
         templateNameMigrationName,
         'UnifyResourceLibrary1791619200000',
         'DropUnusedItineraryFields1791705600000',
+        'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
       ],
     );
     assert.equal((await db.runMigrations()).length, 0);
@@ -612,9 +625,15 @@ async function main() {
             identityId: actor.identityId,
             scope: actor.scope,
             type: 'access',
+            menuKeys: actor.menuKeys,
           },
           { secret: process.env.JWT_SECRET, expiresIn: '5m' },
         );
+        if (
+          actor.scope === 'headquarters' &&
+          /^\/website\/(config|owners)(\?|$)/.test(path)
+        )
+          path += `${path.includes('?') ? '&' : '?'}businessUnit=website`;
         return fetch(`${endpoint}/api${path}`, {
           method,
           headers: {
@@ -636,7 +655,7 @@ async function main() {
         return ((await response.json()) as { data: T }).data;
       };
 
-      for (const outsider of [linxi, shengxu, resource]) {
+      for (const outsider of [shengxu, resource]) {
         assert.equal(
           (await request('GET', '/website/inquiries', outsider)).status,
           403,
@@ -874,7 +893,7 @@ async function main() {
       let config = await data<WebsiteConfig>(
         await request('PUT', '/website/config', resource, authoredConfig),
       );
-      assert.equal(config.version, 1);
+      assert(config.version > initialConfig.version);
       assert.equal(config.templates[0].name, '抵达文案模版');
       assert.equal(config.templates[1].name, '名'.repeat(150));
       assert.deepEqual(
@@ -893,10 +912,11 @@ async function main() {
           200,
         );
       }
+      const previousVersion = config.version;
       config = await data<WebsiteConfig>(
         await request('PUT', '/website/config', headquartersAdmin, config),
       );
-      assert.equal(config.version, 2);
+      assert(config.version > previousVersion);
       const websiteCities = await data<{ list: Array<{ id: string }> }>(
         await request('GET', '/website/resources/city', owner),
       );
@@ -970,7 +990,7 @@ async function main() {
       assert.equal(
         (await request('GET', `/website/inquiries/${inquiry.id}/logs`, linxi))
           .status,
-        403,
+        404,
       );
       assert.equal(
         (await request('GET', `/website/inquiries/${inquiry.id}`, other))

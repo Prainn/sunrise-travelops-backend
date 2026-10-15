@@ -94,6 +94,7 @@ async function user(
     deptId: null,
     deptName: '',
     roles,
+    menuKeys: [],
     permissions: effectivePermissions(scope, roles),
   };
 }
@@ -112,11 +113,11 @@ async function fixture(
   );
   if (module === 'website') {
     await db.query(
-      `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,status,country_item_id,country_code,country_or_region) VALUES($1,$2,'Agency',2,'',$3,$4,'quoted',$5,'MYS','马来西亚') ON CONFLICT(id) DO NOTHING`,
+      `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,status,country_item_id,country_code,country_or_region,business_unit) VALUES($1,$2,'Agency',2,'',$3,$4,'quoted',$5,'MYS','马来西亚','website') ON CONFLICT(id) DO NOTHING`,
       [inquiryId, code, owner.id, owner.nickname, country.id],
     );
     await db.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,config_version,status) VALUES($1,$2,$3,'Test',2,$4,0,'quoted')`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,config_version,status,business_unit) VALUES($1,$2,$3,'Test',2,$4,0,'quoted','website')`,
       [itineraryId, inquiryId, code, start || null],
     );
     await db.query(

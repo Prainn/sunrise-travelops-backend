@@ -9,7 +9,7 @@
 | 入口 | 职责 |
 |---|---|
 | `src/main.ts` / `src/app.module.ts` | 启动、全局管线与模块装配 |
-| `src/auth` / `src/users` / `src/roles` | 当前登录身份、有效权限、账号管理；roles 注册实体，无独立角色管理 Controller |
+| `src/auth` / `src/users` / `src/roles` | 当前登录身份、有效权限、账号管理；roles 注册实体并提供 ROOT 专用菜单配置，不提供角色 CRUD |
 | `src/inquiries` | 询盘、行程、成本试算、报价冻结、转交、调价、日志；没有独立 itineraries/quotations 模块 |
 | `src/website` | 独立站直客询盘、行程、人工报价与专属配置；独立 `/api/website` 合同 |
 | `src/tours` / `src/common/tour-lock.ts` | 成团、导游请假/评分及来源写入锁；实际人员与报价服务价格分离 |

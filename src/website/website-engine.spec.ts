@@ -74,6 +74,7 @@ function fixture() {
     })),
   };
   const inquiry: WebsiteInquiry = {
+    businessUnit: 'website',
     hasActiveTour: false,
     id: randomUUID(),
     code: 'WIQ-TEST',
@@ -100,6 +101,7 @@ function fixture() {
     updatedAt: '',
   };
   const itinerary: WebsiteItinerary = {
+    businessUnit: 'website',
     id: randomUUID(),
     inquiryId: inquiry.id,
     code: 'WIT-TEST',

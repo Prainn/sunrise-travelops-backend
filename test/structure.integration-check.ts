@@ -1,3 +1,5 @@
+import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
+import { allowedMenuKeys } from '../src/roles/menu-definitions';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { ApiExceptionFilter } from '../src/common/filters/api-exception.filter';
@@ -797,6 +799,7 @@ async function main() {
         REFRESH_TOKEN_EXPIRES_IN: '7d',
       }),
       db.getRepository(UserLoginRecordEntity),
+      new MenuPermissionsService(db),
     );
     const current = async (
       id: string,
@@ -806,7 +809,12 @@ async function main() {
         userId: id,
         scope,
       });
-      return auth.getCurrentUser(id, identity.id, scope);
+      return auth.getCurrentUser(
+        id,
+        identity.id,
+        scope,
+        allowedMenuKeys(scope, []),
+      );
     };
     const root = await current(ids.root, 'headquarters');
     const owner = await current(ids.owner, 'shengxu');
@@ -1366,6 +1374,7 @@ async function main() {
             identityId: user.identityId,
             scope: user.scope,
             type: 'access',
+            menuKeys: user.menuKeys,
           },
           { secret: process.env.JWT_SECRET, expiresIn: '5m' },
         );

@@ -26,6 +26,11 @@ export class HotelQueryDto extends ResourceQueryDto {
   @IsOptional() @optionalTrimmedString @IsString() unit?: string;
 }
 export class CreateHotelDto extends ResourceInputDto {
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(150)
+  englishName?: string;
   @optionalTrimmedString @IsString() @MaxLength(100) province: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
   @Type(() => Number) @IsIn([3, 4, 5]) rating: number;
@@ -55,6 +60,7 @@ export class HotelResponse implements ResourceAuditResponse {
   updatedBy: string | null;
   code: string;
   name: string;
+  englishName: string;
   province: string;
   city: string;
   rating: number;

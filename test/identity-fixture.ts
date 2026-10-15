@@ -20,6 +20,7 @@ export function fixtureIdentity(
     deptId: identity.deptId,
     deptName: '',
     roles,
+    menuKeys: [],
     permissions: effectivePermissions(scope, roles),
   };
 }

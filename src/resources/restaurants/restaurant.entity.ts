@@ -18,6 +18,10 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
   },
 )
 export class RestaurantEntity extends TopLevelResourceEntity {
+  @Column({ name: 'english_name', type: 'varchar', length: 150, default: '' })
+  englishName: string;
+  @Column({ name: 'english_description', type: 'text', default: '' })
+  englishDescription: string;
   @Column({ type: 'varchar', length: 100, default: '' }) city: string;
   @Column({ type: 'varchar', length: 100, default: '' }) cuisine: string;
   @Column({ type: 'varchar', length: 100, default: '' }) contact: string;

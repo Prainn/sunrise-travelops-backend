@@ -20,7 +20,8 @@ import {
   WebsiteConfirmDto,
   WebsiteCreateItineraryDto,
   WebsiteGenerateDto,
-  WebsiteInquiryDto,
+  WebsiteCreateInquiryDto,
+  WebsiteBusinessQuery,
   WebsiteInquiryQuery,
   WebsiteResourceQuery,
   WebsiteTransferDto,
@@ -46,15 +47,18 @@ export class WebsiteController {
   @Post('inquiries')
   @Permissions('website:inquiry:create')
   create(
-    @Body() input: WebsiteInquiryDto,
+    @Body() input: WebsiteCreateInquiryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.create(input, user);
   }
   @Get('owners')
   @Permissions('website:inquiry:list')
-  owners(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.owners(user);
+  owners(
+    @Query() query: WebsiteBusinessQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.owners(user, query.businessUnit);
   }
   @Get('inquiries/:id')
   @Permissions('website:inquiry:list')
@@ -192,15 +196,16 @@ export class WebsiteController {
     @Query() query: WebsiteConfigQuery,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.getConfig(user, query.version);
+    return this.service.getConfig(user, query.version, query.businessUnit);
   }
   @Put('config')
   @Permissions('website:config:update')
   saveConfig(
+    @Query() query: WebsiteBusinessQuery,
     @Body() input: WebsiteConfigDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.saveConfig(input, user);
+    return this.service.saveConfig(input, user, query.businessUnit);
   }
   @Get('resources/:kind')
   @Permissions('website:config:list')
