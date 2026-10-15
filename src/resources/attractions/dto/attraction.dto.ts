@@ -34,6 +34,12 @@ export class AttractionQueryDto extends ResourceQueryDto {
   isStandardPrice?: boolean;
 }
 export class CreateAttractionDto extends ResourceInputDto {
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(150)
+  englishName?: string;
+  @IsOptional() @optionalTrimmedString @IsString() englishDescription?: string;
   @optionalTrimmedString @IsString() @MinLength(1) @MaxLength(100) area: string;
   @optionalTrimmedString @IsString() @MinLength(1) description: string;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
@@ -61,6 +67,8 @@ export class AttractionResponse implements ResourceAuditResponse {
   updatedBy: string | null;
   code: string;
   name: string;
+  englishName: string;
+  englishDescription: string;
   area: string;
   category: AttractionCategory | null;
   restroomLocation: string;

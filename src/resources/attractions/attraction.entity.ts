@@ -17,6 +17,10 @@ import { AttractionCategory } from '../common/resource.constants';
 )
 @Check('CHK_resource_attractions_price', '"price" IS NULL OR "price" >= 0')
 export class AttractionEntity extends TopLevelResourceEntity {
+  @Column({ name: 'english_name', type: 'varchar', length: 150, default: '' })
+  englishName: string;
+  @Column({ name: 'english_description', type: 'text', default: '' })
+  englishDescription: string;
   @Column({ type: 'varchar', length: 100, default: '' }) area: string;
   @Column({ type: 'varchar', length: 20, nullable: true })
   category: AttractionCategory | null;

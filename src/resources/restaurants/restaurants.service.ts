@@ -150,6 +150,8 @@ export class RestaurantsService {
   private fields(input: CreateRestaurantDto) {
     return {
       name: input.name,
+      englishName: input.englishName ?? '',
+      englishDescription: input.englishDescription ?? '',
       status: input.status,
       city: input.city,
       description: input.description,
@@ -170,6 +172,8 @@ export class RestaurantsService {
       ...auditResponse(entity),
       code: entity.code,
       name: entity.name,
+      englishName: entity.englishName,
+      englishDescription: entity.englishDescription,
       city: entity.city,
       cuisine: entity.cuisine,
       contact: entity.contact,

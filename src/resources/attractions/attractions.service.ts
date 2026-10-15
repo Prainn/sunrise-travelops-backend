@@ -154,6 +154,8 @@ export class AttractionsService {
   private fields(input: CreateAttractionDto) {
     return {
       name: input.name,
+      englishName: input.englishName ?? '',
+      englishDescription: input.englishDescription ?? '',
       status: input.status,
       area: input.area,
       description: input.description,
@@ -170,6 +172,8 @@ export class AttractionsService {
       ...auditResponse(entity),
       code: entity.code,
       name: entity.name,
+      englishName: entity.englishName,
+      englishDescription: entity.englishDescription,
       area: entity.area,
       category: entity.category,
       restroomLocation: entity.restroomLocation,

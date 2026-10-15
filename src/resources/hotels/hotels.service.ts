@@ -79,6 +79,7 @@ export class HotelsService {
     await ensureCodeAvailable(this.hotels, code);
     const entity = this.hotels.create({
       ...input,
+      englishName: input.englishName ?? '',
       code,
       individualPrice: normalizeMoney(input.individualPrice),
       groupPrice:
@@ -109,6 +110,7 @@ export class HotelsService {
       await ensureCodeAvailable(repository, input.code, id);
       Object.assign(entity, input, {
         id,
+        englishName: input.englishName ?? '',
         individualPrice: normalizeMoney(input.individualPrice),
         groupPrice:
           input.groupPrice == null ? null : normalizeMoney(input.groupPrice),
@@ -141,6 +143,7 @@ export class HotelsService {
       ...auditResponse(entity),
       code: entity.code,
       name: entity.name,
+      englishName: entity.englishName,
       province: entity.province,
       city: entity.city,
       rating: entity.rating,

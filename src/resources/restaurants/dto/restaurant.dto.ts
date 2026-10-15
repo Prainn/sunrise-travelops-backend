@@ -30,6 +30,12 @@ export class RestaurantQueryDto extends ResourceQueryDto {
   isStandardPrice?: boolean;
 }
 export class CreateRestaurantDto extends ResourceInputDto {
+  @IsOptional()
+  @optionalTrimmedString
+  @IsString()
+  @MaxLength(150)
+  englishName?: string;
+  @IsOptional() @optionalTrimmedString @IsString() englishDescription?: string;
   @optionalTrimmedString @IsString() @MinLength(1) @MaxLength(100) city: string;
   @optionalTrimmedString @IsString() @MinLength(1) description: string;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) price: string;
@@ -74,6 +80,8 @@ export class RestaurantResponse implements ResourceAuditResponse {
   updatedBy: string | null;
   code: string;
   name: string;
+  englishName: string;
+  englishDescription: string;
   city: string;
   cuisine: string;
   contact: string;
