@@ -12,6 +12,7 @@ import { AttractionEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
 import { multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
+import { missingItineraryPrices } from './quote-pricing';
 export function invalid(message: string): never {
   throw new BusinessException({
     code: 'ITINERARY_INVALID',
@@ -105,7 +106,7 @@ export class ItineraryValidation {
         resource.deletedAt ||
         resource.status !== ResourceStatus.Enabled ||
         resource.price === null ||
-        !resource.description.trim()
+        (isRestaurant && !resource.description.trim())
       )
         invalid(
           isRestaurant
@@ -227,8 +228,8 @@ export class ItineraryValidation {
           !['personMeal', 'table'].includes(item.unit) ||
           !Number.isFinite(item.quantity) ||
           item.quantity <= 0 ||
-          !Number.isFinite(item.unitCost) ||
-          item.unitCost < 0
+          (item.unitCost !== null &&
+            (!Number.isFinite(item.unitCost) || item.unitCost < 0))
         )
           invalid('Invalid custom restaurant');
         item.priceName = '';
@@ -252,12 +253,15 @@ export class ItineraryValidation {
       )
         invalid('请补充按桌餐食的每桌人数');
       if (item.unit !== 'table') item.dinerCount = null;
-      item.totalCost = multiplyMoney(
-        item.unit === 'table'
-          ? roundMoney(item.unitCost / item.dinerCount!)
-          : item.unitCost,
-        item.quantity,
-      );
+      item.totalCost =
+        item.unitCost === null
+          ? null
+          : multiplyMoney(
+              item.unit === 'table'
+                ? roundMoney(item.unitCost / item.dinerCount!)
+                : item.unitCost,
+              item.quantity,
+            );
     }
     for (const group of plan.hotelPlans) {
       unique(group.hotels.map((h) => h.destination));
@@ -279,7 +283,10 @@ export class ItineraryValidation {
             unit: old.unit,
             referencePrice: old.referencePrice ?? null,
             referenceBasis: old.referenceBasis ?? 'unknown',
-            unitCost: roundMoney(selection.unitCost),
+            unitCost:
+              selection.unitCost === null
+                ? null
+                : roundMoney(selection.unitCost),
           });
         else {
           const hotel = await manager.findOneBy(HotelEntity, {
@@ -310,7 +317,10 @@ export class ItineraryValidation {
             rating: hotel.rating,
             breakfast: hotel.breakfast,
             unit: hotel.unit,
-            unitCost: roundMoney(selection.unitCost),
+            unitCost:
+              selection.unitCost === null
+                ? null
+                : roundMoney(selection.unitCost),
           });
         }
         requirePriceReason(
@@ -455,7 +465,8 @@ export class ItineraryValidation {
           referenceBasis: 'resource_price',
         });
       }
-      guide.dailyPrice = roundMoney(guide.dailyPrice);
+      guide.dailyPrice =
+        guide.dailyPrice === null ? null : roundMoney(guide.dailyPrice);
       guide.serviceDays = plannedDays;
       requirePriceReason(
         guide.dailyPrice,
@@ -590,7 +601,7 @@ export class ItineraryValidation {
     return plan;
   }
   assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {
-    const issues: string[] = [];
+    const issues: string[] = missingItineraryPrices(plan);
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
       !hotels.length ||

@@ -133,8 +133,18 @@ class ItemInput extends PriceInput {
   @IsInt() @Min(1) @Max(1) quantity: number;
   @IsOptional() @IsInt() @Min(1) @Max(10000) dinerCount: number | null;
   @IsString() @MaxLength(100) unit: string;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e12) totalCost: number;
+  @ValidateIf((_object, value: unknown) => value !== null)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  unitCost: number | null;
+  @ValidateIf((_object, value: unknown) => value !== null)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e12)
+  totalCost: number | null;
   @IsString() @MaxLength(10000) remark: string;
   @IsOptional() @IsIn(['lunch', 'dinner']) mealSlot?: 'lunch' | 'dinner';
 }
@@ -172,7 +182,12 @@ class HotelInput extends PriceInput {
   @IsIn([3, 4, 5]) rating: number;
   @IsString() @MaxLength(10000) breakfast: string;
   @IsString() @MaxLength(100) unit: string;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) unitCost: number;
+  @ValidateIf((_object, value: unknown) => value !== null)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  unitCost: number | null;
 }
 class HotelPlanInput {
   @IsIn([3, 4, 5]) tier: 3 | 4 | 5;
@@ -229,7 +244,12 @@ class GuideInput extends PriceInput {
   @IsString() @MaxLength(500) guideName: string;
   @IsString() @MaxLength(20) secondLanguage: string;
   @IsBoolean() shopping: boolean;
-  @Type(() => Number) @IsNumber() @Min(0) @Max(1e9) dailyPrice: number;
+  @ValidateIf((_object, value: unknown) => value !== null)
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  dailyPrice: number | null;
   @IsInt() @Min(1) @Max(365) serviceDays: number;
 }
 class PaxPriceInput {

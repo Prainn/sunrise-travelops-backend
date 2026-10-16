@@ -12,6 +12,7 @@ import {
   Query,
   Req,
   UploadedFile,
+  UseFilters,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -38,6 +39,7 @@ import {
   VersionDto,
 } from './inquiry.dto';
 import { moneyResponse } from './changes';
+import { InquiryDocumentUploadFilter } from './inquiry-document-upload.filter';
 
 @ApiTags('Inquiries')
 @ApiBearerAuth()
@@ -77,6 +79,7 @@ export class InquiriesController {
   }
   @Post('parse-document')
   @Permissions('inquiry:create')
+  @UseFilters(InquiryDocumentUploadFilter)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 0 },

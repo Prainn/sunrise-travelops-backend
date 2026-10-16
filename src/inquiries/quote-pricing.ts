@@ -14,6 +14,29 @@ type QuotePlan = Pick<
   | 'guidePlans'
 >;
 
+/** Stable API paths for selected resources whose actual price is not ready. */
+export function missingItineraryPrices(
+  itinerary: Pick<QuotePlan, 'hotelPlans' | 'guidePlans' | 'dailyPlans'>,
+): string[] {
+  const missing: string[] = [];
+  const ready = (price: number | null) =>
+    price !== null && Number.isFinite(price) && price >= 0;
+  for (const plan of itinerary.hotelPlans)
+    for (const hotel of plan.hotels)
+      if (!ready(hotel.unitCost))
+        missing.push(
+          `hotelPlans[${plan.tier}].hotels[${hotel.destination}].unitCost`,
+        );
+  for (const guide of itinerary.guidePlans)
+    if (!ready(guide.dailyPrice))
+      missing.push(`guidePlans[${guide.destination}].dailyPrice`);
+  for (const day of itinerary.dailyPlans)
+    for (const item of day.items)
+      if (!ready(item.unitCost))
+        missing.push(`dailyPlans[${day.id}].items[${item.id}].unitCost`);
+  return missing;
+}
+
 export function calculateItineraryQuote(
   itinerary: QuotePlan,
 ): PaxQuoteCalculation {
@@ -27,9 +50,9 @@ export function calculateItineraryQuote(
       status: 400,
     });
   const guideCost = sumMoney(
-    itinerary.guidePlans.map((plan) =>
-      multiplyMoney(plan.dailyPrice, plan.serviceDays),
-    ),
+    itinerary.guidePlans
+      .filter((plan) => plan.dailyPrice !== null)
+      .map((plan) => multiplyMoney(plan.dailyPrice!, plan.serviceDays)),
   );
   const resourceCosts = itinerary.dailyPlans.flatMap((day) =>
     day.items.map((item) => {
@@ -41,9 +64,11 @@ export function calculateItineraryQuote(
         });
       }
       const unitCost =
-        item.unit === 'table'
-          ? roundMoney(item.unitCost / item.dinerCount!)
-          : item.unitCost;
+        item.unitCost === null
+          ? null
+          : item.unit === 'table'
+            ? roundMoney(item.unitCost / item.dinerCount!)
+            : item.unitCost;
       return {
         type: item.type,
         detail: {
@@ -51,7 +76,8 @@ export function calculateItineraryQuote(
           resourceName: item.resourceName,
           unitCost,
           quantity: item.quantity,
-          totalCost: multiplyMoney(unitCost, item.quantity),
+          totalCost:
+            unitCost === null ? null : multiplyMoney(unitCost, item.quantity),
         },
       };
     }),
@@ -63,19 +89,26 @@ export function calculateItineraryQuote(
     .filter((item) => item.type === 'attraction')
     .map((item) => item.detail);
   const mealCost = sumMoney([
-    ...mealDetails.map((item) => item.totalCost),
+    ...mealDetails.flatMap((item) =>
+      item.totalCost === null ? [] : [item.totalCost],
+    ),
     itinerary.quote.mealOtherCost ?? 0,
   ]);
   const attractionCost = sumMoney([
-    ...attractionDetails.map((item) => item.totalCost),
+    ...attractionDetails.flatMap((item) =>
+      item.totalCost === null ? [] : [item.totalCost],
+    ),
     itinerary.quote.attractionOtherCost ?? 0,
   ]);
   const dailyResourceCost = sumMoney([mealCost, attractionCost]);
   const tipUnitPrice = roundMoney(
     itinerary.quote.chineseTip ?? itinerary.quote.englishTip ?? 0,
   );
+  const missingPrices = missingItineraryPrices(itinerary);
   return {
     pricingVersion: 2,
+    pricingComplete: missingPrices.length === 0,
+    missingPrices,
     dailyResourceCost,
     mealDetails,
     attractionDetails,
@@ -98,16 +131,18 @@ export function calculateItineraryQuote(
       const hotelCityCosts = [...nightsByCity].map(([destination, nights]) => {
         const unitCost =
           hotels.find((hotel) => hotel.destination === destination)?.unitCost ??
-          0;
+          null;
         const previousTotal = roundMoney(accumulatedRoomCost / 2);
-        accumulatedRoomCost = sumMoney([
-          accumulatedRoomCost,
-          multiplyMoney(unitCost, nights),
-        ]);
+        if (unitCost !== null)
+          accumulatedRoomCost = sumMoney([
+            accumulatedRoomCost,
+            multiplyMoney(unitCost, nights),
+          ]);
         // Allocate any half-cent rounding to the current city so the breakdown equals the existing total.
-        const totalCost = roundMoney(
-          roundMoney(accumulatedRoomCost / 2) - previousTotal,
-        );
+        const totalCost =
+          unitCost === null
+            ? null
+            : roundMoney(roundMoney(accumulatedRoomCost / 2) - previousTotal);
         return { destination, nights, unitCost, totalCost };
       });
       const hotelUnitCost = roundMoney(accumulatedRoomCost / 2);
