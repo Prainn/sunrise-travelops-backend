@@ -59,7 +59,7 @@ export const MENU_DEFINITIONS = [
     title: 'websiteResources',
     group: 'tourismResources',
     permissions: ['website:config:list'],
-    scopes: ['headquarters', 'linxi', 'website'],
+    scopes: ['headquarters', 'website'],
   },
   {
     key: 'agency',
