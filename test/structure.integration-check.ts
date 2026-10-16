@@ -1302,7 +1302,9 @@ async function main() {
       wrongParent.dailyPlans[0].items[0].resourceId = randomUUID();
       await assert.rejects(validateResource(wrongParent), error);
       const repriced = structuredClone(resourceInput);
-      repriced.dailyPlans[0].items[0].unitCost += 1;
+      assert.notEqual(repriced.dailyPlans[0].items[0].unitCost, null);
+      repriced.dailyPlans[0].items[0].unitCost =
+        repriced.dailyPlans[0].items[0].unitCost! + 1;
       await assert.rejects(validateResource(repriced), {
         code: 'ITINERARY_INVALID',
         message: '调整价格必须填写本次原因',

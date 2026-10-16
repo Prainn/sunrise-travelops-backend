@@ -1,4 +1,6 @@
-import { BadRequestException, PayloadTooLargeException } from '@nestjs/common';
+import { HttpStatus } from '@nestjs/common';
+import { ErrorCode } from '../common/constants/error-code';
+import { BusinessException } from '../common/exceptions/business.exception';
 import WordExtractor from 'word-extractor';
 // 直接引用实现文件，避免包入口的调试代码读取测试文件
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -13,11 +15,19 @@ export interface InquiryDocumentFile {
 
 export async function parseInquiryDocument(file?: InquiryDocumentFile) {
   if (!file || !/\.(docx?|pdf)$/i.test(file.originalname)) {
-    throw new BadRequestException('请上传 .doc、.docx 或 .pdf 文档');
+    throw new BusinessException({
+      code: ErrorCode.INQUIRY_DOCUMENT_INVALID_FORMAT,
+      message: '请上传 .doc、.docx 或 .pdf 文档',
+      status: HttpStatus.BAD_REQUEST,
+    });
   }
   const isPdf = /\.pdf$/i.test(file.originalname);
   if (file.buffer.length > 2 * 1024 * 1024) {
-    throw new PayloadTooLargeException('文档不能超过 2 MiB');
+    throw new BusinessException({
+      code: ErrorCode.INQUIRY_DOCUMENT_TOO_LARGE,
+      message: '文档不能超过 2 MiB',
+      status: HttpStatus.PAYLOAD_TOO_LARGE,
+    });
   }
   let text: string;
   try {
@@ -38,13 +48,25 @@ export async function parseInquiryDocument(file?: InquiryDocumentFile) {
         .replace(/\r\n?/g, '\n');
     }
   } catch {
-    throw new BadRequestException('无法解析文档，请检查文件是否损坏或加密');
+    throw new BusinessException({
+      code: ErrorCode.INQUIRY_DOCUMENT_UNPARSEABLE,
+      message: '无法解析文档，请检查文件是否损坏或加密',
+      status: HttpStatus.BAD_REQUEST,
+    });
   }
   if (!text.trim())
-    throw new BadRequestException(
-      isPdf ? '不支持扫描件或图片型 PDF' : '文档中没有可提取的文字',
-    );
+    throw new BusinessException({
+      code: isPdf
+        ? ErrorCode.INQUIRY_DOCUMENT_SCANNED_UNSUPPORTED
+        : ErrorCode.INQUIRY_DOCUMENT_EMPTY_TEXT,
+      message: isPdf ? '不支持扫描件或图片型 PDF' : '文档中没有可提取的文字',
+      status: HttpStatus.BAD_REQUEST,
+    });
   if (text.length > 200000)
-    throw new BadRequestException('文档文字不能超过 200,000 字符');
+    throw new BusinessException({
+      code: ErrorCode.INQUIRY_DOCUMENT_TOO_LONG,
+      message: '文档文字不能超过 200,000 字符',
+      status: HttpStatus.BAD_REQUEST,
+    });
   return { text };
 }

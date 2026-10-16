@@ -9,21 +9,24 @@ export interface ReferencePrice {
   adjustmentReason?: string | null;
 }
 export function requirePriceReason(
-  actual: number,
-  previous: number | undefined,
+  actual: number | null,
+  previous: number | null | undefined,
   fields: ReferencePrice,
   old: ReferencePrice | undefined,
   checkReason: boolean,
   allowRestoreWithoutReason = false,
 ) {
+  if (actual === null) {
+    fields.adjustmentReason = '';
+    return;
+  }
   const changed =
-    previous === undefined || roundMoney(previous) !== roundMoney(actual);
+    previous == null || roundMoney(previous) !== roundMoney(actual);
   const reference = fields.referencePrice;
   const restored =
     reference != null && roundMoney(actual) === roundMoney(reference);
   const needsReason =
-    changed &&
-    (!restored || (previous !== undefined && !allowRestoreWithoutReason));
+    changed && (!restored || (previous != null && !allowRestoreWithoutReason));
   if (needsReason && checkReason && !fields.adjustmentReason?.trim())
     throw new BusinessException({
       code: 'ITINERARY_INVALID',
@@ -96,12 +99,15 @@ export async function recordPriceAdjustments(
 ) {
   const old = new Map(previous ? prices(previous).map((p) => [p.key, p]) : []);
   for (const item of prices(next)) {
-    const before = old.get(item.key);
+    // Clearing a price is recorded by the ordinary field diff, not a zero-price adjustment.
+    if (item.price === null) continue;
+    const saved = old.get(item.key);
+    const before = saved?.price != null ? saved : undefined;
     const reference = item.referencePrice ?? null;
     if (
       before &&
       (before.source === item.source || item.type === 'vehicle') &&
-      roundMoney(before.price) === roundMoney(item.price)
+      roundMoney(before.price!) === roundMoney(item.price)
     )
       continue;
     if (!before && item.type === 'vehicle') continue;

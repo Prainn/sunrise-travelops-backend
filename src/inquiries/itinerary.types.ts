@@ -18,7 +18,7 @@ export interface ItineraryHotelSelection extends ReferencePrice {
   rating: number;
   breakfast: string;
   unit: ItineraryPriceUnit;
-  unitCost: number;
+  unitCost: number | null;
 }
 
 export interface ItineraryHotelPlan {
@@ -165,8 +165,8 @@ export interface ItineraryQuoteOptionCalculation {
   hotelCityCosts?: {
     destination: string;
     nights: number;
-    unitCost: number;
-    totalCost: number;
+    unitCost: number | null;
+    totalCost: number | null;
   }[];
   hotelUnitCost: number;
   vehicleTotal: number;
@@ -176,20 +176,23 @@ export interface ItineraryQuoteOptionCalculation {
 
 export interface PaxQuoteCalculation {
   pricingVersion: 2;
+  /** Only the three Draft actual-price fields; historical snapshots may omit these. */
+  pricingComplete?: boolean;
+  missingPrices?: string[];
   dailyResourceCost: number;
   mealDetails?: {
     dayNumber: number;
     resourceName: string;
-    unitCost: number;
+    unitCost: number | null;
     quantity: number;
-    totalCost: number;
+    totalCost: number | null;
   }[];
   attractionDetails?: {
     dayNumber: number;
     resourceName: string;
-    unitCost: number;
+    unitCost: number | null;
     quantity: number;
-    totalCost: number;
+    totalCost: number | null;
   }[];
   mealCost?: number;
   attractionCost?: number;
@@ -210,8 +213,8 @@ export interface ItineraryResourceItem extends ReferencePrice {
   quantity: number;
   dinerCount: number | null;
   unit: ItineraryPriceUnit;
-  unitCost: number;
-  totalCost: number;
+  unitCost: number | null;
+  totalCost: number | null;
   remark: string;
   mealSlot?: MealSlot;
 }
@@ -235,7 +238,7 @@ export interface ItineraryGuidePlan extends ReferencePrice {
   guideName: string;
   secondLanguage: string;
   shopping: boolean;
-  dailyPrice: number;
+  dailyPrice: number | null;
   serviceDays: number;
 }
 
