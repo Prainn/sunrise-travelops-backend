@@ -20,13 +20,15 @@ export class SelectionService {
   constructor(private readonly dataSource: DataSource) {}
   private query(kind: Kind) {
     const entity = kind === 'restaurant' ? RestaurantEntity : AttractionEntity;
-    return this.dataSource
+    const query = this.dataSource
       .getRepository<RestaurantEntity | AttractionEntity>(entity)
       .createQueryBuilder('resource')
       .where('resource.status = :status', { status: 'enabled' })
       .andWhere('resource.deletedAt IS NULL')
-      .andWhere('resource.price IS NOT NULL')
-      .andWhere("resource.description ~ '[^[:space:]]'");
+      .andWhere('resource.price IS NOT NULL');
+    if (kind === 'restaurant')
+      query.andWhere("resource.description ~ '[^[:space:]]'");
+    return query;
   }
   async list(kind: Kind, query: SelectionQuery) {
     const city = kind === 'restaurant' ? 'city' : 'area';
