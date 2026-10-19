@@ -59,6 +59,30 @@ export function tourSchedule(
   };
 }
 
+/** Manual wall-clock times use the same inclusive occupancy dates as flight schedules. */
+export function manualTourSchedule(
+  startDate: string,
+  pickupAt: string,
+  dropAt: string,
+): TourSchedule {
+  const parse = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value))
+      throw new Error('Invalid date-time');
+    return parseDate(value.slice(0, 10)) + parseTime(value.slice(11));
+  };
+  const pickup = parse(pickupAt);
+  const drop = parse(dropAt);
+  parseDate(startDate);
+  if (pickupAt.slice(0, 10) !== startDate || drop < pickup)
+    throw new Error('Invalid tour interval');
+  return {
+    pickupAt,
+    dropAt,
+    occupyFrom: pickupAt.slice(0, 10),
+    occupyTo: dropAt.slice(0, 10),
+  };
+}
+
 export function tourNumberBase(
   prefix: string,
   pickupDate: string,

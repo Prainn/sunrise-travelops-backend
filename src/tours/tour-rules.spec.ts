@@ -1,5 +1,6 @@
 import {
   intervalsOverlap,
+  manualTourSchedule,
   pickTourNumber,
   ratingStats,
   tourNumberBase,
@@ -106,5 +107,26 @@ describe('ratingStats', () => {
     expect(() => ratingStats({ selfScore: 90, praise: -1 })).toThrow();
     expect(() => ratingStats({ selfScore: 100, praise: 0.01 })).toThrow();
     expect(() => ratingStats({ selfScore: 99, praise: 1 })).not.toThrow();
+  });
+});
+
+describe('manualTourSchedule', () => {
+  it('uses actual times across calendar boundaries without subtracting three hours', () => {
+    expect(
+      manualTourSchedule('2026-12-31', '2026-12-31 23:00', '2027-01-02 01:00'),
+    ).toEqual({
+      pickupAt: '2026-12-31 23:00',
+      dropAt: '2027-01-02 01:00',
+      occupyFrom: '2026-12-31',
+      occupyTo: '2027-01-02',
+    });
+  });
+  it.each([
+    ['2026-02-30', '2026-02-30 09:00', '2026-03-01 09:00'],
+    ['2026-10-25', '2026-10-25 24:00', '2026-10-26 09:00'],
+    ['2026-10-25', '2026-10-26 09:00', '2026-10-27 09:00'],
+    ['2026-10-25', '2026-10-25 09:00', '2026-10-25 08:59'],
+  ])('rejects invalid manual interval %s %s %s', (start, pickup, drop) => {
+    expect(() => manualTourSchedule(start, pickup, drop)).toThrow();
   });
 });

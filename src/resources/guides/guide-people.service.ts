@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import { BusinessException } from '../../common/exceptions/business.exception';
+import { ResourceStatus } from '../common/resource.constants';
 import { ErrorCode } from '../../common/constants/error-code';
 import { PageResult } from '../../common/types/page-result';
 import {
@@ -12,7 +14,6 @@ import { assertMatchingId, assertVersion } from '../common/resource-errors';
 import {
   requireResource,
   requireResourceForUpdate,
-  requireResources,
 } from '../common/resource-service.helpers';
 import {
   CreateGuidePersonDto,
@@ -114,6 +115,8 @@ export class GuidePeopleService {
         ErrorCode.RESOURCE_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      if (input.status === ResourceStatus.Disabled)
+        await this.assertNoUpcomingTours(manager, id);
       Object.assign(entity, input, {
         id,
         code: entity.code,
@@ -156,12 +159,15 @@ export class GuidePeopleService {
   async delete(ids: string[], actorId: string): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(GuidePersonEntity);
-      const entities = await requireResources(
-        repository,
-        ids,
-        ErrorCode.RESOURCE_NOT_FOUND,
-      );
-      const uniqueIds = entities.map((item) => item.id);
+      const uniqueIds = [...new Set(ids)].sort();
+      for (const id of uniqueIds) {
+        await requireResourceForUpdate(
+          repository,
+          id,
+          ErrorCode.RESOURCE_NOT_FOUND,
+        );
+        await this.assertNoUpcomingTours(manager, id);
+      }
       await repository
         .createQueryBuilder()
         .update()
@@ -170,6 +176,23 @@ export class GuidePeopleService {
         .execute();
       await repository.softDelete(uniqueIds);
     });
+  }
+
+  private async assertNoUpcomingTours(
+    manager: EntityManager,
+    id: string,
+  ): Promise<void> {
+    const rows = await manager.query<unknown[]>(
+      `SELECT 1 FROM tours WHERE guide_id=$1 AND status='active'
+       AND occupy_to >= (now() AT TIME ZONE 'Asia/Shanghai')::date LIMIT 1`,
+      [id],
+    );
+    if (rows.length)
+      throw new BusinessException({
+        code: ErrorCode.CONFLICT,
+        message: '导游仍有尚未结束的旅行团，请先调整排团',
+        status: HttpStatus.CONFLICT,
+      });
   }
 
   private toResponse(entity: GuidePersonEntity): GuidePersonResponse {
