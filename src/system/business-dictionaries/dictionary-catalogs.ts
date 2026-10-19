@@ -16,6 +16,13 @@ export interface CatalogEntry {
   englishName: string;
 }
 
+// Reserved business option; it is not an ISO country code.
+export const UNKNOWN_COUNTRY: CatalogEntry = {
+  code: 'UNKNOWN',
+  name: '未知/待确认',
+  englishName: 'Unknown / To be confirmed',
+};
+
 // Display names differing from the library's Chinese names are business-approved.
 const COUNTRY_NAMES: Record<string, string> = {
   TWN: '中国台湾省',
@@ -52,6 +59,7 @@ export function countryCatalog(): CatalogEntry[] {
       })
       .filter((entry) => entry.name && entry.englishName)
       .sort((a, b) => a.code.localeCompare(b.code));
+    countryCache.unshift(UNKNOWN_COUNTRY);
   }
   return countryCache;
 }
