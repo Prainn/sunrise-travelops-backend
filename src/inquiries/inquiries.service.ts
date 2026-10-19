@@ -163,6 +163,30 @@ export class InquiriesService {
       quoteGeneratedAt: generatedAt,
     };
   }
+  async countByStatus(actor: Actor) {
+    return this.queryInquiries(actor)
+      .select('i.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .andWhere('i.status IN (:...statuses)', {
+        statuses: ['new', 'planning', 'quoted'],
+      })
+      .groupBy('i.status')
+      .getRawMany<{ status: string; count: string }>();
+  }
+
+  async countCreatedByDate(from: string, until: string, actor: Actor) {
+    const date = `to_char(i.createdAt AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')`;
+    return this.queryInquiries(actor)
+      .select(date, 'date')
+      .addSelect('COUNT(*)', 'count')
+      .andWhere('i.createdAt >= :from AND i.createdAt < :until', {
+        from: `${from}T00:00:00+08:00`,
+        until: `${until}T00:00:00+08:00`,
+      })
+      .groupBy(date)
+      .getRawMany<{ date: string; count: string }>();
+  }
+
   async list(query: InquiryQuery, actor: Actor) {
     const qb = this.queryInquiries(actor);
     if (query.businessUnit) {

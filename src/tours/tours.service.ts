@@ -146,6 +146,39 @@ export class ToursService {
   }
 
   // ---------- reads ----------
+  async countActive(from: string, until: string, user: AuthenticatedUser) {
+    this.require(user, 'tour:list');
+    const params: unknown[] = [];
+    const where = `WHERE t.status='active'${this.visible(user, params)}`;
+    const rows = await this.db.query<
+      { active: string; departingThisWeek: string }[]
+    >(
+      `SELECT COUNT(*) AS active,
+       COUNT(*) FILTER (WHERE t.start_date >= $${params.push(from)} AND t.start_date < $${params.push(until)}) AS "departingThisWeek"
+       FROM ${TOUR_FROM} ${where}`,
+      params,
+    );
+    return {
+      active: Number(rows[0].active),
+      departingThisWeek: Number(rows[0].departingThisWeek),
+    };
+  }
+
+  async countDeparturesByDate(
+    from: string,
+    until: string,
+    user: AuthenticatedUser,
+  ) {
+    this.require(user, 'tour:list');
+    const params: unknown[] = [];
+    const where = `WHERE t.status='active'${this.visible(user, params)}`;
+    return this.db.query<{ date: string; count: string }[]>(
+      `SELECT t.start_date::text AS date, COUNT(*) AS count FROM ${TOUR_FROM} ${where}
+       AND t.start_date >= $${params.push(from)} AND t.start_date < $${params.push(until)} GROUP BY t.start_date`,
+      params,
+    );
+  }
+
   async list(
     query: TourQueryDto,
     user: AuthenticatedUser,

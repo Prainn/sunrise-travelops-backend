@@ -13,12 +13,13 @@
 | `src/inquiries` | 询盘、行程、成本试算、报价冻结、转交、调价、日志；没有独立 itineraries/quotations 模块 |
 | `src/website` | 独立站直客询盘、行程、人工报价与专属配置；独立 `/api/website` 合同 |
 | `src/tours` / `src/common/tour-lock.ts` | 成团、导游请假/评分及来源写入锁；实际人员与报价服务价格分离 |
+| `src/dashboard` | 首页只读聚合；复用询盘、独立站、成团及请假 Service 的范围逻辑 |
 | `src/resources` / `src/system` | 公共资源、航班、独立导游人员及组团社联系人；系统与业务字典 |
 | `src/operation-logs` | 系统管理操作日志；与询盘差异/调价历史独立 |
 | `src/health` / `src/lynx` | Terminus 探测；独立公开访问记录（不混入业务 API/Swagger） |
 | `src/config` / `src/database` / `src/migrations` | 环境校验、连接与 migration CLI、完整 schema 链 |
 
-没有后端 dashboard 统计模块。不要根据业务名猜测模块目录。
+不要根据业务名猜测模块目录。
 
 ## Backend Change Workflow
 

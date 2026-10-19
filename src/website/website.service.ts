@@ -92,11 +92,17 @@ function duplicate(values: string[]): boolean {
 export class WebsiteService {
   constructor(private readonly db: DataSource) {}
 
+  private hasPermission(user: AuthenticatedUser, permission: string) {
+    return (
+      ['linxi', 'website', 'headquarters'].includes(user.scope) &&
+      user.permissions.includes(permission)
+    );
+  }
+  canListInquiries(user: AuthenticatedUser) {
+    return this.hasPermission(user, 'website:inquiry:list');
+  }
   private permission(user: AuthenticatedUser, permission: string) {
-    if (
-      !['linxi', 'website', 'headquarters'].includes(user.scope) ||
-      !user.permissions.includes(permission)
-    )
+    if (!this.hasPermission(user, permission))
       fail('AUTH_FORBIDDEN', '无独立站访问权限', HttpStatus.FORBIDDEN);
   }
   private businessUnit(
@@ -434,16 +440,51 @@ export class WebsiteService {
       scope ? [businessUnit, user.id] : [businessUnit],
     );
   }
-  async list(query: WebsiteInquiryQuery, user: AuthenticatedUser) {
+  private inquiryScope(
+    user: AuthenticatedUser,
+    params: unknown[],
+    businessUnit?: WebsiteBusinessUnit,
+  ) {
     this.permission(user, 'website:inquiry:list');
-    const params: unknown[] = [];
     const clauses: string[] = [];
-    if (user.scope !== 'headquarters' || query.businessUnit)
+    if (user.scope !== 'headquarters' || businessUnit)
       clauses.push(
-        `i.business_unit=$${params.push(this.businessUnit(user, query.businessUnit))}`,
+        `i.business_unit=$${params.push(this.businessUnit(user, businessUnit))}`,
       );
     if (!this.allInquiries(user))
       clauses.push(`i.owner_id=$${params.push(user.id)}`);
+    return clauses;
+  }
+  async countByStatus(user: AuthenticatedUser) {
+    const params: unknown[] = [];
+    const clauses = this.inquiryScope(user, params);
+    clauses.push("i.status IN ('new','planning','quoted')");
+    return this.db.manager.query<{ status: string; count: string }[]>(
+      `SELECT i.status, COUNT(*) AS count FROM website_inquiries i
+       WHERE ${clauses.join(' AND ')} GROUP BY i.status`,
+      params,
+    );
+  }
+  async countCreatedByDate(
+    from: string,
+    until: string,
+    user: AuthenticatedUser,
+  ) {
+    const params: unknown[] = [];
+    const clauses = this.inquiryScope(user, params);
+    clauses.push(
+      `i.created_at >= $${params.push(`${from}T00:00:00+08:00`)}::timestamptz`,
+      `i.created_at < $${params.push(`${until}T00:00:00+08:00`)}::timestamptz`,
+    );
+    return this.db.manager.query<{ date: string; count: string }[]>(
+      `SELECT to_char(i.created_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD') AS date,
+       COUNT(*) AS count FROM website_inquiries i WHERE ${clauses.join(' AND ')} GROUP BY 1`,
+      params,
+    );
+  }
+  async list(query: WebsiteInquiryQuery, user: AuthenticatedUser) {
+    const params: unknown[] = [];
+    const clauses = this.inquiryScope(user, params, query.businessUnit);
     if (query.ownerId)
       clauses.push(`i.owner_id=$${params.push(query.ownerId)}`);
     if (query.status) clauses.push(`i.status=$${params.push(query.status)}`);

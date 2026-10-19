@@ -30,5 +30,6 @@ import { ItineraryValidation } from './itinerary-validation';
     InquiryLogsController,
   ],
   providers: [InquiriesService, ItineraryValidation],
+  exports: [InquiriesService],
 })
 export class InquiriesModule {}
