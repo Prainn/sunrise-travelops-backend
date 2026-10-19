@@ -6,5 +6,6 @@ import { ToursService } from './tours.service';
 @Module({
   controllers: [ToursController, GuideLeavesController],
   providers: [ToursService, GuideLeavesService],
+  exports: [ToursService, GuideLeavesService],
 })
 export class ToursModule {}

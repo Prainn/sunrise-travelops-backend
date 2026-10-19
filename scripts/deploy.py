@@ -35,6 +35,7 @@ BREAKING_MIGRATIONS = {
     'UseHotelDiamondRatings1791878400000',
     'FlattenAttractionAndRestaurantResources1791964800000',
     'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
+    'AllowManualToursAndGuideSnapshots1792368000000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');

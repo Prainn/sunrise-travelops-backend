@@ -18,14 +18,24 @@ const SELECT = `l.id, l.guide_person_id AS "guidePersonId", g.name AS "guideName
   l.start_date::text AS "startDate", l.end_date::text AS "endDate", l.reason, l.remark, l.version,
   l.created_at AS "createdAt", l.updated_at AS "updatedAt", l.created_by AS "createdBy", l.updated_by AS "updatedBy"`;
 const FROM = `resource_guide_leaves l JOIN resource_guide_people g ON g.id = l.guide_person_id`;
+const VISIBLE = 'l.deleted_at IS NULL AND g.deleted_at IS NULL';
 
 @Injectable()
 export class GuideLeavesService {
   constructor(private readonly db: DataSource) {}
 
+  async countOnDate(date: string): Promise<number> {
+    const rows = await this.db.query<{ count: string }[]>(
+      `SELECT COUNT(*) FROM ${FROM} WHERE ${VISIBLE}
+       AND l.start_date <= $1 AND l.end_date >= $1`,
+      [date],
+    );
+    return Number(rows[0].count);
+  }
+
   async list(query: LeaveQueryDto): Promise<PageResult<Row>> {
     const params: unknown[] = [];
-    let where = 'WHERE l.deleted_at IS NULL AND g.deleted_at IS NULL';
+    let where = `WHERE ${VISIBLE}`;
     if (query.guidePersonId)
       where += ` AND l.guide_person_id = $${params.push(query.guidePersonId)}`;
     if (query.from) where += ` AND l.end_date >= $${params.push(query.from)}`;

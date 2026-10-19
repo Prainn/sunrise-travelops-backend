@@ -24,6 +24,7 @@ import { OperationLogsModule } from './operation-logs/operation-logs.module';
 import { OperationLogInterceptor } from './operation-logs/operation-log.interceptor';
 import { ToursModule } from './tours/tours.module';
 import { WebsiteModule } from './website/website.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { WebsiteModule } from './website/website.module';
     InquiriesModule,
     WebsiteModule,
     ToursModule,
+    DashboardModule,
     UsersModule,
     OperationLogsModule,
     RolesModule,

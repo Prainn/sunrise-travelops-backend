@@ -8,6 +8,8 @@ import { countryCatalog } from '../system/business-dictionaries/dictionary-catal
 import {
   CancelTourDto,
   CreateTourDto,
+  ManualTourSourceDto,
+  TourScheduleDto,
   RatingQueryDto,
   RatingScoreDto,
   TourFlightQueryDto,
@@ -23,6 +25,7 @@ import {
   RatingInput,
   pickTourNumber,
   ratingStats,
+  manualTourSchedule,
   tourNumberBase,
   tourSchedule,
 } from './tour-rules';
@@ -80,15 +83,16 @@ const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModu
   t.adults, t.children, t.leaders, (t.adults + t.children + t.leaders) AS "totalPeople",
   t.language, t.shopping, t.pickup_flight_id AS "pickupFlightId", t.drop_flight_id AS "dropFlightId",
   t.pickup_flight AS "pickupFlight", t.drop_flight AS "dropFlight",
-  t.guide_id AS "guideId", g.name AS "guideName", g.code AS "guideCode", t.remark, t.status,
+  t.schedule_mode AS "scheduleMode", t.itinerary_summary AS "itinerarySummary",
+  t.guide_id AS "guideId", t.guide_name AS "guideName", t.guide_code AS "guideCode", t.remark, t.status,
   t.cancelled_at AS "cancelledAt", t.cancel_reason AS "cancelReason", t.version,
   t.created_at AS "createdAt", t.updated_at AS "updatedAt"`;
-const TOUR_FROM = `tours t LEFT JOIN resource_guide_people g ON g.id = t.guide_id`;
+const TOUR_FROM = `tours t`;
 
 interface Resolved {
-  module: Source;
-  inquiryId: string;
-  inquiryCode: string;
+  module: Source | 'manual';
+  inquiryId: string | null;
+  inquiryCode: string | null;
   businessUnit: Unit;
   status: string;
   ownerId: string;
@@ -98,13 +102,14 @@ interface Resolved {
   countryItemId: string | null;
   countryCode: string | null;
   countryName: string;
-  quoteId: string;
-  quoteCode: string;
-  itineraryId: string;
-  itineraryCode: string;
+  quoteId: string | null;
+  quoteCode: string | null;
+  itineraryId: string | null;
+  itineraryCode: string | null;
   startDate: string | null;
   days: number;
   downloaded: boolean;
+  itinerarySummary?: string;
 }
 
 @Injectable()
@@ -146,6 +151,39 @@ export class ToursService {
   }
 
   // ---------- reads ----------
+  async countActive(from: string, until: string, user: AuthenticatedUser) {
+    this.require(user, 'tour:list');
+    const params: unknown[] = [];
+    const where = `WHERE t.status='active'${this.visible(user, params)}`;
+    const rows = await this.db.query<
+      { active: string; departingThisWeek: string }[]
+    >(
+      `SELECT COUNT(*) AS active,
+       COUNT(*) FILTER (WHERE t.start_date >= $${params.push(from)} AND t.start_date < $${params.push(until)}) AS "departingThisWeek"
+       FROM ${TOUR_FROM} ${where}`,
+      params,
+    );
+    return {
+      active: Number(rows[0].active),
+      departingThisWeek: Number(rows[0].departingThisWeek),
+    };
+  }
+
+  async countDeparturesByDate(
+    from: string,
+    until: string,
+    user: AuthenticatedUser,
+  ) {
+    this.require(user, 'tour:list');
+    const params: unknown[] = [];
+    const where = `WHERE t.status='active'${this.visible(user, params)}`;
+    return this.db.query<{ date: string; count: string }[]>(
+      `SELECT t.start_date::text AS date, COUNT(*) AS count FROM ${TOUR_FROM} ${where}
+       AND t.start_date >= $${params.push(from)} AND t.start_date < $${params.push(until)} GROUP BY t.start_date`,
+      params,
+    );
+  }
+
   async list(
     query: TourQueryDto,
     user: AuthenticatedUser,
@@ -295,19 +333,16 @@ export class ToursService {
       ? await this.get(query.excludeTourId, user)
       : null;
     if (existing && existing.businessUnit !== query.businessUnit) forbidden();
-    const [pickup, drop] = await Promise.all([
-      existing?.pickupFlightId === query.pickupFlightId
-        ? (existing.pickupFlight as { arrivalTime: string })
-        : this.flight(this.db.manager, query.pickupFlightId),
-      existing?.dropFlightId === query.dropFlightId
-        ? (existing.dropFlight as { departureTime: string })
-        : this.flight(this.db.manager, query.dropFlightId),
-    ]);
-    const s = this.schedule(
-      existing ? (existing.startDate as string) : query.startDate,
-      existing ? (existing.days as number) : query.days,
-      pickup.arrivalTime,
-      drop.departureTime,
+    const { schedule: s } = await this.booking(
+      this.db.manager,
+      query,
+      existing && existing.sourceModule !== 'manual'
+        ? (existing.startDate as string)
+        : query.startDate,
+      existing && existing.sourceModule !== 'manual'
+        ? (existing.days as number)
+        : query.days,
+      existing,
     );
     return this.db.query<Row[]>(
       `SELECT g.id, g.code, g.name, g.language FROM resource_guide_people g
@@ -333,6 +368,129 @@ export class ToursService {
     } catch {
       return invalid('行程日期或航班时刻无效');
     }
+  }
+
+  private async booking(
+    manager: EntityManager,
+    input: TourScheduleDto,
+    startDate: string,
+    days: number,
+    existing: Row | null = null,
+  ) {
+    if (input.scheduleMode === 'manual') {
+      if (
+        input.pickupFlightId !== undefined ||
+        input.dropFlightId !== undefined
+      )
+        invalid('手填接送时间不能同时选择航班');
+      try {
+        return {
+          pickup: null,
+          drop: null,
+          schedule: manualTourSchedule(
+            startDate,
+            input.pickupAt!,
+            input.dropAt!,
+          ),
+        };
+      } catch {
+        return invalid('接送时间无效：接团日须为开始日期，送团不得早于接团');
+      }
+    }
+    if (input.pickupAt !== undefined || input.dropAt !== undefined)
+      invalid('航班计算模式不能同时手填接送时间');
+    if (!input.pickupFlightId || !input.dropFlightId) invalid('请选择接送航班');
+    const pickup =
+      existing && existing.pickupFlightId === input.pickupFlightId
+        ? (existing.pickupFlight as ReturnType<ToursService['flightSnapshot']>)
+        : this.flightSnapshot(
+            await this.flight(manager, input.pickupFlightId!),
+          );
+    const drop =
+      existing && existing.dropFlightId === input.dropFlightId
+        ? (existing.dropFlight as ReturnType<ToursService['flightSnapshot']>)
+        : this.flightSnapshot(await this.flight(manager, input.dropFlightId!));
+    return {
+      pickup,
+      drop,
+      schedule: this.schedule(
+        startDate,
+        days,
+        pickup.arrivalTime,
+        drop.departureTime,
+      ),
+    };
+  }
+
+  private async manualSource(
+    manager: EntityManager,
+    input: ManualTourSourceDto,
+    user: AuthenticatedUser,
+    existing?: Row,
+  ): Promise<Resolved> {
+    if (!this.unitAllowed(user, input.businessUnit)) forbidden();
+    if (
+      existing &&
+      (input.businessUnit !== existing.business_unit ||
+        input.countryItemId !== existing.country_item_id)
+    )
+      invalid('手工团不能修改业务或国家');
+    if (
+      !this.isAdmin(user) &&
+      input.collectCoordinatorId !== user.id &&
+      input.collectCoordinatorId !== existing?.collect_coordinator_id
+    )
+      forbidden();
+    const owner =
+      existing?.collect_coordinator_id === input.collectCoordinatorId
+        ? {
+            id: input.collectCoordinatorId,
+            name: existing.collect_coordinator_name as string,
+          }
+        : await this.operator(
+            manager,
+            input.collectCoordinatorId,
+            input.businessUnit,
+          );
+    const countries = existing
+      ? [
+          {
+            code: existing.country_code as string,
+            name: existing.country_name as string,
+          },
+        ]
+      : await manager.query<{ code: string; name: string }[]>(
+          `SELECT i.code, i.name FROM system_business_dictionary_items i JOIN system_business_dictionary_types t ON t.id=i.type_id WHERE i.id=$1 AND t.code='country-region' AND t.deleted_at IS NULL AND i.status='enabled' AND i.deleted_at IS NULL`,
+          [input.countryItemId],
+        );
+    const country = countries[0];
+    if (
+      !country ||
+      !countryCatalog().some((item) => item.code === country.code)
+    )
+      invalid('请选择有效的国家和地区');
+    return {
+      module: 'manual',
+      inquiryId: null,
+      inquiryCode: null,
+      quoteId: null,
+      quoteCode: null,
+      itineraryId: null,
+      itineraryCode: null,
+      businessUnit: input.businessUnit,
+      status: 'active',
+      ownerId: owner.id,
+      ownerName: owner.name,
+      agencyName: input.agencyName,
+      contactName: input.contactName,
+      countryItemId: input.countryItemId,
+      countryCode: country.code,
+      countryName: country.name,
+      startDate: input.startDate,
+      days: input.days,
+      itinerarySummary: input.itinerarySummary,
+      downloaded: false,
+    };
   }
 
   private async flight(manager: EntityManager, id: string) {
@@ -380,8 +538,10 @@ export class ToursService {
     to: string,
     excludeTourId: string | null,
   ) {
-    const guide = await manager.query<{ id: string }[]>(
-      `SELECT id FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
+    const guide = await manager.query<
+      { id: string; name: string; code: string }[]
+    >(
+      `SELECT id, name, code FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
        AND deleted_at IS NULL FOR UPDATE`,
       [guideId],
     );
@@ -398,6 +558,7 @@ export class ToursService {
       [guideId, from, to, excludeTourId],
     );
     if (busy.length) conflict('导游在该时段已有其他团期');
+    return guide[0];
   }
 
   /** Resolves inquiry, its latest frozen quote and download state under a row lock. */
@@ -513,26 +674,39 @@ export class ToursService {
   async create(input: CreateTourDto, user: AuthenticatedUser): Promise<Row> {
     this.require(user, 'tour:create');
     const id = await this.db.transaction(async (manager) => {
-      const src = await this.resolve(
-        manager,
-        input.sourceModule,
-        input.inquiryId,
-        user,
-      );
-      if (['lost', 'archived'].includes(src.status))
-        fail(
-          ErrorCode.INQUIRY_READ_ONLY,
-          '已结束询盘不能成团',
-          HttpStatus.CONFLICT,
+      let src: Resolved;
+      if (input.sourceModule === 'manual') {
+        if (
+          !input.manualSource ||
+          input.inquiryId !== undefined ||
+          input.quoteId !== undefined
+        )
+          invalid('手工成团必须填写资料且不能关联询盘或报价');
+        src = await this.manualSource(manager, input.manualSource!, user);
+      } else {
+        if (input.manualSource !== undefined || input.scheduleMode === 'manual')
+          invalid('关联来源不能提交手工资料或手填时间');
+        src = await this.resolve(
+          manager,
+          input.sourceModule,
+          input.inquiryId!,
+          user,
         );
-      const active = await manager.query<unknown[]>(
-        `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
-        [src.module, src.inquiryId],
-      );
-      if (active.length) conflict('询盘已有有效旅行团');
-      if (src.quoteId !== input.quoteId)
-        conflict('只能选择该询盘最新的已冻结报价');
-      if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
+        if (['lost', 'archived'].includes(src.status))
+          fail(
+            ErrorCode.INQUIRY_READ_ONLY,
+            '已结束询盘不能成团',
+            HttpStatus.CONFLICT,
+          );
+        const active = await manager.query<unknown[]>(
+          `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
+          [src.module, src.inquiryId],
+        );
+        if (active.length) conflict('询盘已有有效旅行团');
+        if (src.quoteId !== input.quoteId)
+          conflict('只能选择该询盘最新的已冻结报价');
+        if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
+      }
       if (!src.startDate || !DATE_RE.test(src.startDate))
         invalid('行程缺少开始日期，不能成团');
       if (!src.countryItemId || !src.countryCode)
@@ -547,28 +721,26 @@ export class ToursService {
       );
       const creatorCode = creator[0]?.tour_code;
       if (!creatorCode) invalid('当前账号未设置团号标识');
-      const pickup = await this.flight(manager, input.pickupFlightId);
-      const drop = await this.flight(manager, input.dropFlightId);
+      const {
+        pickup,
+        drop,
+        schedule: s,
+      } = await this.booking(manager, input, src.startDate!, src.days);
       const operator = await this.operator(
         manager,
         input.operatorId,
         src.businessUnit,
       );
-      const s = this.schedule(
-        src.startDate!,
-        src.days,
-        pickup.arrivalTime,
-        drop.departureTime,
-      );
-      if (input.guideId)
-        await this.lockGuide(
-          manager,
-          input.guideId,
-          src.businessUnit,
-          s.occupyFrom,
-          s.occupyTo,
-          null,
-        );
+      const guide = input.guideId
+        ? await this.lockGuide(
+            manager,
+            input.guideId,
+            src.businessUnit,
+            s.occupyFrom,
+            s.occupyTo,
+            null,
+          )
+        : null;
 
       // Per creator and pickup date; gaps from cancelled tours are never reused.
       const counter = await manager.query<{ last_value: number }[]>(
@@ -602,9 +774,9 @@ export class ToursService {
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
-          guide_id, remark, created_by, updated_by)
+          guide_id, remark, created_by, updated_by, schedule_mode, itinerary_summary, guide_name, guide_code)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21) RETURNING id`,
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21,$39,$40,$41,$42) RETURNING id`,
         [
           tourNo,
           src.module,
@@ -638,12 +810,16 @@ export class ToursService {
           input.leaders,
           input.language,
           input.shopping,
-          pickup.id,
-          drop.id,
-          JSON.stringify(this.flightSnapshot(pickup)),
-          JSON.stringify(this.flightSnapshot(drop)),
+          input.pickupFlightId ?? null,
+          input.dropFlightId ?? null,
+          pickup ? JSON.stringify(pickup) : null,
+          drop ? JSON.stringify(drop) : null,
           input.guideId ?? null,
           input.remark,
+          input.scheduleMode ?? 'flight',
+          src.itinerarySummary ?? '',
+          guide?.name ?? null,
+          guide?.code ?? null,
         ],
       );
       return inserted[0].id;
@@ -673,7 +849,7 @@ export class ToursService {
     user: AuthenticatedUser,
   ): Promise<Row> {
     const rows = await manager.query<Row[]>(
-      'SELECT *, start_date::text AS start_date FROM tours WHERE id = $1 FOR UPDATE',
+      `SELECT *, start_date::text AS start_date, to_char(pickup_at,'YYYY-MM-DD HH24:MI') AS pickup_at, to_char(drop_at,'YYYY-MM-DD HH24:MI') AS drop_at FROM tours WHERE id = $1 FOR UPDATE`,
       [id],
     );
     const tour = rows[0];
@@ -703,30 +879,33 @@ export class ToursService {
       if (tour.status !== 'active') conflict('已撤销的旅行团不能修改');
       this.versionCheck(tour.version, input.version);
       const unit = tour.business_unit as Unit;
-      const pickup =
-        input.pickupFlightId === tour.pickup_flight_id
-          ? null
-          : await this.flight(manager, input.pickupFlightId);
-      const drop =
-        input.dropFlightId === tour.drop_flight_id
-          ? null
-          : await this.flight(manager, input.dropFlightId);
-      const operator = await this.operator(manager, input.operatorId, unit);
-      // Retained flight IDs retain their booked times and labels after master-data edits.
-      const pickupSnapshot =
-        input.pickupFlightId === tour.pickup_flight_id
-          ? (tour.pickup_flight as ReturnType<ToursService['flightSnapshot']>)
-          : this.flightSnapshot(pickup!);
-      const dropSnapshot =
-        input.dropFlightId === tour.drop_flight_id
-          ? (tour.drop_flight as ReturnType<ToursService['flightSnapshot']>)
-          : this.flightSnapshot(drop!);
-      const startDate = tour.start_date as string;
-      const s = this.schedule(
-        startDate,
-        tour.days as number,
-        pickupSnapshot.arrivalTime,
-        dropSnapshot.departureTime,
+      if (
+        tour.source_module !== 'manual' &&
+        (input.manualSource !== undefined || input.scheduleMode === 'manual')
+      )
+        invalid('关联来源不能提交手工资料或手填时间');
+      const src = input.manualSource
+        ? await this.manualSource(manager, input.manualSource, user, tour)
+        : null;
+      const operator =
+        input.operatorId === tour.operator_id
+          ? { id: input.operatorId, name: tour.operator_name as string }
+          : await this.operator(manager, input.operatorId, unit);
+      const {
+        pickup: pickupSnapshot,
+        drop: dropSnapshot,
+        schedule: s,
+      } = await this.booking(
+        manager,
+        input,
+        src?.startDate ?? (tour.start_date as string),
+        src?.days ?? (tour.days as number),
+        {
+          pickupFlightId: tour.pickup_flight_id,
+          dropFlightId: tour.drop_flight_id,
+          pickupFlight: tour.pickup_flight,
+          dropFlight: tour.drop_flight,
+        },
       );
       const newGuide = input.guideId ?? null;
       if (newGuide !== tour.guide_id) {
@@ -737,19 +916,27 @@ export class ToursService {
         if (this.hasRatingValues(rating[0]))
           conflict('已录入评分，不能更换或清空导游');
       }
-      if (newGuide)
-        await this.lockGuide(
-          manager,
-          newGuide,
-          unit,
-          s.occupyFrom,
-          s.occupyTo,
-          id,
-        );
+      const retainedGuideSchedule =
+        newGuide === tour.guide_id &&
+        s.pickupAt === tour.pickup_at &&
+        s.dropAt === tour.drop_at;
+      const guide =
+        newGuide && !retainedGuideSchedule
+          ? await this.lockGuide(
+              manager,
+              newGuide,
+              unit,
+              s.occupyFrom,
+              s.occupyTo,
+              id,
+            )
+          : null;
       await manager.query(
         `UPDATE tours SET operator_id=$2, operator_name=$3, adults=$4, children=$5, leaders=$6, language=$7, shopping=$8,
           pickup_flight_id=$9, drop_flight_id=$10, pickup_flight=$11::jsonb, drop_flight=$12::jsonb,
           pickup_at=$13, drop_at=$14, occupy_from=$15, occupy_to=$16, guide_id=$17, remark=$18,
+          schedule_mode=$20, itinerary_summary=$21, guide_name=$22, guide_code=$23,
+          agency_name=$24, contact_name=$25, start_date=$26, days=$27, collect_coordinator_id=$28, collect_coordinator_name=$29,
           version=version+1, updated_at=now(), updated_by=$19 WHERE id=$1`,
         [
           id,
@@ -762,10 +949,10 @@ export class ToursService {
           input.leaders,
           input.language,
           input.shopping,
-          input.pickupFlightId,
-          input.dropFlightId,
-          JSON.stringify(pickupSnapshot),
-          JSON.stringify(dropSnapshot),
+          input.pickupFlightId ?? null,
+          input.dropFlightId ?? null,
+          pickupSnapshot ? JSON.stringify(pickupSnapshot) : null,
+          dropSnapshot ? JSON.stringify(dropSnapshot) : null,
           s.pickupAt,
           s.dropAt,
           s.occupyFrom,
@@ -773,6 +960,16 @@ export class ToursService {
           newGuide,
           input.remark,
           user.id,
+          input.scheduleMode ?? 'flight',
+          src?.itinerarySummary ?? tour.itinerary_summary,
+          newGuide === tour.guide_id ? tour.guide_name : (guide?.name ?? null),
+          newGuide === tour.guide_id ? tour.guide_code : (guide?.code ?? null),
+          src?.agencyName ?? tour.agency_name,
+          src?.contactName ?? tour.contact_name,
+          src?.startDate ?? tour.start_date,
+          src?.days ?? tour.days,
+          src?.ownerId ?? tour.collect_coordinator_id,
+          src?.ownerName ?? tour.collect_coordinator_name,
         ],
       );
     });
@@ -829,7 +1026,8 @@ export class ToursService {
       canEdit:
         row.status === 'active' &&
         user.permissions.includes('tour:rating:update') &&
-        (row.collectCoordinatorId === user.id ||
+        ((user.scope === 'headquarters' && user.roles.includes('ROOT')) ||
+          row.collectCoordinatorId === user.id ||
           row.operatorId === user.id ||
           (user.roles.includes('BUSINESS_MANAGER') &&
             user.scope === row.businessUnit)),
@@ -851,7 +1049,7 @@ export class ToursService {
     const keyword = query.keyword?.trim();
     if (keyword) {
       const p = `$${params.push(`%${keyword}%`)}`;
-      where += ` AND (t.tour_no ILIKE ${p} OR g.name ILIKE ${p})`;
+      where += ` AND (t.tour_no ILIKE ${p} OR t.guide_name ILIKE ${p})`;
     }
     const total = await this.db.query<{ count: string }[]>(
       `SELECT count(*) FROM ${TOUR_FROM} ${where}`,
@@ -884,7 +1082,8 @@ export class ToursService {
       const manages =
         user.roles.includes('BUSINESS_MANAGER') &&
         user.scope === tour.business_unit;
-      if (!own && !manages) forbidden();
+      const root = user.scope === 'headquarters' && user.roles.includes('ROOT');
+      if (!own && !manages && !root) forbidden();
       if (tour.status !== 'active') conflict('已撤销的旅行团不能修改评分');
       if (!tour.guide_id) conflict('未分配导游的团不能评分');
       const existing = (

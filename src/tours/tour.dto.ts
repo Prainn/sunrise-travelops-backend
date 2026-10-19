@@ -1,6 +1,10 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsDefined,
+  IsObject,
+  MinLength,
+  ValidateNested,
   IsDateString,
   IsIn,
   IsInt,
@@ -21,26 +25,94 @@ const trim = ({ value }: { value: unknown }): unknown =>
 const UNITS = ['shengxu', 'linxi', 'website'] as const;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export class TourInputDto {
+export class TourScheduleDto {
+  @IsIn(['flight', 'manual']) scheduleMode?: 'flight' | 'manual' = 'flight';
+  @ValidateIf(
+    (o: TourScheduleDto) =>
+      o.scheduleMode === 'flight' || o.pickupFlightId !== undefined,
+  )
+  @IsUUID()
+  pickupFlightId?: string;
+  @ValidateIf(
+    (o: TourScheduleDto) =>
+      o.scheduleMode === 'flight' || o.dropFlightId !== undefined,
+  )
+  @IsUUID()
+  dropFlightId?: string;
+  @ValidateIf(
+    (o: TourScheduleDto) =>
+      o.scheduleMode === 'manual' || o.pickupAt !== undefined,
+  )
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d$/)
+  pickupAt?: string;
+  @ValidateIf(
+    (o: TourScheduleDto) =>
+      o.scheduleMode === 'manual' || o.dropAt !== undefined,
+  )
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2} [0-2]\d:[0-5]\d$/)
+  dropAt?: string;
+}
+
+export class ManualTourSourceDto {
+  @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
+  @IsUUID() countryItemId: string;
+  @IsUUID() collectCoordinatorId: string;
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(200) agencyName: string;
+  @Transform(trim) @IsString() @MaxLength(200) contactName = '';
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  itinerarySummary: string;
+  @IsDateString({ strict: true }) @Matches(DATE) startDate: string;
+  @IsInt() @Min(1) @Max(365) days: number;
+}
+
+export class TourInputDto extends TourScheduleDto {
   @IsUUID() operatorId: string;
   @IsInt() @Min(0) @Max(10000) adults: number;
   @IsInt() @Min(0) @Max(10000) children: number;
   @IsInt() @Min(0) @Max(10000) leaders: number;
   @Transform(trim) @IsString() @MaxLength(100) language = '';
   @IsBoolean() shopping: boolean;
-  @IsUUID() pickupFlightId: string;
-  @IsUUID() dropFlightId: string;
   @IsOptional() @IsUUID() guideId?: string | null;
   @Transform(trim) @IsString() @MaxLength(2000) remark = '';
 }
 
 export class CreateTourDto extends TourInputDto {
-  @IsIn(['standard', 'website']) sourceModule: 'standard' | 'website';
-  @IsUUID() inquiryId: string;
-  @IsUUID() quoteId: string;
+  @IsIn(['standard', 'website', 'manual']) sourceModule:
+    'standard' | 'website' | 'manual';
+  @ValidateIf(
+    (o: CreateTourDto) =>
+      o.sourceModule !== 'manual' || o.inquiryId !== undefined,
+  )
+  @IsUUID()
+  inquiryId?: string;
+  @ValidateIf(
+    (o: CreateTourDto) =>
+      o.sourceModule !== 'manual' || o.quoteId !== undefined,
+  )
+  @IsUUID()
+  quoteId?: string;
+  @ValidateIf(
+    (o: CreateTourDto) =>
+      o.sourceModule === 'manual' || o.manualSource !== undefined,
+  )
+  @IsDefined()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ManualTourSourceDto)
+  manualSource?: ManualTourSourceDto;
 }
 
 export class UpdateTourDto extends TourInputDto {
+  @ValidateIf((_o, v) => v !== undefined)
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ManualTourSourceDto)
+  manualSource?: ManualTourSourceDto;
   @IsInt() @Min(1) version: number;
 }
 
@@ -71,12 +143,10 @@ export class TourFlightQueryDto {
   @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
 }
 
-export class TourGuideQueryDto {
+export class TourGuideQueryDto extends TourScheduleDto {
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
   @IsDateString({ strict: true }) @Matches(DATE) startDate: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(365) days: number;
-  @IsUUID() pickupFlightId: string;
-  @IsUUID() dropFlightId: string;
   @IsOptional() @IsUUID() excludeTourId?: string;
 }
 
