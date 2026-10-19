@@ -54,7 +54,7 @@ export class InquiryEntity extends AuditedEntity {
   @Column({ name: 'phone', type: 'text' }) phone: InquiryData['phone'];
   @Column({ name: 'country_item_id', type: 'uuid', nullable: true })
   countryItemId: InquiryData['countryItemId'];
-  @Column({ name: 'country_code', type: 'varchar', length: 3, nullable: true })
+  @Column({ name: 'country_code', type: 'varchar', length: 7, nullable: true })
   countryCode: InquiryData['countryCode'];
   @Column({ name: 'country_or_region', type: 'text' })
   countryOrRegion: InquiryData['countryOrRegion'];
