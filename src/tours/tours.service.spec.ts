@@ -49,7 +49,11 @@ const input = (): CreateTourDto =>
   });
 
 type Row = Record<string, unknown>;
-function setup(tour?: Row, rating?: Row) {
+function setup(
+  tour?: Row,
+  rating?: Row,
+  country = { code: 'MYS', name: '马来西亚' },
+) {
   const query = jest.fn(
     async (sql: string, params?: unknown[]): Promise<Row[]> => {
       await Promise.resolve();
@@ -59,7 +63,7 @@ function setup(tour?: Row, rating?: Row) {
       if (sql.includes('FROM users u'))
         return [{ id: params?.[0], name: 'Coordinator' }];
       if (sql.includes('FROM system_business_dictionary_items'))
-        return [{ code: 'MYS', name: '马来西亚' }];
+        return [country];
       if (sql.includes('SELECT tour_code')) return [{ tour_code: 'AS' }];
       if (sql.includes('INSERT INTO tour_number_counters'))
         return [{ last_value: 1 }];
@@ -151,6 +155,19 @@ describe('manual tour contract and scope', () => {
         /FROM (inquiries|website_inquiries|itinerary_quotes)/.test(sql),
       ),
     ).toBe(false);
+  });
+  it('persists UNKNOWN and keeps the complete country suffix for a manual tour', async () => {
+    const { service, query } = setup(undefined, undefined, {
+      code: 'UNKNOWN',
+      name: '未知/待确认',
+    });
+    await service.create(input(), user);
+    const write = query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO tours'),
+    )!;
+    expect(write[1]).toContain('UNKNOWN');
+    expect(write[1]).toContain('未知/待确认');
+    expect(write[1]?.[0]).toMatch(/-UNKNOWN$/);
   });
   it.each(['inquiryId', 'quoteId'])(
     'rejects a hidden %s on manual creation',
