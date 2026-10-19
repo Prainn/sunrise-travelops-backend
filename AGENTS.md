@@ -11,12 +11,13 @@
 | `src/main.ts` / `src/app.module.ts` | 启动、全局管线与模块装配 |
 | `src/auth` / `src/users` / `src/roles` | 当前登录身份、有效权限、账号管理；roles 注册实体并提供 ROOT 专用菜单配置，不提供角色 CRUD |
 | `src/inquiries` | 询盘、行程、成本试算、报价冻结、转交、调价、日志；没有独立 itineraries/quotations 模块 |
-| `src/website` | 独立站直客询盘、行程、人工报价与专属配置；独立 `/api/website` 合同 |
+| `src/website` | 独立站直客询盘、行程、人工报价与专属配置；统一 API 合同第 18 节 |
 | `src/tours` / `src/common/tour-lock.ts` | 成团、导游请假/评分及来源写入锁；实际人员与报价服务价格分离 |
 | `src/dashboard` | 首页只读聚合；复用询盘、独立站、成团及请假 Service 的范围逻辑 |
 | `src/resources` / `src/system` | 公共资源、航班、独立导游人员及组团社联系人；系统与业务字典 |
 | `src/operation-logs` | 系统管理操作日志；与询盘差异/调价历史独立 |
 | `src/health` / `src/lynx` | Terminus 探测；独立公开访问记录（不混入业务 API/Swagger） |
+| `ops/lynxtour-visits` | 独立只读表格服务、静态页面及运维脚本；独立 Basic 认证和只读账号，不随 NestJS 启动或业务镜像发布，接口见统一 API 合同第 20 节 |
 | `src/config` / `src/database` / `src/migrations` | 环境校验、连接与 migration CLI、完整 schema 链 |
 
 不要根据业务名猜测模块目录。
@@ -76,7 +77,11 @@
 
 ## Documentation
 
-按根文档规则同步受影响合同及架构；涉及身份、结构化存储、冻结/调价约束时核对 [P0.1](../docs/requirements/P0.1-组织隔离与结构化业务.md)。环境发布结果留在部署/验证记录，不把动态在线 SHA、迁移执行状态或命令清单写入本文件。
+- 新增、更新或移除 HTTP 接口时，必须在同一任务内同步更新根 `docs/api/Sunrise TravelOps 后端说明.md` 的对应主题章节；接口与文档未同步，不得视为完成。API 合同集中维护在这一份文档中，未经用户明确要求，不新增按模块或服务拆分的 API 合同文件。
+- 同步内容按实际影响覆盖方法、完整路径及服务地址、认证与权限/数据范围、路径/查询/请求体字段及约束、响应结构、HTTP 状态与错误码，以及分页、版本、幂等和文件响应等约定。仅更新 Swagger、DTO、README 或部署记录不能替代 API 合同。
+- 收尾按受影响模块实际注册的路由逐项核对文档，包含新增及保留的接口，避免只记录本次新增动作而漏掉已有列表/详情等配套接口；公开接口、非 `/api` 前缀和未纳入 Swagger 的接口同样必须记录。移除接口须同步清理当前合同及失效引用，不保留为仍可用接口。
+
+其他文档按根规则同步；涉及身份、结构化存储、冻结/调价约束时核对 [P0.1](../docs/requirements/P0.1-组织隔离与结构化业务.md)。环境发布结果留在部署/验证记录，不把动态在线 SHA、迁移执行状态或命令清单写入本文件。
 
 ## Branch and Delivery
 

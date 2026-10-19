@@ -1,0 +1,27 @@
+name: lynxtour-visits-dev
+services:
+  viewer:
+    image: ${VIEWER_IMAGE:?required}
+    entrypoint: ["node", "/viewer/server.cjs"]
+    restart: unless-stopped
+    user: node
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    env_file: viewer.env
+    environment:
+      NODE_PATH: /app/node_modules
+    volumes:
+      - ./app:/viewer:ro
+    networks:
+      dev:
+        aliases: [lynxtour-visits-dev]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+networks:
+  dev:
+    external: true
+    name: sunrise-travelops-dev_dev
