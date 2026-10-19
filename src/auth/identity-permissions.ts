@@ -1,5 +1,6 @@
 import {
   ADMIN_PERMISSIONS,
+  LEDGER_PERMISSIONS,
   INQUIRY_PERMISSIONS,
   RESOURCE_PERMISSIONS,
   TOUR_PERMISSIONS,
@@ -85,16 +86,35 @@ export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
 ): string[] {
+  const ledgerPermissions =
+    scope === 'headquarters'
+      ? roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role))
+        ? LEDGER_PERMISSIONS.filter((p) => p.endsWith(':list'))
+        : []
+      : roles.some((role) => ['BUSINESS_MANAGER', 'COORDINATOR'].includes(role))
+        ? LEDGER_PERMISSIONS.filter(
+            (p) =>
+              p.startsWith(
+                scope === 'shengxu' ? 'ledger:shengxu:' : 'ledger:direct:',
+              ) &&
+              (!p.endsWith(':review') || roles.includes('BUSINESS_MANAGER')),
+          )
+        : [];
   const allowedRoles =
     scope === 'headquarters'
       ? ['ROOT', 'ADMIN', 'EXECUTIVE']
       : ['BUSINESS_MANAGER', 'COORDINATOR', 'RESOURCE_MANAGER'];
   const selected = roles.filter((role) => allowedRoles.includes(role));
   if (scope === 'headquarters' && selected.includes('ROOT'))
-    return [...ROLE_PERMISSIONS.ROOT, ...WEBSITE_ROLE_PERMISSIONS.ROOT];
+    return [
+      ...ROLE_PERMISSIONS.ROOT,
+      ...WEBSITE_ROLE_PERMISSIONS.ROOT,
+      ...ledgerPermissions,
+    ];
   if (scope === 'headquarters' && selected.includes('EXECUTIVE'))
-    return [...reads, ...websiteReads];
+    return [...reads, ...websiteReads, ...ledgerPermissions];
   return [
+    ...ledgerPermissions,
     ...new Set(
       selected.flatMap((role) => [
         ...(ROLE_PERMISSIONS[role] ?? []),

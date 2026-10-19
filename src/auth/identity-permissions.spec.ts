@@ -2,10 +2,14 @@ import { effectivePermissions } from './identity-permissions';
 import { PERMISSION_DEFINITIONS, TOUR_PERMISSIONS } from './permissions';
 
 describe('headquarters permissions', () => {
-  it('grants ROOT every defined permission, including all tour operations', () => {
+  it('grants ROOT existing operations while keeping ledgers read-only', () => {
     const permissions = effectivePermissions('headquarters', ['ROOT']);
     expect(permissions).toEqual(
-      expect.arrayContaining(Object.keys(PERMISSION_DEFINITIONS)),
+      expect.arrayContaining(
+        Object.keys(PERMISSION_DEFINITIONS).filter(
+          (p) => !p.startsWith('ledger:') || p.endsWith(':list'),
+        ),
+      ),
     );
   });
 
@@ -155,4 +159,34 @@ it('linxi roles receive the same website function grants without gaining role-me
       'sys:menu-permission:update',
     );
   }
+});
+
+describe('ledger permissions', () => {
+  it.each(['ROOT', 'ADMIN', 'EXECUTIVE'])(
+    'headquarters %s is read-only',
+    (role) => {
+      expect(
+        effectivePermissions('headquarters', [role])
+          .filter((p) => p.startsWith('ledger:'))
+          .sort(),
+      ).toEqual(['ledger:direct:list', 'ledger:shengxu:list']);
+    },
+  );
+  it.each(['shengxu', 'linxi', 'website'] as const)(
+    'isolates business permissions for %s',
+    (scope) => {
+      const prefix = scope === 'shengxu' ? 'ledger:shengxu:' : 'ledger:direct:';
+      const permissions = effectivePermissions(scope, ['COORDINATOR']).filter(
+        (p) => p.startsWith('ledger:'),
+      );
+      expect(permissions.length).toBeGreaterThan(0);
+      expect(permissions.every((p) => p.startsWith(prefix))).toBe(true);
+      expect(permissions).not.toContain('ledger:direct:review');
+      expect(
+        effectivePermissions(scope, ['RESOURCE_MANAGER']).filter((p) =>
+          p.startsWith('ledger:'),
+        ),
+      ).toEqual([]);
+    },
+  );
 });
