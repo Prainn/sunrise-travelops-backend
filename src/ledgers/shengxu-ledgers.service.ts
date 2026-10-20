@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
+import { ErrorCode } from '../common/constants/error-code';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   AgencyOptionsQueryDto,
@@ -216,7 +217,10 @@ export class ShengxuLedgersService {
       (error.driverError as { constraint?: string }).constraint ===
         'uq_shengxu_ledger_date_agency'
     )
-      conflict('当天该组团社已有台账，请修改已有记录');
+      conflict(
+        ErrorCode.SHENGXU_LEDGER_DUPLICATE,
+        '当天该组团社已有台账，请修改已有记录',
+      );
     throw error;
   }
   async create(input: ShengxuLedgerInputDto, actor: AuthenticatedUser) {
@@ -293,7 +297,11 @@ export class ShengxuLedgersService {
       const row = await this.row(manager, id, true);
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, version);
-      if (row.convertedGroups > 0) conflict('成团数大于零的台账不能删除');
+      if (row.convertedGroups > 0)
+        conflict(
+          ErrorCode.SHENGXU_LEDGER_DELETE_CONVERTED,
+          '成团数大于零的台账不能删除',
+        );
       await manager.query('DELETE FROM shengxu_ledgers WHERE id=$1', [id]);
     });
   }

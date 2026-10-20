@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
+import { ErrorCode } from '../common/constants/error-code';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   DirectLedgerInputDto,
@@ -247,7 +248,11 @@ export class DirectLedgersService {
       const row = await this.row(manager, id, actor, true);
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, input.version);
-      if (row.reviewedAt) conflict('已审核台账仅允许指定操作计调更新是否操作');
+      if (row.reviewedAt)
+        conflict(
+          ErrorCode.DIRECT_LEDGER_REVIEWED_READ_ONLY,
+          '已审核台账不能修改普通字段，仅指定操作计调可更新是否操作',
+        );
       if (
         row.orderStatus !== input.orderStatus &&
         row.creatorId !== actor.id &&
@@ -255,7 +260,10 @@ export class DirectLedgersService {
       )
         forbidden();
       if (row.operatedAt && input.orderStatus !== 'converted')
-        conflict('已操作台账不能改回未成团');
+        conflict(
+          ErrorCode.DIRECT_LEDGER_STATUS_ROLLBACK_FORBIDDEN,
+          '已操作台账不能改回未成团',
+        );
       const data = {
         ...(await this.values(manager, input, row.businessUnit, row)),
         updated_by: actor.id,
@@ -277,7 +285,11 @@ export class DirectLedgersService {
     return this.db.transaction(async (manager) => {
       const row = await this.row(manager, id, actor, true);
       assertVersion(row.version, version);
-      if (row.reviewedAt) conflict('台账已审核');
+      if (row.reviewedAt)
+        conflict(
+          ErrorCode.DIRECT_LEDGER_ALREADY_REVIEWED,
+          '台账已审核，无需重复审核',
+        );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET reviewed_at=now(),reviewed_by=$2,updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
         [id, actor.id],
@@ -295,7 +307,11 @@ export class DirectLedgersService {
       const row = await this.row(manager, id, actor, true);
       if (row.operatorId !== actor.id) forbidden();
       assertVersion(row.version, input.version);
-      if (row.orderStatus !== 'converted') conflict('已成团后才能更新是否操作');
+      if (row.orderStatus !== 'converted')
+        conflict(
+          ErrorCode.DIRECT_LEDGER_NOT_CONVERTED,
+          '已成团后才能更新是否操作',
+        );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET operated=$2,operated_at=CASE WHEN $2 THEN coalesce(operated_at,now()) ELSE operated_at END,updated_by=$3,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
         [id, input.operated, actor.id],
@@ -309,8 +325,18 @@ export class DirectLedgersService {
       const row = await this.row(manager, id, actor, true);
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, version);
-      if (row.reviewedAt || row.orderStatus === 'converted' || row.operatedAt)
-        conflict('已审核、已成团或已操作的台账不能删除');
+      if (row.reviewedAt)
+        conflict(ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED, '已审核台账不能删除');
+      if (row.operatedAt)
+        conflict(
+          ErrorCode.DIRECT_LEDGER_DELETE_OPERATED,
+          '曾操作的台账不能删除',
+        );
+      if (row.orderStatus === 'converted')
+        conflict(
+          ErrorCode.DIRECT_LEDGER_DELETE_CONVERTED,
+          '已成团台账不能删除',
+        );
       await manager.query('DELETE FROM direct_ledgers WHERE id=$1', [id]);
     });
   }

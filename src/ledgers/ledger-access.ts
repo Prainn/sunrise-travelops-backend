@@ -1,6 +1,7 @@
 import { HttpStatus } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { ErrorCode, ErrorCodeValue } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 
 export function invalid(message: string): never {
@@ -25,11 +26,12 @@ export function missing(): never {
   });
 }
 export function conflict(
+  code: ErrorCodeValue,
   message: string,
   details?: Record<string, unknown>,
 ): never {
   throw new BusinessException({
-    code: 'CONFLICT',
+    code,
     message,
     status: HttpStatus.CONFLICT,
     details,
@@ -42,7 +44,8 @@ export function requirePermission(
   if (!actor.permissions.includes(permission)) forbidden();
 }
 export function assertVersion(actual: number, expected: number) {
-  if (actual !== expected) conflict('记录已更新，请刷新后重试');
+  if (actual !== expected)
+    conflict(ErrorCode.LEDGER_VERSION_CONFLICT, '记录已更新，请刷新后重试');
 }
 export function isManager(actor: AuthenticatedUser) {
   return (
