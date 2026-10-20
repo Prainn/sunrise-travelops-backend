@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/constants/error-code';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   DirectLedgerInputDto,
+  CreateDirectLedgerDto,
   DirectLedgerQueryDto,
   LedgerOperationDto,
   UpdateDirectLedgerDto,
@@ -17,6 +18,7 @@ import {
   forbidden,
   invalid,
   isManager,
+  isLedgerRoot,
   missing,
   requirePermission,
 } from './ledger-access';
@@ -50,7 +52,8 @@ export class DirectLedgersService {
   private access(actor: AuthenticatedUser, action = 'list') {
     requirePermission(actor, `ledger:direct:${action}`);
     if (actor.scope === 'headquarters') {
-      if (action !== 'list') forbidden();
+      if (action !== 'list' && !(action === 'create' && isLedgerRoot(actor)))
+        forbidden();
     } else if (!['linxi', 'website'].includes(actor.scope)) forbidden();
   }
   private manageable(row: DirectRow, actor: AuthenticatedUser) {
@@ -216,15 +219,22 @@ export class DirectLedgersService {
       satisfied: input.satisfied,
     };
   }
-  async create(input: DirectLedgerInputDto, actor: AuthenticatedUser) {
+  async create(input: CreateDirectLedgerDto, actor: AuthenticatedUser) {
     this.access(actor, 'create');
-    const unit = directUnit(actor);
+    const unit = directUnit(actor, input.businessUnit);
+    const delegate = isLedgerRoot(actor);
+    if (!delegate && input.creatorId !== undefined) forbidden();
+    if (delegate && !input.creatorId)
+      invalid('请选择本业务的启用计调作为定制师');
     return this.db.transaction(async (manager) => {
+      const creator = delegate
+        ? await coordinator(manager, input.creatorId!, unit)
+        : { id: actor.id, name: actor.nickname };
       const data = {
         ...(await this.values(manager, input, unit)),
         business_unit: unit,
-        creator_id: actor.id,
-        creator_name: actor.nickname,
+        creator_id: creator.id,
+        creator_name: creator.name,
         updated_by: actor.id,
       };
       const [row] = await manager.query<DirectRow[]>(

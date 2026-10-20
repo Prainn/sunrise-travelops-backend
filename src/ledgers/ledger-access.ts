@@ -47,6 +47,9 @@ export function assertVersion(actual: number, expected: number) {
   if (actual !== expected)
     conflict(ErrorCode.LEDGER_VERSION_CONFLICT, '记录已更新，请刷新后重试');
 }
+export function isLedgerRoot(actor: AuthenticatedUser) {
+  return actor.scope === 'headquarters' && actor.roles.includes('ROOT');
+}
 export function isManager(actor: AuthenticatedUser) {
   return (
     actor.scope !== 'headquarters' && actor.roles.includes('BUSINESS_MANAGER')

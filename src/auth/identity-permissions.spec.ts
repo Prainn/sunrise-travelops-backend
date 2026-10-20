@@ -2,12 +2,15 @@ import { effectivePermissions } from './identity-permissions';
 import { PERMISSION_DEFINITIONS, TOUR_PERMISSIONS } from './permissions';
 
 describe('headquarters permissions', () => {
-  it('grants ROOT existing operations while keeping ledgers read-only', () => {
+  it('grants ROOT existing operations and ledger creation', () => {
     const permissions = effectivePermissions('headquarters', ['ROOT']);
     expect(permissions).toEqual(
       expect.arrayContaining(
         Object.keys(PERMISSION_DEFINITIONS).filter(
-          (p) => !p.startsWith('ledger:') || p.endsWith(':list'),
+          (p) =>
+            !p.startsWith('ledger:') ||
+            p.endsWith(':list') ||
+            p.endsWith(':create'),
         ),
       ),
     );
@@ -162,16 +165,28 @@ it('linxi roles receive the same website function grants without gaining role-me
 });
 
 describe('ledger permissions', () => {
-  it.each(['ROOT', 'ADMIN', 'EXECUTIVE'])(
-    'headquarters %s is read-only',
-    (role) => {
+  it.each([['ROOT'], ['ROOT', 'ADMIN'], ['ROOT', 'EXECUTIVE']])(
+    'only grants headquarters ROOT ledger reads and creation for %j',
+    (...roles: string[]) => {
       expect(
-        effectivePermissions('headquarters', [role])
+        effectivePermissions('headquarters', roles)
           .filter((p) => p.startsWith('ledger:'))
           .sort(),
-      ).toEqual(['ledger:direct:list', 'ledger:shengxu:list']);
+      ).toEqual([
+        'ledger:direct:create',
+        'ledger:direct:list',
+        'ledger:shengxu:create',
+        'ledger:shengxu:list',
+      ]);
     },
   );
+  it.each(['ADMIN', 'EXECUTIVE'])('headquarters %s is read-only', (role) => {
+    expect(
+      effectivePermissions('headquarters', [role])
+        .filter((p) => p.startsWith('ledger:'))
+        .sort(),
+    ).toEqual(['ledger:direct:list', 'ledger:shengxu:list']);
+  });
   it.each(['shengxu', 'linxi', 'website'] as const)(
     'isolates business permissions for %s',
     (scope) => {

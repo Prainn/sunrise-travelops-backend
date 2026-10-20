@@ -42,6 +42,8 @@ interface Ledger {
   businessUnit: string;
   receivingAccountName: string;
   creatorId: string;
+  creatorName: string;
+  updatedBy: string;
   reviewedAt: string | null;
   operated: boolean;
   operatedAt: string | null;
@@ -542,8 +544,8 @@ async function run() {
       assert.equal(p.total, 1);
       assert.equal(p.list[0].capabilities.canEdit, false);
       await call(role, 'GET', `direct/${d.id}`);
-      await call(role, 'POST', 'direct', direct, 403);
-      await call(role, 'POST', 'shengxu', sx, 403);
+      await call(role, 'POST', 'direct', direct, role === 'ROOT' ? 400 : 403);
+      await call(role, 'POST', 'shengxu', sx, role === 'ROOT' ? 400 : 403);
       await call(
         role,
         'PUT',
@@ -573,6 +575,198 @@ async function run() {
         403,
       );
     }
+    // ROOT delegates creation only; ownership follows agency/designer, not the submitter.
+    const rootAgencies = await call<{
+      list: { id: string; coordinatorId: string; coordinatorName: string }[];
+      total: number;
+    }>('ROOT', 'GET', 'shengxu/agencies');
+    assert.ok(
+      rootAgencies.list.some(
+        (a) =>
+          a.id === a2.agencyId &&
+          a.coordinatorId === sx2 &&
+          a.coordinatorName === 'sx2',
+      ),
+    );
+    assert.ok(rootAgencies.list.every((a) => a.id !== foreign.agencyId));
+    await call('ROOT', 'GET', `shengxu/agencies/${a2.agencyId}/contacts`);
+    await call(
+      'ROOT',
+      'GET',
+      `shengxu/agencies/${foreign.agencyId}/contacts`,
+      undefined,
+      400,
+    );
+    for (const role of ['ADMIN', 'EXECUTIVE']) {
+      await call(role, 'GET', 'shengxu/agencies', undefined, 403);
+      await call(
+        role,
+        'GET',
+        `shengxu/agencies/${a2.agencyId}/contacts`,
+        undefined,
+        403,
+      );
+    }
+    const delegatedShengxuInput = { ...sx, ...a2, recordDate: '2026-10-28' };
+    const delegatedShengxu = await call(
+      'ROOT',
+      'POST',
+      'shengxu',
+      delegatedShengxuInput,
+      201,
+    );
+    assert.equal(delegatedShengxu.creatorId, sx2);
+    assert.equal(delegatedShengxu.creatorName, 'sx2');
+    assert.equal(delegatedShengxu.updatedBy, actors.ROOT.id);
+    assert.equal(delegatedShengxu.businessUnit, 'shengxu');
+    assert.equal(delegatedShengxu.capabilities.canEdit, false);
+    assert.equal(
+      (await call('sx2', 'GET', `shengxu/${delegatedShengxu.id}`)).capabilities
+        .canEdit,
+      true,
+    );
+    await call(
+      'ROOT',
+      'POST',
+      'shengxu',
+      { ...delegatedShengxuInput, ...foreign },
+      400,
+    );
+    await call(
+      'ROOT',
+      'POST',
+      'shengxu',
+      { ...delegatedShengxuInput, contactId: a1.contactId },
+      400,
+    );
+    await call(
+      'ROOT',
+      'PUT',
+      `shengxu/${delegatedShengxu.id}`,
+      { ...delegatedShengxuInput, version: 1 },
+      403,
+    );
+    await call(
+      'ROOT',
+      'DELETE',
+      `shengxu/${delegatedShengxu.id}?version=1`,
+      undefined,
+      403,
+    );
+
+    const delegatedLinxi = await call(
+      'ROOT',
+      'POST',
+      'direct',
+      {
+        ...direct,
+        businessUnit: 'linxi',
+        creatorId: lx2,
+      },
+      201,
+    );
+    assert.equal(delegatedLinxi.businessUnit, 'linxi');
+    assert.equal(delegatedLinxi.creatorId, lx2);
+    assert.equal(delegatedLinxi.creatorName, 'lx2');
+    assert.equal(delegatedLinxi.updatedBy, actors.ROOT.id);
+    assert.equal(
+      (await call('lx2', 'GET', `direct/${delegatedLinxi.id}`)).capabilities
+        .canChangeStatus,
+      true,
+    );
+    const delegatedWebsiteInput = {
+      ...direct,
+      businessUnit: 'website',
+      creatorId: web,
+      operatorId: web,
+      receivingAccountId: null,
+    };
+    const delegatedWebsite = await call(
+      'ROOT',
+      'POST',
+      'direct',
+      delegatedWebsiteInput,
+      201,
+    );
+    assert.equal(delegatedWebsite.businessUnit, 'website');
+    assert.equal(delegatedWebsite.creatorId, web);
+    assert.equal(delegatedWebsite.updatedBy, actors.ROOT.id);
+    assert.equal(delegatedWebsite.receivingAccountName, '独立站');
+    await call('lx1', 'GET', `direct/${delegatedWebsite.id}`, undefined, 404);
+    await call('web', 'GET', `direct/${delegatedLinxi.id}`, undefined, 404);
+    await call(
+      'ROOT',
+      'POST',
+      'direct',
+      { ...direct, businessUnit: 'linxi' },
+      400,
+    );
+    await call('ROOT', 'POST', 'direct', { ...direct, creatorId: lx2 }, 400);
+    await call(
+      'ROOT',
+      'POST',
+      'direct',
+      { ...direct, businessUnit: 'linxi', creatorId: web },
+      400,
+    );
+    await call(
+      'ROOT',
+      'POST',
+      'direct',
+      { ...delegatedWebsiteInput, creatorId: lx2 },
+      400,
+    );
+    await call(
+      'ROOT',
+      'POST',
+      'direct',
+      { ...direct, businessUnit: 'linxi', creatorId: actors.lxManager.id },
+      400,
+    );
+    await call('lx1', 'POST', 'direct', { ...direct, creatorId: lx2 }, 403);
+    await call(
+      'lx1',
+      'POST',
+      'direct',
+      { ...direct, businessUnit: 'website' },
+      403,
+    );
+    await call(
+      'lx2',
+      'PUT',
+      `direct/${delegatedLinxi.id}`,
+      { ...direct, version: 1, creatorId: lx1 },
+      400,
+    );
+    await call(
+      'lx2',
+      'PUT',
+      `direct/${delegatedLinxi.id}`,
+      { ...direct, version: 1, businessUnit: 'website' },
+      400,
+    );
+    await db.query("UPDATE users SET status='disabled' WHERE id=$1", [lx2]);
+    await call(
+      'ROOT',
+      'POST',
+      'direct',
+      { ...direct, businessUnit: 'linxi', creatorId: lx2 },
+      400,
+    );
+    await db.query("UPDATE users SET status='disabled' WHERE id=$1", [sx2]);
+    await call(
+      'ROOT',
+      'POST',
+      'shengxu',
+      { ...delegatedShengxuInput, recordDate: '2026-10-29' },
+      400,
+    );
+    const enabledAgencies = await call<{ list: { id: string }[] }>(
+      'ROOT',
+      'GET',
+      'shengxu/agencies',
+    );
+    assert.ok(enabledAgencies.list.every((a) => a.id !== a2.agencyId));
     console.log(
       `Manual ledger checks passed: empty/repeated migrations, representative upgrade preservation, ${assertions} HTTP status assertions, scope/ownership/options/status/version/concurrency.`,
     );

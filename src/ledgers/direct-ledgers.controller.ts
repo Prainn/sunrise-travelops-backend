@@ -17,7 +17,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
 import {
   DirectLedgerQueryDto,
-  DirectLedgerInputDto,
+  CreateDirectLedgerDto,
   UpdateDirectLedgerDto,
   LedgerDeleteQueryDto,
   LedgerVersionDto,
@@ -78,7 +78,7 @@ export class DirectLedgersController {
   @Post()
   @Permissions('ledger:direct:create')
   create(
-    @Body() input: DirectLedgerInputDto,
+    @Body() input: CreateDirectLedgerDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.service.create(input, actor);

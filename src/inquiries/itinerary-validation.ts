@@ -143,12 +143,17 @@ export class ItineraryValidation {
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
     await this.assertUniqueResources(manager, plan);
-    const previousDayCount = previous?.dailyPlans.length;
-    if (
-      plan.dailyPlans.length !== plannedDays &&
-      plan.dailyPlans.length !== previousDayCount
-    )
-      invalid('行程天数必须与询盘计划天数一致');
+    if (!previous && plan.dailyPlans.length !== plannedDays)
+      invalid('新建行程天数必须与询盘计划天数一致');
+    plannedDays = plan.dailyPlans.length;
+    if (previous)
+      previous = {
+        ...previous,
+        dailyPlans: [
+          ...previous.dailyPlans,
+          ...(previous.deletedDays ?? []).map((entry) => entry.day),
+        ],
+      };
     const newCities = plan.destinations.filter(
       (city) => !previous?.destinations.includes(city),
     );
@@ -165,10 +170,10 @@ export class ItineraryValidation {
     plan.paxTiers.sort((a, b) => a - b);
     const guestCount = Math.max(...plan.paxTiers);
     unique(
-      plan.dailyPlans.flatMap((day) => [
-        day.id,
-        ...day.items.map((item) => item.id),
-      ]),
+      [
+        ...plan.dailyPlans,
+        ...(plan.deletedDays ?? []).map((entry) => entry.day),
+      ].flatMap((day) => [day.id, ...day.items.map((item) => item.id)]),
     );
     unique(plan.hotelPlans.map((p) => String(p.tier)));
     unique(plan.vehiclePlans.map((p) => p.tier));
@@ -206,7 +211,10 @@ export class ItineraryValidation {
           invalid('Invalid meal assignment');
       }
     });
-    for (const item of plan.dailyPlans.flatMap((day) => day.items)) {
+    for (const item of [
+      ...plan.dailyPlans,
+      ...(plan.deletedDays ?? []).map((entry) => entry.day),
+    ].flatMap((day) => day.items)) {
       if (item.type === 'restaurant' && !item.mealSlot)
         invalid('Meal slot required');
       if (item.type === 'attraction' && item.mealSlot)
@@ -601,6 +609,7 @@ export class ItineraryValidation {
     return plan;
   }
   assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {
+    plannedDays = plan.dailyPlans.length;
     const issues: string[] = missingItineraryPrices(plan);
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (

@@ -12,7 +12,7 @@ import type {
 type DayRow = Omit<
   WebsiteDay,
   'items' | 'legs' | 'hotels' | 'meals' | 'services'
->;
+> & { isDeleted: boolean; originalDate: string | null };
 interface DetailRow<T> {
   dayId: string;
   value: T;
@@ -24,8 +24,8 @@ export async function loadWebsiteDetails(
 ) {
   const days = await manager.query<DayRow[]>(
     `SELECT id,day_number AS "dayNumber",
-    depart_city_id AS "departCityId",end_city_id AS "endCityId",overnight_city_id AS "overnightCityId",
-    guide_language AS "guideLanguage",guide_scope AS "guideScope" FROM website_days
+    COALESCE(depart_city_id::text,'') AS "departCityId",COALESCE(end_city_id::text,'') AS "endCityId",overnight_city_id AS "overnightCityId",
+    guide_language AS "guideLanguage",guide_scope AS "guideScope",is_deleted AS "isDeleted",original_date AS "originalDate" FROM website_days
     WHERE itinerary_id=$1 ORDER BY day_number`,
     [itineraryId],
   );
@@ -72,15 +72,25 @@ export async function loadWebsiteDetails(
   );
   const forDay = <T>(rows: DetailRow<T>[], id: string) =>
     rows.filter((r) => r.dayId === id).map((r) => r.value);
+  const readDay = (day: DayRow): WebsiteDay => ({
+    id: day.id,
+    dayNumber: day.dayNumber,
+    departCityId: day.departCityId,
+    endCityId: day.endCityId,
+    overnightCityId: day.overnightCityId,
+    guideLanguage: day.guideLanguage,
+    guideScope: day.guideScope,
+    items: forDay(items, day.id),
+    legs: forDay(legs, day.id),
+    hotels: forDay(hotels, day.id),
+    meals: forDay(meals, day.id),
+    services: forDay(services, day.id),
+  });
   return {
-    days: days.map((day) => ({
-      ...day,
-      items: forDay(items, day.id),
-      legs: forDay(legs, day.id),
-      hotels: forDay(hotels, day.id),
-      meals: forDay(meals, day.id),
-      services: forDay(services, day.id),
-    })),
+    days: days.filter((day) => !day.isDeleted).map(readDay),
+    deletedDays: days
+      .filter((day) => day.isDeleted)
+      .map((day) => ({ day: readDay(day), originalDate: day.originalDate })),
     vehiclePrices,
   };
 }
@@ -113,7 +123,13 @@ export async function saveWebsiteDetails(
   itineraryId: string,
   days: WebsiteDay[],
   prices: WebsiteVehiclePrice[],
+  deletedDays: { day: WebsiteDay; originalDate: string | null }[] = [],
 ) {
+  const activeIds = new Set(days.map((day) => day.id));
+  const originalDates = new Map(
+    deletedDays.map((entry) => [entry.day.id, entry.originalDate]),
+  );
+  days = [...days, ...deletedDays.map((entry) => entry.day)];
   await manager.query('DELETE FROM website_days WHERE itinerary_id=$1', [
     itineraryId,
   ]);
@@ -133,16 +149,20 @@ export async function saveWebsiteDetails(
       'overnight_city_id',
       'guide_language',
       'guide_scope',
+      'is_deleted',
+      'original_date',
     ],
     days.map((d) => [
       d.id,
       itineraryId,
       d.dayNumber,
-      d.departCityId,
-      d.endCityId,
+      d.departCityId || null,
+      d.endCityId || null,
       d.overnightCityId,
       d.guideLanguage,
       d.guideScope,
+      !activeIds.has(d.id),
+      originalDates.get(d.id) ?? null,
     ]),
   );
   await insertRows(

@@ -682,8 +682,12 @@ export class InquiriesService {
       }
       for (const o of data.quote.options)
         o.hotelTier = diamonds(o.hotelTier) as typeof o.hotelTier;
-      const ids = new Map(data.dailyPlans.map((d) => [d.id, randomUUID()]));
-      data.dailyPlans.forEach((d) => {
+      const allDays = [
+        ...data.dailyPlans,
+        ...(data.deletedDays ?? []).map((entry) => entry.day),
+      ];
+      const ids = new Map(allDays.map((d) => [d.id, randomUUID()]));
+      allDays.forEach((d) => {
         d.id = ids.get(d.id)!;
         d.items.forEach((i) => {
           i.id = randomUUID();

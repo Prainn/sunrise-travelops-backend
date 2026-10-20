@@ -167,6 +167,21 @@ export class DirectLedgerInputDto {
   @IsBoolean()
   satisfied: boolean | null = null;
 }
+export class CreateDirectLedgerDto extends DirectLedgerInputDto {
+  @ApiPropertyOptional({
+    enum: ['linxi', 'website'],
+    description: 'ROOT 代建必填；普通身份须与当前业务一致',
+  })
+  @IsOptional()
+  @IsIn(['linxi', 'website'])
+  businessUnit?: 'linxi' | 'website';
+  @ApiPropertyOptional({
+    description: '仅 ROOT 代建可传且必填，所选业务的启用计调',
+  })
+  @IsOptional()
+  @IsUUID()
+  creatorId?: string;
+}
 export class UpdateDirectLedgerDto extends DirectLedgerInputDto {
   @ApiProperty({ minimum: 1 }) @IsInt() @Min(1) version!: number;
 }

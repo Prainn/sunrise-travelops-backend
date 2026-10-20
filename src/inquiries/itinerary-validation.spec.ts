@@ -164,3 +164,76 @@ describe.each(['attraction', 'restaurant'] as const)(
     });
   },
 );
+
+describe('day count and recycle normalization', () => {
+  const validation = new ItineraryValidation();
+  it('accepts edited day counts but keeps the initial planned-day gate', async () => {
+    const plan = await input('attraction', 0);
+    plan.dailyPlans[0].items = [];
+    const db = manager('attraction', '描述', '0.00');
+    await expect(
+      validation.normalize(db, plan, undefined, 3),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    const saved = await validation.normalize(db, plan, plan, 3);
+    expect(saved.dailyPlans).toHaveLength(1);
+  });
+
+  it('preserves recycled resource reference and original date and restores without repricing', async () => {
+    const previous = await input('attraction');
+    Object.assign(previous.dailyPlans[0].items[0], {
+      referencePrice: 100,
+      referenceBasis: 'resource_price',
+    });
+    const active = {
+      ...structuredClone(previous.dailyPlans[0]),
+      id: 'active',
+      items: [],
+    };
+    const current = {
+      ...structuredClone(previous),
+      dailyPlans: [active],
+      deletedDays: [
+        { day: previous.dailyPlans[0], originalDate: '2026-10-14' },
+      ],
+    };
+    const recycled = await validation.normalize(
+      manager('attraction', '', null),
+      current,
+      previous,
+      2,
+    );
+    expect(recycled.deletedDays?.[0].day.items[0]).toMatchObject({
+      resourceName: '历史名称',
+      unitCost: 100,
+    });
+    const restored = await validation.normalize(
+      manager('attraction', '', null),
+      {
+        ...recycled,
+        dailyPlans: [recycled.deletedDays![0].day, active],
+        deletedDays: [],
+      },
+      recycled,
+      2,
+    );
+    expect(restored.dailyPlans[0].items[0]).toMatchObject({
+      resourceName: '历史名称',
+      referencePrice: 100,
+      unitCost: 100,
+    });
+    expect(restored.dailyPlans[1].date).toBe('2026-10-15');
+  });
+
+  it('rejects ID collisions across active and recycled days', async () => {
+    const plan = await input('attraction');
+    plan.deletedDays = [
+      {
+        day: structuredClone(plan.dailyPlans[0]),
+        originalDate: plan.startDate,
+      },
+    ];
+    await expect(
+      validation.normalize(manager('attraction', '描述', '100.00'), plan),
+    ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+  });
+});

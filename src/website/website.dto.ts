@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -254,6 +254,28 @@ export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
   unitPrice: string | null;
 }
+class DeletedWebsiteDayContentDto extends OmitType(WebsiteDayDto, [
+  'departCityId',
+  'endCityId',
+] as const) {
+  @ValidateIf((o: DeletedWebsiteDayContentDto) => o.departCityId !== '')
+  @IsUUID()
+  departCityId: string;
+  @ValidateIf((o: DeletedWebsiteDayContentDto) => o.endCityId !== '')
+  @IsUUID()
+  endCityId: string;
+}
+class DeletedWebsiteDayDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => DeletedWebsiteDayContentDto)
+  day: DeletedWebsiteDayContentDto;
+  @IsDefined()
+  @ValidateIf((o: DeletedWebsiteDayDto) => o.originalDate !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  originalDate: string | null;
+}
 export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) title: string;
   @IsInt() @Min(1) @Max(365) duration: number;
@@ -277,6 +299,10 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @ValidateNested({ each: true })
   @Type(() => WebsiteDayDto)
   days: WebsiteDayDto[] = [];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeletedWebsiteDayDto)
+  deletedDays?: DeletedWebsiteDayDto[] = [];
   @IsArray()
   @ArrayMaxSize(5)
   @ValidateNested({ each: true })

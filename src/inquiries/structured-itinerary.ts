@@ -9,6 +9,8 @@ export const ITINERARY_TABLES = {
   itinerary_days: {
     id: 'text',
     dayNumber: 'integer',
+    isDeleted: 'boolean',
+    originalDate: 'text?',
     date: 'text',
     departure: 'text',
     destination: 'text',
@@ -135,13 +137,27 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     itinerary_destinations: data.destinations.map((destination) => ({
       destination,
     })),
-    itinerary_days: data.dailyPlans.map(({ meals, ...day }) => ({
+    itinerary_days: [
+      ...data.dailyPlans.map((day) => ({
+        day,
+        isDeleted: false,
+        originalDate: null,
+      })),
+      ...(data.deletedDays ?? []).map(({ day, originalDate }) => ({
+        day,
+        isDeleted: true,
+        originalDate,
+      })),
+    ].map(({ day: { meals, ...day }, isDeleted, originalDate }) => ({
       ...day,
       ...meals,
+      isDeleted,
+      originalDate,
     })),
-    itinerary_items: data.dailyPlans.flatMap((d) =>
-      d.items.map((i) => ({ ...i, dayId: d.id })),
-    ),
+    itinerary_items: [
+      ...data.dailyPlans,
+      ...(data.deletedDays ?? []).map((entry) => entry.day),
+    ].flatMap((d) => d.items.map((i) => ({ ...i, dayId: d.id }))),
     itinerary_hotel_plans: data.hotelPlans.map(({ tier }) => ({ tier })),
     itinerary_hotels: data.hotelPlans.flatMap((p) =>
       p.hotels.map((h) => ({ ...h, tier: p.tier })),
@@ -233,6 +249,13 @@ export async function loadItineraryData(
     Object.fromEntries(
       Object.entries(r).filter(([key]) => !keys.includes(key)),
     );
+  const readDay = (d: Row) => ({
+    ...omit(d, ['breakfast', 'lunch', 'dinner', 'isDeleted', 'originalDate']),
+    meals: { breakfast: d.breakfast, lunch: d.lunch, dinner: d.dinner },
+    items: rows.itinerary_items
+      .filter((i) => i.dayId === d.id)
+      .map((i) => omit(i, ['dayId'])),
+  });
   // The shape is assembled exclusively from the declared columns above.
   row.data = plainToInstance(ItineraryInput, {
     title: row.title,
@@ -241,13 +264,10 @@ export async function loadItineraryData(
     childRate: row.childRate,
     childWithoutBedRate: row.childWithoutBedRate,
     destinations: rows.itinerary_destinations.map((r) => r.destination),
-    dailyPlans: rows.itinerary_days.map((d) => ({
-      ...omit(d, ['breakfast', 'lunch', 'dinner']),
-      meals: { breakfast: d.breakfast, lunch: d.lunch, dinner: d.dinner },
-      items: rows.itinerary_items
-        .filter((i) => i.dayId === d.id)
-        .map((i) => omit(i, ['dayId'])),
-    })),
+    dailyPlans: rows.itinerary_days.filter((d) => !d.isDeleted).map(readDay),
+    deletedDays: rows.itinerary_days
+      .filter((d) => d.isDeleted)
+      .map((d) => ({ day: readDay(d), originalDate: d.originalDate })),
     hotelPlans: rows.itinerary_hotel_plans.map((p) => ({
       tier: p.tier,
       hotels: rows.itinerary_hotels

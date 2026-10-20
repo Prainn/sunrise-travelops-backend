@@ -13,6 +13,7 @@ import type {
   WebsiteConfig,
   WebsiteInquiry,
   WebsiteInquiryInput,
+  WebsiteDay,
   WebsiteItinerary,
   WebsiteItineraryInput,
   WebsiteLog,
@@ -789,7 +790,19 @@ export class WebsiteService {
     const oldConfig = old
       ? await this.config(manager, businessUnit, old.configVersion)
       : config;
-    const ids = input.days.flatMap((d) => [
+    const allDays = [
+      ...input.days,
+      ...(input.deletedDays ?? []).map((entry) => entry.day),
+    ];
+    if (old)
+      old = {
+        ...old,
+        days: [
+          ...old.days,
+          ...(old.deletedDays ?? []).map((entry) => entry.day),
+        ],
+      };
+    const ids = allDays.flatMap((d) => [
       d.id,
       ...d.items.map((i) => i.id),
       ...d.legs.map((l) => l.id),
@@ -823,9 +836,9 @@ export class WebsiteService {
       if (!row || (!retainedCities.has(id) && row.status !== 'enabled'))
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
-    const days = input.days.map((day) => {
-      city(day.departCityId);
-      city(day.endCityId);
+    const normalized = allDays.map((day, index) => {
+      if (index < input.days.length || day.departCityId) city(day.departCityId);
+      if (index < input.days.length || day.endCityId) city(day.endCityId);
       if (day.overnightCityId) city(day.overnightCityId);
       if (
         duplicate(day.hotels.map((h) => h.tier)) ||
@@ -896,14 +909,23 @@ export class WebsiteService {
       });
       return { ...day, items };
     });
-    const refs = this.planReferences(input, config);
+    const refs = this.planReferences({ ...input, days: normalized }, config);
     const issues = await this.resourceIssues(
       manager,
       refs,
       old ? this.planReferences(old, oldConfig) : [],
     );
     if (issues.length) invalid('行程引用的共享资源不可用', { issues });
-    return { ...input, days };
+    const days = normalized.slice(0, input.days.length);
+    return {
+      ...input,
+      days,
+      deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
+        ...entry,
+        day: normalized[input.days.length + index],
+      })),
+      duration: days.length || input.duration,
+    };
   }
   private async insertItinerary(
     manager: EntityManager,
@@ -930,7 +952,13 @@ export class WebsiteService {
         input.configVersion,
       ],
     );
-    await saveWebsiteDetails(manager, id, input.days, input.vehiclePrices);
+    await saveWebsiteDetails(
+      manager,
+      id,
+      input.days,
+      input.vehiclePrices,
+      input.deletedDays,
+    );
     await manager.query(
       "UPDATE website_inquiries SET status=CASE WHEN status='new' THEN 'planning' ELSE status END,version=version+1,updated_at=now() WHERE id=$1",
       [inquiryId],
@@ -983,6 +1011,7 @@ export class WebsiteService {
       itinerary.id,
       input.days,
       input.vehiclePrices,
+      input.deletedDays,
     );
     await this.log(manager, itinerary.inquiryId, action, itinerary.id, user);
     return (await this.itinerary(itinerary.id, user, manager)).itinerary;
@@ -1022,19 +1051,24 @@ export class WebsiteService {
       );
       await this.mutable(inquiry, manager);
       this.version(itinerary.version, version, true);
+      const copyDay = (day: WebsiteDay): WebsiteDay => ({
+        ...day,
+        id: randomUUID(),
+        items: day.items.map((item) => ({ ...item, id: randomUUID() })),
+        legs: day.legs.map((leg) => ({ ...leg, id: randomUUID() })),
+        hotels: day.hotels.map((hotel) => ({ ...hotel, id: randomUUID() })),
+        meals: day.meals.map((meal) => ({ ...meal, id: randomUUID() })),
+        services: day.services.map((service) => ({
+          ...service,
+          id: randomUUID(),
+        })),
+      });
       const clone: WebsiteItineraryInput = {
         ...itinerary,
-        days: itinerary.days.map((day) => ({
-          ...day,
-          id: randomUUID(),
-          items: day.items.map((item) => ({ ...item, id: randomUUID() })),
-          legs: day.legs.map((leg) => ({ ...leg, id: randomUUID() })),
-          hotels: day.hotels.map((hotel) => ({ ...hotel, id: randomUUID() })),
-          meals: day.meals.map((meal) => ({ ...meal, id: randomUUID() })),
-          services: day.services.map((service) => ({
-            ...service,
-            id: randomUUID(),
-          })),
+        days: itinerary.days.map(copyDay),
+        deletedDays: (itinerary.deletedDays ?? []).map((entry) => ({
+          originalDate: entry.originalDate,
+          day: copyDay(entry.day),
         })),
         vehiclePrices: itinerary.vehiclePrices.map((price) => ({ ...price })),
       };

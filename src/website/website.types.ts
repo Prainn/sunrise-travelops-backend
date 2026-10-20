@@ -181,6 +181,7 @@ export interface WebsiteItineraryInput {
   departureTime: string;
   configVersion: number;
   days: WebsiteDay[];
+  deletedDays?: { day: WebsiteDay; originalDate: string | null }[];
   vehiclePrices: WebsiteVehiclePrice[];
 }
 export interface WebsiteItinerary extends WebsiteItineraryInput {

@@ -10,10 +10,13 @@ import {
 } from './ledger.dto';
 import {
   assertVersion,
+  COORDINATOR_FROM,
+  coordinator,
   conflict,
   forbidden,
   invalid,
   isManager,
+  isLedgerRoot,
   missing,
   requirePermission,
 } from './ledger-access';
@@ -22,6 +25,7 @@ interface ShengxuRow {
   id: string;
   creatorId: string;
   creatorName: string;
+  coordinatorId?: string;
   recordDate: string;
   agencyId: string;
   agencyName: string;
@@ -45,7 +49,10 @@ export class ShengxuLedgersService {
     requirePermission(actor, `ledger:shengxu:${action}`);
     if (
       actor.scope !== 'shengxu' &&
-      !(actor.scope === 'headquarters' && action === 'list')
+      !(
+        actor.scope === 'headquarters' &&
+        (action === 'list' || (action === 'create' && isLedgerRoot(actor)))
+      )
     )
       forbidden();
   }
@@ -111,15 +118,20 @@ export class ShengxuLedgersService {
   async agencies(query: AgencyOptionsQueryDto, actor: AuthenticatedUser) {
     this.access(actor);
     requirePermission(actor, 'resource:agency:list');
-    if (actor.scope === 'headquarters') forbidden();
+    if (actor.scope === 'headquarters' && !isLedgerRoot(actor)) forbidden();
     let owner = actor.id;
     if (query.ledgerId) {
       const row = await this.row(this.db.manager, query.ledgerId);
       if (!this.manageable(row, actor)) forbidden();
       owner = row.creatorId;
     }
-    const params: unknown[] = [owner];
-    let where = `WHERE business_unit='shengxu' AND coordinator_id=$1 AND status='enabled' AND deleted_at IS NULL`;
+    const delegate = isLedgerRoot(actor);
+    const params: unknown[] = [delegate ? 'shengxu' : owner];
+    let where = `WHERE business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL AND ${
+      delegate
+        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND u.id=resource_agencies.coordinator_id)`
+        : 'coordinator_id=$1'
+    }`;
     if (query.keyword?.trim())
       where += ` AND name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
     const [count] = await this.db.query<{ total: string }[]>(
@@ -127,7 +139,7 @@ export class ShengxuLedgersService {
       params,
     );
     const list = await this.db.query<Record<string, unknown>[]>(
-      `SELECT id,name,city,country_or_region AS "countryOrRegion" FROM resource_agencies ${where} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT id,name,city,country_or_region AS "countryOrRegion"${delegate ? ',coordinator_id AS "coordinatorId",(SELECT nickname FROM users WHERE id=coordinator_id) AS "coordinatorName"' : ''} FROM resource_agencies ${where} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
@@ -144,15 +156,17 @@ export class ShengxuLedgersService {
   ) {
     this.access(actor);
     requirePermission(actor, 'resource:agency:list');
-    if (actor.scope === 'headquarters') forbidden();
+    if (actor.scope === 'headquarters' && !isLedgerRoot(actor)) forbidden();
     const existing = query.ledgerId
       ? await this.row(this.db.manager, query.ledgerId)
       : undefined;
     if (existing && !this.manageable(existing, actor)) forbidden();
-    const owner = existing?.creatorId ?? actor.id;
+    const owner = isLedgerRoot(actor)
+      ? null
+      : (existing?.creatorId ?? actor.id);
     if (existing?.agencyId !== agencyId) {
       const rows = await this.db.query<{ id: string }[]>(
-        `SELECT id FROM resource_agencies WHERE id=$1 AND coordinator_id=$2 AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL`,
+        `SELECT id FROM resource_agencies WHERE id=$1 AND ($2::uuid IS NULL OR coordinator_id=$2) AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL`,
         [agencyId, owner],
       );
       if (!rows.length) invalid('请选择关联收客计调的启用盛旭组团社');
@@ -179,13 +193,13 @@ export class ShengxuLedgersService {
   private async resources(
     manager: EntityManager,
     input: ShengxuLedgerInputDto,
-    owner: string,
+    owner: string | null,
     existing?: ShengxuRow,
   ) {
     let agency = existing;
     if (!existing || existing.agencyId !== input.agencyId) {
       [agency] = await manager.query<ShengxuRow[]>(
-        `SELECT name AS "agencyName",country_or_region AS "countryOrRegion",city FROM resource_agencies WHERE id=$1 AND coordinator_id=$2 AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL FOR SHARE`,
+        `SELECT name AS "agencyName",country_or_region AS "countryOrRegion",city,coordinator_id AS "coordinatorId" FROM resource_agencies WHERE id=$1 AND ($2::uuid IS NULL OR coordinator_id=$2) AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL FOR SHARE`,
         [input.agencyId, owner],
       );
       if (!agency) invalid('请选择关联收客计调的启用盛旭组团社');
@@ -204,12 +218,15 @@ export class ShengxuLedgersService {
       contactName = contact.name;
     }
     if (!agency) invalid('请选择有效组团社');
-    return [
-      agency.agencyName,
-      agency.countryOrRegion,
-      agency.city,
-      contactName,
-    ];
+    return {
+      coordinatorId: agency.coordinatorId,
+      snapshots: [
+        agency.agencyName,
+        agency.countryOrRegion,
+        agency.city,
+        contactName,
+      ],
+    };
   }
   private duplicate(error: unknown): never {
     if (
@@ -228,21 +245,32 @@ export class ShengxuLedgersService {
     requirePermission(actor, 'resource:agency:list');
     try {
       return await this.db.transaction(async (manager) => {
-        const resources = await this.resources(manager, input, actor.id);
+        const delegate = isLedgerRoot(actor);
+        const resources = await this.resources(
+          manager,
+          input,
+          delegate ? null : actor.id,
+        );
+        if (delegate && !resources.coordinatorId)
+          invalid('请选择关联启用盛旭计调的组团社');
+        const creator = delegate
+          ? await coordinator(manager, resources.coordinatorId!, 'shengxu')
+          : { id: actor.id, name: actor.nickname };
         const [row] = await manager.query<ShengxuRow[]>(
-          `INSERT INTO shengxu_ledgers(record_date,creator_id,creator_name,agency_id,contact_id,agency_name,country_or_region,city,contact_name,quoted_groups,converted_groups,quote_sent,itinerary,not_converted_reason,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$2) RETURNING ${SELECT}`,
+          `INSERT INTO shengxu_ledgers(record_date,creator_id,creator_name,agency_id,contact_id,agency_name,country_or_region,city,contact_name,quoted_groups,converted_groups,quote_sent,itinerary,not_converted_reason,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${SELECT}`,
           [
             input.recordDate,
-            actor.id,
-            actor.nickname,
+            creator.id,
+            creator.name,
             input.agencyId,
             input.contactId,
-            ...resources,
+            ...resources.snapshots,
             input.quotedGroups,
             input.convertedGroups,
             input.quoteSent,
             input.itinerary,
             input.notConvertedReason,
+            actor.id,
           ],
         );
         return this.present(row, actor);
@@ -276,7 +304,7 @@ export class ShengxuLedgersService {
             input.recordDate,
             input.agencyId,
             input.contactId,
-            ...resources,
+            ...resources.snapshots,
             input.quotedGroups,
             input.convertedGroups,
             input.quoteSent,

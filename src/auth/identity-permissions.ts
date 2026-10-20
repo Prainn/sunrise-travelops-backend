@@ -89,7 +89,11 @@ export function effectivePermissions(
   const ledgerPermissions =
     scope === 'headquarters'
       ? roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role))
-        ? LEDGER_PERMISSIONS.filter((p) => p.endsWith(':list'))
+        ? LEDGER_PERMISSIONS.filter(
+            (p) =>
+              p.endsWith(':list') ||
+              (roles.includes('ROOT') && p.endsWith(':create')),
+          )
         : []
       : roles.some((role) => ['BUSINESS_MANAGER', 'COORDINATOR'].includes(role))
         ? LEDGER_PERMISSIONS.filter(
