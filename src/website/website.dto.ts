@@ -1,4 +1,5 @@
 import { Transform, Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -128,6 +129,17 @@ export class WebsiteInquiryQuery extends PaginationQueryDto {
 export class WebsiteResourceQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(100) keyword: string | undefined =
     undefined;
+  @ApiPropertyOptional({
+    description:
+      '公共城市名称（非城市ID），去首尾空白后精确筛选 hotel/restaurant/attraction；空白或省略不筛选，city/transport 不接受非空值',
+    maxLength: 100,
+    example: '昆明',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  city?: string;
 }
 export class WebsiteBusinessQuery {
   @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;

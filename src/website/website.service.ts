@@ -1283,18 +1283,31 @@ export class WebsiteService {
       fail('BAD_REQUEST', '不支持的资源类型', HttpStatus.BAD_REQUEST);
     const resourceKind = kind as ResourceKind;
     const table = resourceTables[resourceKind];
-    const city =
+    const cityColumn =
       resourceKind === 'attraction'
-        ? ',area AS city'
+        ? 'area'
         : ['hotel', 'restaurant'].includes(resourceKind)
-          ? ',city'
+          ? 'city'
           : '';
-    const extra = resourceKind === 'transport' ? ',seats' : city;
-    const keyword = query.keyword
-      ? ` AND (name ILIKE $1 OR code ILIKE $1)`
-      : '';
-    const params: unknown[] = query.keyword ? [`%${query.keyword}%`] : [];
-    const where = ` WHERE deleted_at IS NULL AND status='enabled'${keyword}`;
+    const extra =
+      resourceKind === 'transport'
+        ? ',seats'
+        : cityColumn
+          ? `,${cityColumn} AS city`
+          : '';
+    const params: unknown[] = [];
+    let where = ` WHERE deleted_at IS NULL AND status='enabled'`;
+    if (query.keyword) {
+      params.push(`%${query.keyword}%`);
+      where += ` AND (name ILIKE $${params.length} OR code ILIKE $${params.length})`;
+    }
+    const city = query.city?.trim();
+    if (city) {
+      if (!cityColumn)
+        fail('BAD_REQUEST', '该资源类型不支持城市筛选', HttpStatus.BAD_REQUEST);
+      params.push(city);
+      where += ` AND ${cityColumn} = $${params.length}`;
+    }
     const count = await this.db.manager.query<{ total: string }[]>(
       `SELECT count(*)::text AS total FROM ${table}${where}`,
       params,
