@@ -9,7 +9,13 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -215,5 +221,44 @@ export class WebsiteController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.resources(kind, query, user);
+  }
+  @Get('resources/:kind/:id')
+  @Permissions('website:config:list')
+  @ApiOperation({
+    summary: '按公共资源 ID 读取简要信息（含停用主体，不含已删除主体）',
+  })
+  @ApiParam({
+    name: 'kind',
+    enum: ['city', 'attraction', 'hotel', 'restaurant', 'transport'],
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiOkResponse({
+    description:
+      '标准成功包装的 data 为单个资源；city 仅酒店/餐厅/景点返回，seats 仅车型返回。',
+    schema: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', example: 'SUCCESS' },
+        message: { type: 'string' },
+        data: {
+          type: 'object',
+          required: ['id', 'name', 'status'],
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            name: { type: 'string' },
+            status: { type: 'string', enum: ['enabled', 'disabled'] },
+            city: { type: 'string', nullable: true },
+            seats: { type: 'integer' },
+          },
+        },
+      },
+    },
+  })
+  resource(
+    @Param('kind') kind: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.resource(kind, id, user);
   }
 }

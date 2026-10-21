@@ -1,9 +1,18 @@
-import { ValidationPipe } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import type { Server } from 'node:http';
 import { DataSource } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { ApiExceptionFilter } from '../common/filters/api-exception.filter';
+import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
 import { createValidationException } from '../common/validation/validation-exception.factory';
+import { WebsiteController } from './website.controller';
 import { WebsiteResourceQuery } from './website.dto';
 import { WebsiteService } from './website.service';
+import type { ResourceDetail } from './website.service';
 
 const pipe = new ValidationPipe({
   whitelist: true,
@@ -146,4 +155,131 @@ describe('website public resource city filtering', () => {
     ).rejects.toMatchObject({ code: 'AUTH_FORBIDDEN' });
     expect(execute).not.toHaveBeenCalled();
   });
+});
+
+// In-memory HTTP app with a mocked database; never connects to a business database.
+describe('website public resource detail', () => {
+  const id = 'b6201fe4-dceb-47f9-a5eb-7e379963b85f';
+  let app: INestApplication<Server>;
+  let user = actor;
+  const execute = jest.fn<Promise<unknown[]>, [string, unknown[]]>();
+
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({
+      controllers: [WebsiteController],
+      providers: [
+        WebsiteService,
+        { provide: DataSource, useValue: { manager: { query: execute } } },
+      ],
+    }).compile();
+    app = module.createNestApplication<INestApplication<Server>>();
+    app.setGlobalPrefix('api');
+    app.use(
+      (req: { user: AuthenticatedUser }, _res: unknown, next: () => void) => {
+        req.user = user;
+        next();
+      },
+    );
+    app.useGlobalGuards(new PermissionsGuard(module.get(Reflector)));
+    app.useGlobalFilters(new ApiExceptionFilter());
+    app.useGlobalInterceptors(new ResponseInterceptor(module.get(Reflector)));
+    await app.init();
+  });
+  beforeEach(() => {
+    user = actor;
+    execute.mockReset();
+    execute.mockResolvedValue([]);
+  });
+  afterAll(async () => app?.close());
+
+  it.each([
+    ['restaurant', 'resource_restaurants', ',city', { city: '大理' }],
+    ['city', 'resource_cities', '', {}],
+    ['hotel', 'resource_hotels', ',city', { city: '大理' }],
+    ['attraction', 'resource_attractions', ',area AS city', { city: '大理' }],
+    ['transport', 'resource_transports', ',seats', { seats: 7 }],
+  ])(
+    'reads %s by ID without relying on a historical name or page',
+    async (kind, table, extra, fields) => {
+      const row = {
+        id,
+        name: '改名后的公共资源',
+        status: 'enabled',
+        ...fields,
+      };
+      execute.mockResolvedValue([row]);
+      const response = await request(app.getHttpServer())
+        .get(`/api/website/resources/${kind}/${id}`)
+        .expect(200);
+      expect(response.body).toMatchObject({ code: 'SUCCESS', data: row });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledWith(
+        `SELECT id,name,status${extra} FROM ${table} WHERE id=$1 AND deleted_at IS NULL`,
+        [id],
+      );
+    },
+  );
+
+  it.each(['website', 'linxi', 'headquarters'] as const)(
+    'allows %s to read a disabled historical reference without enabling it',
+    async (scope) => {
+      user = { ...actor, scope };
+      const row = { id, name: '停用餐厅', city: '大理', status: 'disabled' };
+      execute.mockResolvedValue([row]);
+      const response = await request(app.getHttpServer())
+        .get(`/api/website/resources/restaurant/${id}`)
+        .expect(200);
+      expect((response.body as { data: ResourceDetail }).data).toEqual(row);
+      expect(execute.mock.calls[0][0]).not.toContain("status='enabled'");
+    },
+  );
+
+  it('returns 404 when no nondeleted record exists, without a name fallback', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/api/website/resources/restaurant/${id}`)
+      .expect(404);
+    expect((response.body as { code: string }).code).toBe('NOT_FOUND');
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an unknown city instead of fabricating a match', async () => {
+    execute.mockResolvedValue([
+      { id, name: '餐厅', city: null, status: 'enabled' },
+    ]);
+    const response = await request(app.getHttpServer())
+      .get(`/api/website/resources/restaurant/${id}`)
+      .expect(200);
+    expect((response.body as { data: ResourceDetail }).data.city).toBeNull();
+  });
+
+  it.each([
+    ['restaurant', 'not-a-uuid'],
+    ['unknown', id],
+    ['constructor', id],
+    ['__proto__', id],
+  ])(
+    'rejects invalid kind/ID %s/%s before querying',
+    async (kind, resourceId) => {
+      const response = await request(app.getHttpServer())
+        .get(`/api/website/resources/${kind}/${resourceId}`)
+        .expect(400);
+      expect((response.body as { code: string }).code).toBe('BAD_REQUEST');
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { ...actor, permissions: [] },
+    { ...actor, scope: 'shengxu' as const },
+  ])(
+    'denies inaccessible actors before looking up an ID',
+    async (deniedActor) => {
+      user = deniedActor;
+      const response = await request(app.getHttpServer())
+        .get(`/api/website/resources/restaurant/${id}`)
+        .expect(403);
+      expect((response.body as { code: string }).code).toBe('AUTH_FORBIDDEN');
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -84,8 +84,72 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @MaxLength(200000)
   requirements: string;
   @IsOptional() @IsUUID() ownerId?: string;
-  @IsString() @MaxLength(50) phone = '';
-  @IsString() @MaxLength(254) email = '';
+  @ApiPropertyOptional({
+    description: '联系方式：自由文本，不校验电话或邮箱格式',
+    default: '',
+    maxLength: 500,
+  })
+  @IsString()
+  @MaxLength(500)
+  contactInfo = '';
+  @ApiPropertyOptional({
+    description: '收到日期，YYYY-MM-DD',
+    type: String,
+    nullable: true,
+    default: null,
+  })
+  @IsDefined()
+  @ValidateIf((o: WebsiteInquiryDto) => o.receivedDate !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  receivedDate: string | null = null;
+  @ApiPropertyOptional({
+    description: '收到时间（北京时间），HH:mm或空字符串',
+    default: '',
+  })
+  @IsString()
+  @Matches(/^(?:([01]\d|2[0-3]):[0-5]\d)?$/)
+  receivedTime = '';
+  @ApiPropertyOptional({
+    description: '联系渠道，手填',
+    default: '',
+    maxLength: 100,
+  })
+  @IsString()
+  @MaxLength(100)
+  contactChannel = '';
+  @ApiPropertyOptional({
+    description: 'WhatsApp来源编号，手填，不关联来源表',
+    default: '',
+    maxLength: 200,
+  })
+  @IsString()
+  @MaxLength(200)
+  whatsappSourceId = '';
+  @ApiPropertyOptional({
+    description: '外部网站询盘编号，手填',
+    default: '',
+    maxLength: 200,
+  })
+  @IsString()
+  @MaxLength(200)
+  websiteInquiryNo = '';
+  @ApiPropertyOptional({
+    description: '首次进入网站的页面，手填',
+    default: '',
+    maxLength: 2000,
+  })
+  @IsString()
+  @MaxLength(2000)
+  landingPage = '';
+  @ApiPropertyOptional({
+    description: '获客来源，手填',
+    default: '',
+    maxLength: 200,
+  })
+  @IsString()
+  @MaxLength(200)
+  acquisitionSource = '';
   @IsDefined()
   @ValidateIf((o: WebsiteInquiryDto) => o.startDate !== null)
   @IsDateString({ strict: true })
@@ -98,8 +162,6 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @Min(1)
   @Max(10000)
   pax: number | null = null;
-  @IsString() @MaxLength(100) arrivalTime = '';
-  @IsString() @MaxLength(100) departureTime = '';
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(365)
