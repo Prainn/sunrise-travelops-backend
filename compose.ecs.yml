@@ -17,6 +17,11 @@ x-api-environment: &api-environment
   CORS_ORIGIN: ${CORS_ORIGIN:?required}
   TRUST_PROXY: "1"
   LOG_LEVEL: info
+  LYNX_VISITS_DB_HOST: lynx-visits-db
+  LYNX_VISITS_DB_PORT: 5432
+  LYNX_VISITS_DB_NAME: travelops_dev
+  LYNX_VISITS_DB_USER: lynxtour_viewer
+  LYNX_VISITS_DB_PASSWORD: ${LYNX_VISITS_DB_PASSWORD:-}
 
 x-logging: &logging
   driver: json-file
@@ -72,6 +77,7 @@ services:
     networks:
       app:
         aliases: ["api-${DEPLOY_ENV}"]
+      visits_read: {}
     restart: unless-stopped
     mem_limit: 512m
     logging: *logging
@@ -97,6 +103,9 @@ services:
     logging: *logging
 
 networks:
+  visits_read:
+    external: true
+    name: sunrise-lynx-visits-read
   app:
     external: true
     name: ${APP_NETWORK:?required}

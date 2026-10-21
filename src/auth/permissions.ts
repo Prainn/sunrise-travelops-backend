@@ -89,6 +89,8 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'website:visit:list': '查看独立站访问记录',
+  'website:visit:export': '导出独立站访问记录',
   'sys:menu-permission:list': '查看菜单权限',
   'sys:menu-permission:update': '配置菜单权限',
   'sys:operation-log:list': '查看操作日志',

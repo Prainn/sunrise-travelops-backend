@@ -16,8 +16,8 @@
 | `src/dashboard` | 首页只读聚合；复用询盘、独立站、成团及请假 Service 的范围逻辑 |
 | `src/resources` / `src/system` | 公共资源、航班、独立导游人员及组团社联系人；系统与业务字典 |
 | `src/operation-logs` | 系统管理操作日志；与询盘差异/调价历史独立 |
-| `src/health` / `src/lynx` | Terminus 探测；独立公开访问记录（不混入业务 API/Swagger） |
-| `ops/lynxtour-visits` | 独立只读表格服务、静态页面及运维脚本；独立 Basic 认证和只读账号，不随 NestJS 启动或业务镜像发布，接口见统一 API 合同第 20 节 |
+| `src/health` / `src/lynx` | Terminus 探测；公开归因登记/Resolver及JWT访问记录台账；公开接口与业务接口认证独立 |
+| `ops/lynxtour-visits` | 原独立只读表格部署及退役入口；现行访问记录台账见统一 API 合同第 20 节 |
 | `src/config` / `src/database` / `src/migrations` | 环境校验、连接与 migration CLI、完整 schema 链 |
 
 不要根据业务名猜测模块目录。

@@ -1,3 +1,7 @@
+import { ConfigService } from '@nestjs/config';
+import { WebsiteVisitsController } from '../src/lynx/website-visits.controller';
+import { WebsiteVisitsService } from '../src/lynx/website-visits.service';
+import { WebsiteVisitsReader } from '../src/lynx/website-visits-reader';
 /** Disposable localhost PostgreSQL 16 only; never loads application .env files. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -49,11 +53,14 @@ async function call<T = WebsiteInquiry>(
   body?: unknown,
   expected = 200,
 ): Promise<T> {
-  const response = await fetch(`${base}/api/website/${path}`, {
-    method,
-    headers: { 'content-type': 'application/json', 'x-test-actor': actor },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const response = await fetch(
+    `${base}/api${path.startsWith('/') ? path : `/website/${path}`}`,
+    {
+      method,
+      headers: { 'content-type': 'application/json', 'x-test-actor': actor },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+  );
   const payload = (await response.json()) as { code: string; data: T };
   assert.equal(
     response.status,
@@ -61,7 +68,11 @@ async function call<T = WebsiteInquiry>(
     `${actor} ${method} ${path}: ${JSON.stringify(payload)}`,
   );
   if (expected === 400) assert.equal(payload.code, 'VALIDATION_ERROR');
-  if (expected === 409) assert.equal(payload.code, 'INQUIRY_VERSION_CONFLICT');
+  if (expected === 409)
+    assert.equal(
+      payload.code,
+      path.startsWith('/ledgers/') ? 'CONFLICT' : 'INQUIRY_VERSION_CONFLICT',
+    );
   requests++;
   return payload.data;
 }
@@ -125,8 +136,10 @@ async function run() {
       db.migrations.length,
       ...all.filter(
         (m) =>
-          (m.name ?? m.constructor.name) !==
-          'UpdateWebsiteInquiryFields1792886400000',
+          ![
+            'UpdateWebsiteInquiryFields1792886400000',
+            'AddWebsiteVisitLedger1792972800000',
+          ].includes(m.name ?? m.constructor.name),
       ),
     );
     await db.runMigrations();
@@ -176,13 +189,54 @@ async function run() {
       'SELECT code,updated_at FROM website_inquiries WHERE id=$1',
       [legacy],
     );
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...all.filter(
+        (m) =>
+          (m.name ?? m.constructor.name) !==
+          'AddWebsiteVisitLedger1792972800000',
+      ),
+    );
+    assert.equal((await db.runMigrations()).length, 1);
+    await db.query(
+      `UPDATE website_inquiries SET received_date='2024-02-29', received_time='23:59' WHERE id=$1`,
+      [legacy],
+    );
+    await db.query(
+      `UPDATE website_inquiries SET received_date='2026-10-21' WHERE id=$1`,
+      [emptyPhone],
+    );
+    const timeOnly = randomUUID();
+    await db.query(
+      `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,status,business_unit,country_item_id,country_code,country_or_region,received_time) VALUES($1,'WIQ-TIME-ONLY','Time only',1,'old',$2,'web','new','website',$3,'MYS','马来西亚','11:52')`,
+      [timeOnly, owner, country.id],
+    );
     db.migrations.splice(0, db.migrations.length, ...all);
     assert.equal((await db.runMigrations()).length, 1);
+    for (const [id, expected] of [
+      [legacy, '2024-02-29 23:59'],
+      [emptyPhone, '2026-10-21 00:00'],
+      [timeOnly, null],
+    ]) {
+      const [row] = await db.query<{ received_at: string | null }[]>(
+        `SELECT to_char(received_at,'YYYY-MM-DD HH24:MI') AS received_at FROM website_inquiries WHERE id=$1`,
+        [id],
+      );
+      assert.equal(row.received_at, expected);
+    }
     assert.equal((await db.runMigrations()).length, 0);
     const columns = await db.query<{ column_name: string }[]>(
       `SELECT column_name FROM information_schema.columns WHERE table_name='website_inquiries'`,
     );
-    for (const old of ['phone', 'email', 'arrival_time', 'departure_time'])
+    for (const old of [
+      'phone',
+      'email',
+      'arrival_time',
+      'departure_time',
+      'received_date',
+      'received_time',
+    ])
       assert(!columns.some((c) => c.column_name === old));
     assert.deepEqual(
       (
@@ -202,14 +256,48 @@ async function run() {
     );
     await assert.rejects(
       db.query(
-        `UPDATE website_inquiries SET received_time='24:00' WHERE id=$1`,
+        `UPDATE website_inquiries SET received_at='2026-02-30 24:00' WHERE id=$1`,
         [legacy],
       ),
-      /check constraint/,
+      /out of range/,
     );
+    const visitSource = await source(names[0]).initialize();
+    const visitId = randomUUID(),
+      outsideId = randomUUID();
+    await admin.query(
+      "CREATE ROLE visits_test_reader LOGIN PASSWORD 'readonly-test'",
+    );
+    await visitSource.query(
+      'GRANT USAGE ON SCHEMA public TO visits_test_reader; GRANT SELECT ON lynx_visits TO visits_test_reader',
+    );
+    for (const [id, ref, created] of [
+      [visitId, 'LX-K8GQ76RHK4', '2026-10-20T16:00:00Z'],
+      [outsideId, 'LX-OUTSIDE', '2026-10-20T15:59:59Z'],
+    ]) {
+      await visitSource.query(
+        `INSERT INTO lynx_visits(id,whatsapp_reference,website_inquiry_id,contract_version,first_landing_page,external_referrer,utm_source,created_at_utc,expires_at_utc,payload_fingerprint) VALUES($1,$2,'WEB-42','test','https://lynxtour.cn/tour','https://example.test/','=formula',$3,$3::timestamptz+interval '180 days',repeat('a',64))`,
+        [id, ref, created],
+      );
+    }
+    await visitSource.destroy();
     const module = await Test.createTestingModule({
-      controllers: [WebsiteController],
-      providers: [WebsiteService, { provide: DataSource, useValue: db }],
+      controllers: [WebsiteController, WebsiteVisitsController],
+      providers: [
+        WebsiteService,
+        WebsiteVisitsService,
+        WebsiteVisitsReader,
+        {
+          provide: ConfigService,
+          useValue: new ConfigService({
+            LYNX_VISITS_DB_HOST: '127.0.0.1',
+            LYNX_VISITS_DB_PORT: 55451,
+            LYNX_VISITS_DB_NAME: names[0],
+            LYNX_VISITS_DB_USER: 'visits_test_reader',
+            LYNX_VISITS_DB_PASSWORD: 'readonly-test',
+          }),
+        },
+        { provide: DataSource, useValue: db },
+      ],
     }).compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
@@ -234,7 +322,7 @@ async function run() {
     assert.equal(old.contactInfo, 'legacy-phone');
     assert.equal(old.code, before.code);
     assert.equal(old.updatedAt, before.updated_at.toISOString());
-    assert.equal(old.receivedDate, null);
+    assert.equal(old.receivedAt, '2024-02-29 23:59');
     assert.equal(
       (await call('web', 'GET', `inquiries/${emptyPhone}`)).contactInfo,
       '',
@@ -247,8 +335,7 @@ async function run() {
     };
     const fields = {
       contactInfo: '任意文字 / not an email @ +86',
-      receivedDate: '2024-02-29',
-      receivedTime: '23:59',
+      receivedAt: '2024-02-29 23:59',
       contactChannel: 'WhatsApp / 邮件',
       whatsappSourceId: 'WA-free-text',
       websiteInquiryNo: 'external-123',
@@ -280,8 +367,7 @@ async function run() {
     assert.equal(lx.code, `KMLX-WIQ-${date}AS2-MYS`);
     assert.equal(lx.businessUnit, 'linxi');
     assert.equal(lx.contactInfo, '');
-    assert.equal(lx.receivedTime, '');
-    assert.equal(lx.receivedDate, null);
+    assert.equal(lx.receivedAt, null);
     const list = await call<{ list: WebsiteInquiry[]; total: number }>(
       'web',
       'GET',
@@ -307,17 +393,18 @@ async function run() {
       { departureTime: '' },
       { updatedAt: created.updatedAt },
       { code: 'client' },
-      { receivedDate: '2026-02-30' },
-      { receivedTime: '24:00' },
-      { receivedTime: '9:01' },
-      { receivedTime: null },
+      { receivedAt: '2026-02-30 12:00' },
+      { receivedAt: '2026-02-28 24:00' },
+      { receivedAt: '2026-02-28 9:01' },
+      { receivedDate: null },
+      { receivedTime: '' },
       { contactInfo: null },
       { contactInfo: 'x'.repeat(501) },
       { contactChannel: 'x'.repeat(101) },
       { whatsappSourceId: 'x'.repeat(201) },
       { websiteInquiryNo: 'x'.repeat(201) },
-      { landingPage: 'x'.repeat(2001) },
-      { acquisitionSource: 'x'.repeat(201) },
+      { landingPage: 'x'.repeat(2049) },
+      { acquisitionSource: 'x'.repeat(2049) },
     ])
       await call('web', 'POST', 'inquiries', { ...input, ...patch }, 400);
     await call(
@@ -331,7 +418,7 @@ async function run() {
       ...input,
       ...fields,
       contactInfo: 'new contact',
-      receivedTime: '00:00',
+      receivedAt: '2026-10-21 00:00',
       countryItemId: unknown.id,
       version: created.version,
     });
@@ -354,7 +441,7 @@ async function run() {
     for (const key of Object.keys(fields))
       assert.equal(
         cleared[key as keyof WebsiteInquiry],
-        key === 'receivedDate' ? null : '',
+        key === 'receivedAt' ? null : '',
       );
     const transferred = await call(
       'root',
@@ -397,19 +484,169 @@ async function run() {
       'web',
       'POST',
       'inquiries',
-      { ...input, countryItemId: unknown.id, receivedTime: '00:00' },
+      { ...input, countryItemId: unknown.id, receivedAt: null },
       201,
     );
     assert.match(withUnknown.code, /-UNKNOWN$/);
-    assert.equal(withUnknown.receivedDate, null);
+    assert.equal(withUnknown.receivedAt, null);
+    type VisitList = {
+      total: number;
+      list: Array<{
+        id: string;
+        converted: boolean;
+        inquiry: { id: string; code: string } | null;
+      }>;
+    };
+    const visitsPath = '/ledgers/website-visits';
+    const visits = await call<VisitList>(
+      'web',
+      'GET',
+      visitsPath + '?start=2026-10-21&end=2026-10-21',
+    );
+    assert.equal(visits.total, 1);
+    assert.equal(visits.list[0].id, visitId);
+    assert.equal(visits.list[0].converted, false);
+    await call('linxi', 'GET', visitsPath, undefined, 403);
+    await call('shengxu', 'GET', visitsPath, undefined, 403);
+    await call(
+      'readonly',
+      'GET',
+      `${visitsPath}/${visitId}/inquiry-draft`,
+      undefined,
+      403,
+    );
+    await call('web', 'GET', visitsPath + '?start=2026-10-21', undefined, 400);
+    await call(
+      'web',
+      'GET',
+      visitsPath + '?start=2026-10-22&end=2026-10-21',
+      undefined,
+      400,
+    );
+    const prefill = await call<Record<string, unknown>>(
+      'web',
+      'GET',
+      `${visitsPath}/${visitId}/inquiry-draft`,
+    );
+    assert.equal(prefill.whatsappSourceId, 'LX-K8GQ76RHK4');
+    assert.equal(prefill.websiteInquiryNo, 'WEB-42');
+    assert.equal(prefill.receivedAt, '2026-10-21 00:00');
+    assert.equal(prefill.landingPage, 'https://lynxtour.cn/tour');
+    assert.equal(prefill.acquisitionSource, '=formula');
+    assert.equal(prefill.contactChannel, 'WhatsApp');
+    assert(!('customerName' in prefill));
+    await call(
+      'web',
+      'POST',
+      `${visitsPath}/${visitId}/inquiry`,
+      { ...prefill },
+      400,
+    );
+    await call(
+      'web',
+      'POST',
+      `${visitsPath}/${visitId}/inquiry`,
+      { ...input, ...prefill, businessUnit: 'linxi' },
+      403,
+    );
+    const answers = await Promise.all(
+      Array.from({ length: 2 }, () =>
+        fetch(`${base}/api${visitsPath}/${visitId}/inquiry`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-test-actor': 'web',
+          },
+          body: JSON.stringify({ ...input, ...prefill }),
+        }),
+      ),
+    );
+    assert.deepEqual(answers.map((r) => r.status).sort(), [201, 409]);
+    requests += 2;
+    const generated = (
+      await call<VisitList>('web', 'GET', visitsPath + '?keyword=K8GQ')
+    ).list[0];
+    assert.equal(generated.converted, true);
+    assert(generated.inquiry?.id);
+    assert.equal(
+      (await call('web', 'GET', `inquiries/${generated.inquiry.id}`))
+        .receivedAt,
+      '2026-10-21 00:00',
+    );
+    const hidden = (
+      await call<VisitList>('other', 'GET', visitsPath + '?keyword=K8GQ')
+    ).list[0];
+    assert.equal(hidden.converted, true);
+    assert.equal(hidden.inquiry, null);
+    await call(
+      'web',
+      'GET',
+      `${visitsPath}/${visitId}/inquiry-draft`,
+      undefined,
+      409,
+    );
+    await call(
+      'web',
+      'POST',
+      `${visitsPath}/${visitId}/inquiry`,
+      { ...input, ...prefill },
+      409,
+    );
+    await call(
+      'web',
+      'GET',
+      `${visitsPath}/${randomUUID()}/inquiry-draft`,
+      undefined,
+      404,
+    );
+    const csv = await fetch(
+      `${base}/api${visitsPath}/export?start=2026-10-21&end=2026-10-21`,
+      { headers: { 'x-test-actor': 'web' } },
+    );
+    assert.equal(csv.status, 200);
+    assert.match(csv.headers.get('content-type') ?? '', /text\/csv/);
+    const csvText = await csv.text();
+    assert(csvText.includes('LX-K8GQ76RHK4'));
+    assert(!csvText.includes('LX-OUTSIDE'));
+    assert(csvText.includes("'="));
+    assert(!csvText.includes('converted'));
+    await call('web', 'GET', visitsPath + '/export', undefined, 400);
+    await call(
+      'linxi',
+      'GET',
+      visitsPath + '/export?start=2026-10-21&end=2026-10-21',
+      undefined,
+      403,
+    );
+    const sourceConnection = new DataSource({
+      ...connection,
+      database: names[0],
+      username: 'visits_test_reader',
+      password: 'readonly-test',
+    });
+    await sourceConnection.initialize();
+    assert.equal(
+      (
+        await sourceConnection.query<{ total: string }[]>(
+          'SELECT count(*)::text total FROM lynx_visits',
+        )
+      )[0].total,
+      '2',
+    );
+    await assert.rejects(
+      sourceConnection.query('DELETE FROM lynx_visits'),
+      /permission denied/,
+    );
+    await sourceConnection.destroy();
     console.log(
-      `PASS: ${requests} HTTP checks; empty + repeat migrations, legacy upgrade, phone-only conversion, frozen snapshot and itinerary preservation, fields roundtrip/clear, validation, versions, scope, numbering concurrency/collision/deletion.`,
+      `PASS: ${requests} HTTP checks; empty + repeat migrations, legacy upgrade, phone-only conversion, frozen snapshot and itinerary preservation, fields roundtrip/clear, validation, versions, scope, numbering concurrency/collision/deletion; cross-database read-only visit source, Beijing range/CSV, draft mapping, transactional conversion and visibility.`,
     );
   } finally {
     if (app) await app.close();
     if (db?.isInitialized) await db.destroy();
     for (const name of names)
       await admin.query(`DROP DATABASE IF EXISTS "${name}"`);
+    await admin.query('DROP ROLE IF EXISTS visits_test_reader');
     await admin.destroy();
   }
 }

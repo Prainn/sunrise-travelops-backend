@@ -86,6 +86,15 @@ export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
 ): string[] {
+  const visitPermissions =
+    (scope === 'website' &&
+      roles.some((role) =>
+        ['BUSINESS_MANAGER', 'COORDINATOR'].includes(role),
+      )) ||
+    (scope === 'headquarters' &&
+      roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role)))
+      ? ['website:visit:list', 'website:visit:export']
+      : [];
   const ledgerPermissions =
     scope === 'headquarters'
       ? roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role))
@@ -114,11 +123,18 @@ export function effectivePermissions(
       ...ROLE_PERMISSIONS.ROOT,
       ...WEBSITE_ROLE_PERMISSIONS.ROOT,
       ...ledgerPermissions,
+      ...visitPermissions,
     ];
   if (scope === 'headquarters' && selected.includes('EXECUTIVE'))
-    return [...reads, ...websiteReads, ...ledgerPermissions];
+    return [
+      ...reads,
+      ...websiteReads,
+      ...ledgerPermissions,
+      ...visitPermissions,
+    ];
   return [
     ...ledgerPermissions,
+    ...visitPermissions,
     ...new Set(
       selected.flatMap((role) => [
         ...(ROLE_PERMISSIONS[role] ?? []),

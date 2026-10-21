@@ -93,23 +93,16 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @MaxLength(500)
   contactInfo = '';
   @ApiPropertyOptional({
-    description: '收到日期，YYYY-MM-DD',
+    description: '收到时间（北京时间），YYYY-MM-DD HH:mm',
     type: String,
     nullable: true,
     default: null,
   })
   @IsDefined()
-  @ValidateIf((o: WebsiteInquiryDto) => o.receivedDate !== null)
+  @ValidateIf((o: WebsiteInquiryDto) => o.receivedAt !== null)
   @IsDateString({ strict: true })
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  receivedDate: string | null = null;
-  @ApiPropertyOptional({
-    description: '收到时间（北京时间），HH:mm或空字符串',
-    default: '',
-  })
-  @IsString()
-  @Matches(/^(?:([01]\d|2[0-3]):[0-5]\d)?$/)
-  receivedTime = '';
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
+  receivedAt: string | null = null;
   @ApiPropertyOptional({
     description: '联系渠道，手填',
     default: '',
@@ -137,18 +130,18 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @ApiPropertyOptional({
     description: '首次进入网站的页面，手填',
     default: '',
-    maxLength: 2000,
+    maxLength: 2048,
   })
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(2048)
   landingPage = '';
   @ApiPropertyOptional({
     description: '获客来源，手填',
     default: '',
-    maxLength: 200,
+    maxLength: 2048,
   })
   @IsString()
-  @MaxLength(200)
+  @MaxLength(2048)
   acquisitionSource = '';
   @IsDefined()
   @ValidateIf((o: WebsiteInquiryDto) => o.startDate !== null)

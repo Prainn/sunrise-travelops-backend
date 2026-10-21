@@ -39,6 +39,7 @@ BREAKING_MIGRATIONS = {
     'AddItineraryDayRecycle1792627200000',
     'UpdateDirectLedgerWorkflow1792713600000',
     'UpdateWebsiteInquiryFields1792886400000',
+    'AddWebsiteVisitLedger1792972800000',
 }
 INSPECT_MIGRATIONS = """
 const fs = require('fs'), crypto = require('crypto'), path = require('path');

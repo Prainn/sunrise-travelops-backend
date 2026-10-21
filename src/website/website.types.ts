@@ -83,8 +83,7 @@ export interface WebsiteInquiryInput {
   requirements: string;
   ownerId?: string;
   contactInfo: string;
-  receivedDate: string | null;
-  receivedTime: string;
+  receivedAt: string | null;
   contactChannel: string;
   whatsappSourceId: string;
   websiteInquiryNo: string;

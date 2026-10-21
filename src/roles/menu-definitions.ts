@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'website-visits',
+    title: 'websiteVisits',
+    group: 'dataLedgers',
+    permissions: ['website:visit:list'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
     key: 'dict',
     title: 'systemDictionary',
     group: 'systemManagement',

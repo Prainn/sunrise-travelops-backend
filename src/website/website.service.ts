@@ -71,7 +71,7 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   EXISTS(SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active') AS "hasActiveTour",
   i.country_item_id AS "countryItemId",i.country_code AS "countryCode",i.country_or_region AS "countryOrRegion",
   i.requirements,i.owner_id AS "ownerId",i.owner,i.contact_info AS "contactInfo",
-  i.received_date::text AS "receivedDate",i.received_time AS "receivedTime",i.contact_channel AS "contactChannel",
+  to_char(i.received_at,'YYYY-MM-DD HH24:MI') AS "receivedAt",i.contact_channel AS "contactChannel",
   i.whatsapp_source_id AS "whatsappSourceId",i.website_inquiry_no AS "websiteInquiryNo",
   i.landing_page AS "landingPage",i.acquisition_source AS "acquisitionSource",
   i.start_date::text AS "startDate",i.pax,i.destinations,
@@ -567,11 +567,15 @@ export class WebsiteService {
       ],
     );
   }
-  async create(input: WebsiteInquiryInput, user: AuthenticatedUser) {
+  async create(
+    input: WebsiteInquiryInput,
+    user: AuthenticatedUser,
+    transactionManager?: EntityManager,
+  ) {
     this.permission(user, 'website:inquiry:create');
     const businessUnit = this.businessUnit(user, input.businessUnit);
     if (input.status && input.status !== 'new') invalid('新询盘状态必须为new');
-    return this.db.transaction(async (manager) => {
+    const create = async (manager: EntityManager) => {
       let ownerId = input.ownerId;
       const managerRole =
         user.scope === 'headquarters' ||
@@ -645,8 +649,8 @@ export class WebsiteService {
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
         contact_info,start_date,pax,destinations,internal_remark,lost_reason,status,
         country_item_id,country_code,country_or_region,business_unit,
-        received_date,received_time,contact_channel,whatsapp_source_id,website_inquiry_no,landing_page,acquisition_source)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'','new',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+        received_at,contact_channel,whatsapp_source_id,website_inquiry_no,landing_page,acquisition_source)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'','new',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
         [
           id,
           code,
@@ -664,8 +668,7 @@ export class WebsiteService {
           country.code,
           country.name,
           businessUnit,
-          input.receivedDate,
-          input.receivedTime,
+          input.receivedAt,
           input.contactChannel,
           input.whatsappSourceId,
           input.websiteInquiryNo,
@@ -675,7 +678,10 @@ export class WebsiteService {
       );
       await this.log(manager, id, 'inquiry_created', id, user);
       return this.inquiry(id, user, manager);
-    });
+    };
+    return transactionManager
+      ? create(transactionManager)
+      : this.db.transaction(create);
   }
   async update(
     id: string,
@@ -710,8 +716,8 @@ export class WebsiteService {
       await manager.query(
         `UPDATE website_inquiries SET country_item_id=$12,country_code=$13,country_or_region=$14,customer_name=$2,planned_days=$3,requirements=$4,contact_info=$5,
         start_date=$6,pax=$7,destinations=$8,internal_remark=$9,lost_reason=$10,status=$11,
-        received_date=$15,received_time=$16,contact_channel=$17,whatsapp_source_id=$18,website_inquiry_no=$19,
-        landing_page=$20,acquisition_source=$21,version=version+1,updated_at=now() WHERE id=$1`,
+        received_at=$15,contact_channel=$16,whatsapp_source_id=$17,website_inquiry_no=$18,
+        landing_page=$19,acquisition_source=$20,version=version+1,updated_at=now() WHERE id=$1`,
         [
           id,
           input.customerName,
@@ -727,8 +733,7 @@ export class WebsiteService {
           country.id,
           country.code,
           country.name,
-          input.receivedDate,
-          input.receivedTime,
+          input.receivedAt,
           input.contactChannel,
           input.whatsappSourceId,
           input.websiteInquiryNo,
