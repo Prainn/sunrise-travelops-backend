@@ -1,3 +1,4 @@
+import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
@@ -13,6 +14,7 @@ import type {
   WebsiteConfig,
   WebsiteInquiry,
   WebsiteInquiryInput,
+  WebsiteDay,
   WebsiteItinerary,
   WebsiteItineraryInput,
   WebsiteLog,
@@ -48,6 +50,10 @@ export interface ResourceOption {
   city?: string;
   seats?: number;
 }
+export interface ResourceDetail extends Omit<ResourceOption, 'city'> {
+  city?: string | null;
+  status: 'enabled' | 'disabled';
+}
 export interface OwnerOption {
   id: string;
   name: string;
@@ -64,8 +70,11 @@ const resourceTables: Record<ResourceKind, string> = {
 const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer_name AS "customerName",i.planned_days AS "plannedDays",
   EXISTS(SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active') AS "hasActiveTour",
   i.country_item_id AS "countryItemId",i.country_code AS "countryCode",i.country_or_region AS "countryOrRegion",
-  i.requirements,i.owner_id AS "ownerId",i.owner,i.phone,i.email,i.start_date::text AS "startDate",i.pax,
-  i.arrival_time AS "arrivalTime",i.departure_time AS "departureTime",i.destinations,
+  i.requirements,i.owner_id AS "ownerId",i.owner,i.contact_info AS "contactInfo",
+  to_char(i.received_at,'YYYY-MM-DD HH24:MI') AS "receivedAt",i.contact_channel AS "contactChannel",
+  i.whatsapp_source_id AS "whatsappSourceId",i.website_inquiry_no AS "websiteInquiryNo",
+  i.landing_page AS "landingPage",i.acquisition_source AS "acquisitionSource",
+  i.start_date::text AS "startDate",i.pax,i.destinations,
   i.internal_remark AS "internalRemark",i.lost_reason AS "lostReason",i.status,i.version,
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
@@ -558,11 +567,15 @@ export class WebsiteService {
       ],
     );
   }
-  async create(input: WebsiteInquiryInput, user: AuthenticatedUser) {
+  async create(
+    input: WebsiteInquiryInput,
+    user: AuthenticatedUser,
+    transactionManager?: EntityManager,
+  ) {
     this.permission(user, 'website:inquiry:create');
     const businessUnit = this.businessUnit(user, input.businessUnit);
     if (input.status && input.status !== 'new') invalid('新询盘状态必须为new');
-    return this.db.transaction(async (manager) => {
+    const create = async (manager: EntityManager) => {
       let ownerId = input.ownerId;
       const managerRole =
         user.scope === 'headquarters' ||
@@ -589,13 +602,55 @@ export class WebsiteService {
         'country-region',
         input.countryItemId,
       );
-      const id = randomUUID(),
-        code = await nextBusinessCode(manager, 'WIQ');
+      const [creator] = await manager.query<{ tourCode: string | null }[]>(
+        'SELECT tour_code AS "tourCode" FROM users WHERE id=$1 FOR SHARE',
+        [user.id],
+      );
+      if (!creator?.tourCode)
+        fail(
+          'VALIDATION_ERROR',
+          '当前账号未设置团号标识',
+          HttpStatus.BAD_REQUEST,
+        );
+      const [day] = await manager.query<{ date: string }[]>(
+        `SELECT (now() AT TIME ZONE 'Asia/Shanghai')::date::text AS date`,
+      );
+      // Reserve the rendered code independently of the business row: deletion
+      // cannot reuse it. One daily lock also covers ambiguous digit-ending markers.
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        `website-inquiry-number:${day.date}`,
+      ]);
+      const [counter] = await manager.query<{ next: number }[]>(
+        `SELECT (coalesce(max(sequence),0)+1)::integer AS next
+         FROM website_inquiry_numbers WHERE creator_code=$1 AND creation_date=$2`,
+        [creator.tourCode, day.date],
+      );
+      const base = tourNumberBase(
+        'KMLX-WIQ',
+        day.date,
+        creator.tourCode,
+        country.code,
+      );
+      const taken = await manager.query<{ code: string }[]>(
+        'SELECT code FROM website_inquiry_numbers WHERE creation_date=$1',
+        [day.date],
+      );
+      const code = pickTourNumber(
+        base,
+        counter.next,
+        new Set(taken.map((row) => row.code)),
+      );
+      await manager.query(
+        `INSERT INTO website_inquiry_numbers(code,creator_code,creation_date,sequence) VALUES($1,$2,$3,$4)`,
+        [code, creator.tourCode, day.date, counter.next],
+      );
+      const id = randomUUID();
       await manager.query(
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
-        phone,email,start_date,pax,arrival_time,departure_time,destinations,internal_remark,lost_reason,status,
-        country_item_id,country_code,country_or_region,business_unit)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'','new',$16,$17,$18,$19)`,
+        contact_info,start_date,pax,destinations,internal_remark,lost_reason,status,
+        country_item_id,country_code,country_or_region,business_unit,
+        received_at,contact_channel,whatsapp_source_id,website_inquiry_no,landing_page,acquisition_source)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'','new',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
         [
           id,
           code,
@@ -604,23 +659,29 @@ export class WebsiteService {
           input.requirements,
           owner.id,
           owner.name,
-          input.phone,
-          input.email,
+          input.contactInfo,
           input.startDate,
           input.pax,
-          input.arrivalTime,
-          input.departureTime,
           input.destinations,
           input.internalRemark,
           country.id,
           country.code,
           country.name,
           businessUnit,
+          input.receivedAt,
+          input.contactChannel,
+          input.whatsappSourceId,
+          input.websiteInquiryNo,
+          input.landingPage,
+          input.acquisitionSource,
         ],
       );
       await this.log(manager, id, 'inquiry_created', id, user);
       return this.inquiry(id, user, manager);
-    });
+    };
+    return transactionManager
+      ? create(transactionManager)
+      : this.db.transaction(create);
   }
   async update(
     id: string,
@@ -653,20 +714,18 @@ export class WebsiteService {
               input.countryItemId,
             );
       await manager.query(
-        `UPDATE website_inquiries SET country_item_id=$15,country_code=$16,country_or_region=$17,customer_name=$2,planned_days=$3,requirements=$4,phone=$5,email=$6,
-        start_date=$7,pax=$8,arrival_time=$9,departure_time=$10,destinations=$11,internal_remark=$12,lost_reason=$13,
-        status=$14,version=version+1,updated_at=now() WHERE id=$1`,
+        `UPDATE website_inquiries SET country_item_id=$12,country_code=$13,country_or_region=$14,customer_name=$2,planned_days=$3,requirements=$4,contact_info=$5,
+        start_date=$6,pax=$7,destinations=$8,internal_remark=$9,lost_reason=$10,status=$11,
+        received_at=$15,contact_channel=$16,whatsapp_source_id=$17,website_inquiry_no=$18,
+        landing_page=$19,acquisition_source=$20,version=version+1,updated_at=now() WHERE id=$1`,
         [
           id,
           input.customerName,
           input.plannedDays,
           input.requirements,
-          input.phone,
-          input.email,
+          input.contactInfo,
           input.startDate,
           input.pax,
-          input.arrivalTime,
-          input.departureTime,
           input.destinations,
           input.internalRemark,
           input.lostReason,
@@ -674,6 +733,12 @@ export class WebsiteService {
           country.id,
           country.code,
           country.name,
+          input.receivedAt,
+          input.contactChannel,
+          input.whatsappSourceId,
+          input.websiteInquiryNo,
+          input.landingPage,
+          input.acquisitionSource,
         ],
       );
       await this.log(
@@ -789,7 +854,19 @@ export class WebsiteService {
     const oldConfig = old
       ? await this.config(manager, businessUnit, old.configVersion)
       : config;
-    const ids = input.days.flatMap((d) => [
+    const allDays = [
+      ...input.days,
+      ...(input.deletedDays ?? []).map((entry) => entry.day),
+    ];
+    if (old)
+      old = {
+        ...old,
+        days: [
+          ...old.days,
+          ...(old.deletedDays ?? []).map((entry) => entry.day),
+        ],
+      };
+    const ids = allDays.flatMap((d) => [
       d.id,
       ...d.items.map((i) => i.id),
       ...d.legs.map((l) => l.id),
@@ -823,9 +900,9 @@ export class WebsiteService {
       if (!row || (!retainedCities.has(id) && row.status !== 'enabled'))
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
-    const days = input.days.map((day) => {
-      city(day.departCityId);
-      city(day.endCityId);
+    const normalized = allDays.map((day, index) => {
+      if (index < input.days.length || day.departCityId) city(day.departCityId);
+      if (index < input.days.length || day.endCityId) city(day.endCityId);
       if (day.overnightCityId) city(day.overnightCityId);
       if (
         duplicate(day.hotels.map((h) => h.tier)) ||
@@ -896,14 +973,23 @@ export class WebsiteService {
       });
       return { ...day, items };
     });
-    const refs = this.planReferences(input, config);
+    const refs = this.planReferences({ ...input, days: normalized }, config);
     const issues = await this.resourceIssues(
       manager,
       refs,
       old ? this.planReferences(old, oldConfig) : [],
     );
     if (issues.length) invalid('行程引用的共享资源不可用', { issues });
-    return { ...input, days };
+    const days = normalized.slice(0, input.days.length);
+    return {
+      ...input,
+      days,
+      deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
+        ...entry,
+        day: normalized[input.days.length + index],
+      })),
+      duration: days.length || input.duration,
+    };
   }
   private async insertItinerary(
     manager: EntityManager,
@@ -930,7 +1016,13 @@ export class WebsiteService {
         input.configVersion,
       ],
     );
-    await saveWebsiteDetails(manager, id, input.days, input.vehiclePrices);
+    await saveWebsiteDetails(
+      manager,
+      id,
+      input.days,
+      input.vehiclePrices,
+      input.deletedDays,
+    );
     await manager.query(
       "UPDATE website_inquiries SET status=CASE WHEN status='new' THEN 'planning' ELSE status END,version=version+1,updated_at=now() WHERE id=$1",
       [inquiryId],
@@ -983,6 +1075,7 @@ export class WebsiteService {
       itinerary.id,
       input.days,
       input.vehiclePrices,
+      input.deletedDays,
     );
     await this.log(manager, itinerary.inquiryId, action, itinerary.id, user);
     return (await this.itinerary(itinerary.id, user, manager)).itinerary;
@@ -1022,19 +1115,24 @@ export class WebsiteService {
       );
       await this.mutable(inquiry, manager);
       this.version(itinerary.version, version, true);
+      const copyDay = (day: WebsiteDay): WebsiteDay => ({
+        ...day,
+        id: randomUUID(),
+        items: day.items.map((item) => ({ ...item, id: randomUUID() })),
+        legs: day.legs.map((leg) => ({ ...leg, id: randomUUID() })),
+        hotels: day.hotels.map((hotel) => ({ ...hotel, id: randomUUID() })),
+        meals: day.meals.map((meal) => ({ ...meal, id: randomUUID() })),
+        services: day.services.map((service) => ({
+          ...service,
+          id: randomUUID(),
+        })),
+      });
       const clone: WebsiteItineraryInput = {
         ...itinerary,
-        days: itinerary.days.map((day) => ({
-          ...day,
-          id: randomUUID(),
-          items: day.items.map((item) => ({ ...item, id: randomUUID() })),
-          legs: day.legs.map((leg) => ({ ...leg, id: randomUUID() })),
-          hotels: day.hotels.map((hotel) => ({ ...hotel, id: randomUUID() })),
-          meals: day.meals.map((meal) => ({ ...meal, id: randomUUID() })),
-          services: day.services.map((service) => ({
-            ...service,
-            id: randomUUID(),
-          })),
+        days: itinerary.days.map(copyDay),
+        deletedDays: (itinerary.deletedDays ?? []).map((entry) => ({
+          originalDate: entry.originalDate,
+          day: copyDay(entry.day),
         })),
         vehiclePrices: itinerary.vehiclePrices.map((price) => ({ ...price })),
       };
@@ -1273,6 +1371,27 @@ export class WebsiteService {
       fail('PDF_NOT_READY', '该行程尚未确认报价', HttpStatus.CONFLICT);
     return result;
   }
+  async resource(kind: string, id: string, user: AuthenticatedUser) {
+    this.permission(user, 'website:config:list');
+    if (!Object.hasOwn(resourceTables, kind))
+      fail('BAD_REQUEST', '不支持的资源类型', HttpStatus.BAD_REQUEST);
+    const resourceKind = kind as ResourceKind;
+    const extra =
+      resourceKind === 'attraction'
+        ? ',area AS city'
+        : resourceKind === 'hotel' || resourceKind === 'restaurant'
+          ? ',city'
+          : resourceKind === 'transport'
+            ? ',seats'
+            : '';
+    // Historical references may be disabled; this read does not authorize selection.
+    const rows = await this.db.manager.query<ResourceDetail[]>(
+      `SELECT id,name,status${extra} FROM ${resourceTables[resourceKind]} WHERE id=$1 AND deleted_at IS NULL`,
+      [id],
+    );
+    if (!rows[0]) fail('NOT_FOUND', '公共资源不存在', HttpStatus.NOT_FOUND);
+    return rows[0];
+  }
   async resources(
     kind: string,
     query: WebsiteResourceQuery,
@@ -1283,18 +1402,31 @@ export class WebsiteService {
       fail('BAD_REQUEST', '不支持的资源类型', HttpStatus.BAD_REQUEST);
     const resourceKind = kind as ResourceKind;
     const table = resourceTables[resourceKind];
-    const city =
+    const cityColumn =
       resourceKind === 'attraction'
-        ? ',area AS city'
+        ? 'area'
         : ['hotel', 'restaurant'].includes(resourceKind)
-          ? ',city'
+          ? 'city'
           : '';
-    const extra = resourceKind === 'transport' ? ',seats' : city;
-    const keyword = query.keyword
-      ? ` AND (name ILIKE $1 OR code ILIKE $1)`
-      : '';
-    const params: unknown[] = query.keyword ? [`%${query.keyword}%`] : [];
-    const where = ` WHERE deleted_at IS NULL AND status='enabled'${keyword}`;
+    const extra =
+      resourceKind === 'transport'
+        ? ',seats'
+        : cityColumn
+          ? `,${cityColumn} AS city`
+          : '';
+    const params: unknown[] = [];
+    let where = ` WHERE deleted_at IS NULL AND status='enabled'`;
+    if (query.keyword) {
+      params.push(`%${query.keyword}%`);
+      where += ` AND (name ILIKE $${params.length} OR code ILIKE $${params.length})`;
+    }
+    const city = query.city?.trim();
+    if (city) {
+      if (!cityColumn)
+        fail('BAD_REQUEST', '该资源类型不支持城市筛选', HttpStatus.BAD_REQUEST);
+      params.push(city);
+      where += ` AND ${cityColumn} = $${params.length}`;
+    }
     const count = await this.db.manager.query<{ total: string }[]>(
       `SELECT count(*)::text AS total FROM ${table}${where}`,
       params,

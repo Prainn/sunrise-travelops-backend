@@ -1,6 +1,10 @@
 # Preserve existing dev database TLS and client access during the CI refactor.
 services:
   postgres:
+    networks:
+      app: {}
+      visits_read:
+        aliases: [lynx-visits-db]
     ports: !override
       - "0.0.0.0:5432:5432"
     command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/certs/server.crt", "-c", "ssl_key_file=/certs/server.key", "-c", "hba_file=/etc/postgresql/pg_hba.conf"]

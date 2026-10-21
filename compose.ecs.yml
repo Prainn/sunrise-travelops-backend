@@ -3,7 +3,7 @@ name: sunrise-travelops-${DEPLOY_ENV:?required}
 x-api-environment: &api-environment
   NODE_ENV: production
   PORT: 4000
-  DATABASE_HOST: postgres
+  DATABASE_HOST: postgres-${DEPLOY_ENV:?required}-app
   DATABASE_PORT: 5432
   DATABASE_NAME: travelops_${DEPLOY_ENV:?required}
   DATABASE_USER: travelops
@@ -17,6 +17,11 @@ x-api-environment: &api-environment
   CORS_ORIGIN: ${CORS_ORIGIN:?required}
   TRUST_PROXY: "1"
   LOG_LEVEL: info
+  LYNX_VISITS_DB_HOST: lynx-visits-db
+  LYNX_VISITS_DB_PORT: 5432
+  LYNX_VISITS_DB_NAME: travelops_dev
+  LYNX_VISITS_DB_USER: lynxtour_viewer
+  LYNX_VISITS_DB_PASSWORD: ${LYNX_VISITS_DB_PASSWORD:-}
 
 x-logging: &logging
   driver: json-file
@@ -41,7 +46,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [app]
+    networks:
+      app:
+        aliases: ["postgres-${DEPLOY_ENV}-app"]
     restart: unless-stopped
     mem_limit: 512m
     logging: *logging
@@ -72,6 +79,7 @@ services:
     networks:
       app:
         aliases: ["api-${DEPLOY_ENV}"]
+      visits_read: {}
     restart: unless-stopped
     mem_limit: 512m
     logging: *logging
@@ -97,6 +105,9 @@ services:
     logging: *logging
 
 networks:
+  visits_read:
+    external: true
+    name: sunrise-lynx-visits-read
   app:
     external: true
     name: ${APP_NETWORK:?required}

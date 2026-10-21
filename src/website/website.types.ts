@@ -82,12 +82,15 @@ export interface WebsiteInquiryInput {
   plannedDays: number;
   requirements: string;
   ownerId?: string;
-  phone: string;
-  email: string;
+  contactInfo: string;
+  receivedAt: string | null;
+  contactChannel: string;
+  whatsappSourceId: string;
+  websiteInquiryNo: string;
+  landingPage: string;
+  acquisitionSource: string;
   startDate: string | null;
   pax: number | null;
-  arrivalTime: string;
-  departureTime: string;
   destinations: string[];
   internalRemark: string;
   status?: 'new' | 'planning' | 'quoted' | 'lost' | 'archived';
@@ -181,6 +184,7 @@ export interface WebsiteItineraryInput {
   departureTime: string;
   configVersion: number;
   days: WebsiteDay[];
+  deletedDays?: { day: WebsiteDay; originalDate: string | null }[];
   vehiclePrices: WebsiteVehiclePrice[];
 }
 export interface WebsiteItinerary extends WebsiteItineraryInput {

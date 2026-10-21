@@ -26,6 +26,8 @@ import { ToursModule } from './tours/tours.module';
 import { WebsiteModule } from './website/website.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 
+import { LedgersModule } from './ledgers/ledgers.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -43,6 +45,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     InquiriesModule,
     WebsiteModule,
     ToursModule,
+    LedgersModule,
     DashboardModule,
     UsersModule,
     OperationLogsModule,

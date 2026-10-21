@@ -59,7 +59,7 @@ export class ManualTourSourceDto {
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
   @IsUUID() countryItemId: string;
   @IsUUID() collectCoordinatorId: string;
-  @Transform(trim) @IsString() @MinLength(1) @MaxLength(200) agencyName: string;
+  @IsOptional() @IsUUID() agencyId?: string;
   @Transform(trim) @IsString() @MaxLength(200) contactName = '';
   @Transform(trim)
   @IsString()
@@ -121,7 +121,16 @@ export class CancelTourDto {
   @Transform(trim) @IsString() @MaxLength(500) reason = '';
 }
 
+export class TourFilterOptionsQueryDto extends PaginationQueryDto {
+  @IsIn(['collectCoordinator', 'operator', 'agency']) kind!:
+    'collectCoordinator' | 'operator' | 'agency';
+  @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
+  @IsOptional() @IsString() @MaxLength(200) declare keyword?: string;
+}
 export class TourQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsUUID() collectCoordinatorId?: string;
+  @IsOptional() @IsUUID() operatorId?: string;
+  @IsOptional() @IsString() @MaxLength(200) agencyName?: string;
   @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
   @IsOptional() @IsIn(['active', 'cancelled']) status?: string;
   @IsOptional() @IsUUID() guideId?: string;
@@ -143,7 +152,12 @@ export class TourFlightQueryDto {
   @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
 }
 
+export class TourLanguageQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsString() @MaxLength(100) declare keyword?: string;
+}
+
 export class TourGuideQueryDto extends TourScheduleDto {
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
   @IsDateString({ strict: true }) @Matches(DATE) startDate: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(365) days: number;

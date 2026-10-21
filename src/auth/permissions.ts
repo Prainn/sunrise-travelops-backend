@@ -89,6 +89,8 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'website:visit:list': '查看独立站访问记录',
+  'website:visit:export': '导出独立站访问记录',
   'sys:menu-permission:list': '查看菜单权限',
   'sys:menu-permission:update': '配置菜单权限',
   'sys:operation-log:list': '查看操作日志',
@@ -159,6 +161,17 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'itinerary:pdf': '确认报价并生成 PDF',
   'itinerary:download': '下载已有冻结报价',
   'tour:list': '查看成团表',
+  'ledger:shengxu:list': '查看盛旭台账',
+  'ledger:shengxu:create': '新增盛旭台账',
+  'ledger:shengxu:update': '修改盛旭台账',
+  'ledger:shengxu:delete': '删除盛旭台账',
+  'ledger:direct:list': '查看直客台账',
+  'ledger:direct:create': '新增直客台账',
+  'ledger:direct:update': '修改直客台账',
+  'ledger:direct:delete': '删除直客台账',
+  'ledger:direct:review': '审核直客台账',
+  'ledger:direct:operate': '操作直客台账',
+
   'tour:create': '创建旅行团',
   'tour:update': '修改旅行团',
   'tour:cancel': '撤销旅行团',
@@ -176,3 +189,16 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'website:config:list': '查看独立站配置',
   'website:config:update': '维护独立站配置',
 };
+
+export const LEDGER_PERMISSIONS = [
+  'ledger:shengxu:list',
+  'ledger:shengxu:create',
+  'ledger:shengxu:update',
+  'ledger:shengxu:delete',
+  'ledger:direct:list',
+  'ledger:direct:create',
+  'ledger:direct:update',
+  'ledger:direct:delete',
+  'ledger:direct:review',
+  'ledger:direct:operate',
+] as const;

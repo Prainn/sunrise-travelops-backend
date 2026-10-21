@@ -20,6 +20,7 @@ const user: AuthenticatedUser = {
   roles: ['COORDINATOR'],
   menuKeys: [],
   permissions: [
+    'resource:agency:list',
     'tour:list',
     'tour:create',
     'tour:update',
@@ -35,13 +36,14 @@ const input = (): CreateTourDto =>
     children: 0,
     leaders: 0,
     shopping: false,
+    language: 'English',
     pickupAt: '2026-10-25 09:00',
     dropAt: '2026-10-28 08:00',
     manualSource: {
       businessUnit: 'shengxu',
       countryItemId: other,
       collectCoordinatorId: actor,
-      agencyName: 'Agency',
+      agencyId: other,
       itinerarySummary: '昆大丽',
       startDate: '2026-10-25',
       days: 3,
@@ -68,8 +70,16 @@ function setup(
       if (sql.includes('INSERT INTO tour_number_counters'))
         return [{ last_value: 1 }];
       if (sql.includes('INSERT INTO tours')) return [{ id: other }];
+      if (sql.includes('FROM resource_agencies')) return [{ name: 'Agency' }];
       if (sql.includes('FROM resource_guide_people'))
-        return [{ id: other, name: 'Current name', code: 'GPR-001' }];
+        return [
+          {
+            id: other,
+            name: 'Current name',
+            code: 'GPR-001',
+            language: 'English',
+          },
+        ];
       if (sql.includes('FROM tours t'))
         return [
           {
@@ -117,7 +127,9 @@ const savedTour = (): Row => ({
   guide_name: 'Booked name',
   guide_code: 'GPR-001',
   itinerary_summary: '昆大丽',
+  agency_id: other,
   agency_name: 'Agency',
+  language: 'English',
   contact_name: '',
 });
 const updateInput = (): UpdateTourDto => {

@@ -49,7 +49,10 @@ export function vehicleSegmentTotal(
 }
 function prices(data: ItineraryInput) {
   return [
-    ...data.dailyPlans.flatMap((d) =>
+    ...[
+      ...data.dailyPlans,
+      ...(data.deletedDays ?? []).map((entry) => entry.day),
+    ].flatMap((d) =>
       d.items.map((i) => ({
         key: `item:${i.id}`,
         name: `D${d.dayNumber} · ${i.resourceName}`,

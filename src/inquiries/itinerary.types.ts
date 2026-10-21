@@ -259,6 +259,7 @@ export interface ItineraryRecord {
   vehiclePlans: ItineraryVehiclePlan[];
   quote: ItineraryQuoteSettings;
   dailyPlans: ItineraryDayRecord[];
+  deletedDays?: { day: ItineraryDayRecord; originalDate: string | null }[];
   status: ItineraryStatus;
   quoteGeneratedAt: string;
   creator: string;

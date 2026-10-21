@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'website-visits',
+    title: 'websiteVisits',
+    group: 'dataLedgers',
+    permissions: ['website:visit:list'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
     key: 'dict',
     title: 'systemDictionary',
     group: 'systemManagement',
@@ -121,7 +128,26 @@ export const MENU_DEFINITIONS = [
     group: 'guideManagement',
     permissions: ['tour:list'],
   },
-  { key: 'tours', title: 'tours', group: 'tours', permissions: ['tour:list'] },
+  {
+    key: 'tours',
+    title: 'tours',
+    group: 'dataLedgers',
+    permissions: ['tour:list'],
+  },
+  {
+    key: 'shengxu-ledger',
+    title: 'shengxuLedger',
+    group: 'dataLedgers',
+    permissions: ['ledger:shengxu:list'],
+    scopes: ['headquarters', 'shengxu'],
+  },
+  {
+    key: 'direct-ledger',
+    title: 'directLedger',
+    group: 'dataLedgers',
+    permissions: ['ledger:direct:list'],
+    scopes: ['headquarters', 'linxi', 'website'],
+  },
 ] as const;
 
 export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {

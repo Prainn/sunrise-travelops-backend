@@ -15,6 +15,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  Matches,
   ValidateIf,
   Min,
   MinLength,
@@ -376,6 +377,14 @@ class QuoteInput {
   @IsString() @MaxLength(10000) holidayRestrictions: string;
   @IsString() @MaxLength(10000) hotelReplacementTerms: string;
 }
+class DeletedDayInput {
+  @IsDefined() @ValidateNested() @Type(() => DayInput) day: DayInput;
+  @IsDefined()
+  @ValidateIf((o: DeletedDayInput) => o.originalDate !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  originalDate: string | null;
+}
 export class ItineraryInput {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
@@ -410,6 +419,10 @@ export class ItineraryInput {
   @ValidateNested({ each: true })
   @Type(() => DayInput)
   dailyPlans: DayInput[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeletedDayInput)
+  deletedDays?: DeletedDayInput[] = [];
   @IsArray()
   @ArrayMaxSize(3)
   @ValidateNested({ each: true })

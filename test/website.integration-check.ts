@@ -125,7 +125,11 @@ async function main() {
           migration.name !== 'UnifyResourceLibrary1791619200000' &&
           migration.name !== 'DropUnusedItineraryFields1791705600000' &&
           migration.name !==
-            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
+            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000' &&
+          (migration.name ?? migration.constructor.name) !==
+            'UpdateWebsiteInquiryFields1792886400000' &&
+          (migration.name ?? migration.constructor.name) !==
+            'AddWebsiteVisitLedger1792972800000',
       ),
     );
     await db.runMigrations();
@@ -437,7 +441,11 @@ async function main() {
           migration.name !== 'UnifyResourceLibrary1791619200000' &&
           migration.name !== 'DropUnusedItineraryFields1791705600000' &&
           migration.name !==
-            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
+            'AddMenuPermissionsAndWebsiteBusinessScope1792051200000' &&
+          (migration.name ?? migration.constructor.name) !==
+            'UpdateWebsiteInquiryFields1792886400000' &&
+          (migration.name ?? migration.constructor.name) !==
+            'AddWebsiteVisitLedger1792972800000',
       ),
     );
     assert.deepEqual(
@@ -539,9 +547,12 @@ async function main() {
         'UnifyResourceLibrary1791619200000',
         'DropUnusedItineraryFields1791705600000',
         'AddMenuPermissionsAndWebsiteBusinessScope1792051200000',
+        'UpdateWebsiteInquiryFields1792886400000',
+        'AddWebsiteVisitLedger1792972800000',
       ],
     );
     assert.equal((await db.runMigrations()).length, 0);
+    await db.query("UPDATE users SET tour_code='TEST' WHERE tour_code IS NULL");
     const upgradedConfigs = await db.query<Array<{ config: WebsiteConfig }>>(
       'SELECT config FROM website_config_versions WHERE version IN (1001,1002) ORDER BY version',
     );
@@ -961,12 +972,15 @@ async function main() {
         customerName: '测试直客',
         plannedDays: 2,
         requirements: '昆明两天，无日期及人数',
-        phone: '',
-        email: '',
+        contactInfo: '',
+        receivedAt: null,
+        contactChannel: '',
+        whatsappSourceId: '',
+        websiteInquiryNo: '',
+        landingPage: '',
+        acquisitionSource: '',
         startDate: null,
         pax: null,
-        arrivalTime: '',
-        departureTime: '',
         destinations: [cityId],
         internalRemark: '内部需求，不应导出客户版',
         lostReason: '',

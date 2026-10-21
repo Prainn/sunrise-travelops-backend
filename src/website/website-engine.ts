@@ -487,15 +487,6 @@ export function buildWebsitePreview(
       'ERROR',
       '行程开始日期与询盘已确认日期不一致',
     );
-  if (
-    (inquiry.arrivalTime && inquiry.arrivalTime !== itinerary.arrivalTime) ||
-    (inquiry.departureTime && inquiry.departureTime !== itinerary.departureTime)
-  )
-    issue(
-      'REQUIREMENTS_MISMATCH',
-      'ERROR',
-      '行程交通时间与询盘已确认信息不一致',
-    );
 
   function output(language: 'en' | 'zh'): WebsiteOutput {
     const inclusions = new Set<string>();

@@ -1,4 +1,5 @@
 import { Transform, Type } from 'class-transformer';
+import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayUnique,
@@ -83,8 +84,65 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @MaxLength(200000)
   requirements: string;
   @IsOptional() @IsUUID() ownerId?: string;
-  @IsString() @MaxLength(50) phone = '';
-  @IsString() @MaxLength(254) email = '';
+  @ApiPropertyOptional({
+    description: '联系方式：自由文本，不校验电话或邮箱格式',
+    default: '',
+    maxLength: 500,
+  })
+  @IsString()
+  @MaxLength(500)
+  contactInfo = '';
+  @ApiPropertyOptional({
+    description: '收到时间（北京时间），YYYY-MM-DD HH:mm',
+    type: String,
+    nullable: true,
+    default: null,
+  })
+  @IsDefined()
+  @ValidateIf((o: WebsiteInquiryDto) => o.receivedAt !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
+  receivedAt: string | null = null;
+  @ApiPropertyOptional({
+    description: '联系渠道，手填',
+    default: '',
+    maxLength: 100,
+  })
+  @IsString()
+  @MaxLength(100)
+  contactChannel = '';
+  @ApiPropertyOptional({
+    description: 'WhatsApp来源编号，手填，不关联来源表',
+    default: '',
+    maxLength: 200,
+  })
+  @IsString()
+  @MaxLength(200)
+  whatsappSourceId = '';
+  @ApiPropertyOptional({
+    description: '外部网站询盘编号，手填',
+    default: '',
+    maxLength: 200,
+  })
+  @IsString()
+  @MaxLength(200)
+  websiteInquiryNo = '';
+  @ApiPropertyOptional({
+    description: '首次进入网站的页面，手填',
+    default: '',
+    maxLength: 2048,
+  })
+  @IsString()
+  @MaxLength(2048)
+  landingPage = '';
+  @ApiPropertyOptional({
+    description: '获客来源，手填',
+    default: '',
+    maxLength: 2048,
+  })
+  @IsString()
+  @MaxLength(2048)
+  acquisitionSource = '';
   @IsDefined()
   @ValidateIf((o: WebsiteInquiryDto) => o.startDate !== null)
   @IsDateString({ strict: true })
@@ -97,8 +155,6 @@ export class WebsiteInquiryDto implements WebsiteInquiryInput {
   @Min(1)
   @Max(10000)
   pax: number | null = null;
-  @IsString() @MaxLength(100) arrivalTime = '';
-  @IsString() @MaxLength(100) departureTime = '';
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(365)
@@ -128,6 +184,17 @@ export class WebsiteInquiryQuery extends PaginationQueryDto {
 export class WebsiteResourceQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(100) keyword: string | undefined =
     undefined;
+  @ApiPropertyOptional({
+    description:
+      '公共城市名称（非城市ID），去首尾空白后精确筛选 hotel/restaurant/attraction；空白或省略不筛选，city/transport 不接受非空值',
+    maxLength: 100,
+    example: '昆明',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  city?: string;
 }
 export class WebsiteBusinessQuery {
   @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;
@@ -242,6 +309,28 @@ export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
   unitPrice: string | null;
 }
+class DeletedWebsiteDayContentDto extends OmitType(WebsiteDayDto, [
+  'departCityId',
+  'endCityId',
+] as const) {
+  @ValidateIf((o: DeletedWebsiteDayContentDto) => o.departCityId !== '')
+  @IsUUID()
+  departCityId: string;
+  @ValidateIf((o: DeletedWebsiteDayContentDto) => o.endCityId !== '')
+  @IsUUID()
+  endCityId: string;
+}
+class DeletedWebsiteDayDto {
+  @IsDefined()
+  @ValidateNested()
+  @Type(() => DeletedWebsiteDayContentDto)
+  day: DeletedWebsiteDayContentDto;
+  @IsDefined()
+  @ValidateIf((o: DeletedWebsiteDayDto) => o.originalDate !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  originalDate: string | null;
+}
 export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) title: string;
   @IsInt() @Min(1) @Max(365) duration: number;
@@ -265,6 +354,10 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @ValidateNested({ each: true })
   @Type(() => WebsiteDayDto)
   days: WebsiteDayDto[] = [];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeletedWebsiteDayDto)
+  deletedDays?: DeletedWebsiteDayDto[] = [];
   @IsArray()
   @ArrayMaxSize(5)
   @ValidateNested({ each: true })
