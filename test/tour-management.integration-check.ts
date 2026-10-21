@@ -377,7 +377,7 @@ async function main() {
     const guide = async () =>
       (
         await db.query<{ id: string }[]>(
-          `INSERT INTO resource_guide_people(code,name) VALUES($1,'Test Guide') RETURNING id`,
+          `INSERT INTO resource_guide_people(code,name,language) VALUES($1,'Test Guide','English') RETURNING id`,
           [randomUUID()],
         )
       )[0].id;
@@ -621,6 +621,7 @@ async function main() {
         const available = await tours.availableGuides(
           {
             businessUnit: 'website',
+            language: 'English',
             startDate: '2026-09-05',
             days: 2,
             pickupFlightId: shared,

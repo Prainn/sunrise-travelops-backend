@@ -1,4 +1,5 @@
 import { Type, Transform } from 'class-transformer';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
   IsBoolean,
   IsDateString,
@@ -44,7 +45,38 @@ export class LedgerQueryDto {
   to?: string;
   @ApiPropertyOptional() @IsOptional() @IsUUID() creatorId?: string;
 }
+export class ShengxuLedgerQueryDto extends LedgerQueryDto {
+  @ApiPropertyOptional() @IsOptional() @IsUUID() agencyId?: string;
+}
+export class LedgerFilterOptionsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  declare keyword?: string;
+}
+export class ShengxuFilterOptionsQueryDto extends LedgerFilterOptionsQueryDto {
+  @ApiProperty({ enum: ['creator', 'agency'] })
+  @IsIn(['creator', 'agency'])
+  kind!: 'creator' | 'agency';
+}
+export class DirectFilterOptionsQueryDto extends LedgerFilterOptionsQueryDto {
+  @ApiProperty({ enum: ['creator', 'operator'] })
+  @IsIn(['creator', 'operator'])
+  kind!: 'creator' | 'operator';
+  @ApiPropertyOptional({ enum: ['linxi', 'website'] })
+  @IsOptional()
+  @IsIn(['linxi', 'website'])
+  businessUnit?: 'linxi' | 'website';
+}
 export class DirectLedgerQueryDto extends LedgerQueryDto {
+  @ApiPropertyOptional() @IsOptional() @IsUUID() operatorId?: string;
+  @ApiPropertyOptional({
+    enum: ['pending_confirmation', 'pending_operation', 'operated'],
+  })
+  @IsOptional()
+  @IsIn(['pending_confirmation', 'pending_operation', 'operated'])
+  workflowStatus?: 'pending_confirmation' | 'pending_operation' | 'operated';
   @ApiPropertyOptional({ enum: ['linxi', 'website'] })
   @IsOptional()
   @IsIn(['linxi', 'website'])
@@ -72,9 +104,7 @@ export class LedgerDeleteQueryDto {
   @Min(1)
   version!: number;
 }
-export class LedgerOperationDto extends LedgerVersionDto {
-  @ApiProperty() @IsBoolean() operated!: boolean;
-}
+export class LedgerOperationDto extends LedgerVersionDto {}
 export class ShengxuLedgerInputDto {
   @ApiProperty()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)

@@ -18,6 +18,7 @@ import { BatchIdsQueryDto } from '../resources/common/resource.dto';
 import { GuideLeavesService } from './guide-leaves.service';
 import {
   CancelTourDto,
+  TourFilterOptionsQueryDto,
   CreateTourDto,
   LeaveInputDto,
   LeaveQueryDto,
@@ -26,6 +27,7 @@ import {
   TourFlightQueryDto,
   TourOperatorQueryDto,
   TourGuideQueryDto,
+  TourLanguageQueryDto,
   TourQueryDto,
   TourSourceQueryDto,
   UpdateLeaveDto,
@@ -44,6 +46,15 @@ export class ToursController {
   @Permissions('tour:list')
   list(@Query() query: TourQueryDto, @CurrentUser() user: AuthenticatedUser) {
     return this.service.list(query, user);
+  }
+
+  @Get('filter-options')
+  @Permissions('tour:list')
+  filterOptions(
+    @Query() query: TourFilterOptionsQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.filterOptions(query, actor);
   }
 
   @Get('sources')
@@ -71,6 +82,15 @@ export class ToursController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.flights(query, user);
+  }
+
+  @Get('guide-languages')
+  @Permissions('tour:list')
+  guideLanguages(
+    @Query() query: TourLanguageQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.guideLanguages(query, user);
   }
 
   @Get('available-guides')

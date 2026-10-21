@@ -49,6 +49,7 @@ function fixture(unit: 'shengxu' | 'linxi') {
     reviewedAt: null as Date | null,
     operatedAt: null as Date | null,
     operated: false,
+    loss: true,
   };
   const query = jest.fn().mockResolvedValue([row]);
   const manager = { query } as unknown as EntityManager;
@@ -199,8 +200,7 @@ describe('ledger conflict API codes', () => {
         update: () =>
           f.direct.update(f.row.id, { ...f.directInput, version: 1 }, f.actor),
         review: () => f.direct.review(f.row.id, 1, f.actor),
-        operate: () =>
-          f.direct.operate(f.row.id, { version: 1, operated: true }, f.actor),
+        operate: () => f.direct.operate(f.row.id, { version: 1 }, f.actor),
         delete: () => f.direct.delete(f.row.id, 1, f.actor),
       };
       await expectConflict(work[action](), ErrorCode.LEDGER_VERSION_CONFLICT);
@@ -217,7 +217,7 @@ describe('ledger conflict API codes', () => {
     );
     await expectConflict(
       f.direct.review(f.row.id, 2, f.actor),
-      ErrorCode.DIRECT_LEDGER_ALREADY_REVIEWED,
+      ErrorCode.DIRECT_LEDGER_NOT_PENDING_CONFIRMATION,
     );
   });
 
@@ -227,22 +227,32 @@ describe('ledger conflict API codes', () => {
     f.row.operatedAt = new Date();
     await expectConflict(
       f.direct.update(f.row.id, f.directInput, f.actor),
-      ErrorCode.DIRECT_LEDGER_STATUS_ROLLBACK_FORBIDDEN,
+      ErrorCode.DIRECT_LEDGER_OPERATED_READ_ONLY,
     );
     expect(f.query).toHaveBeenCalledTimes(1);
   });
 
-  it.each([true, false])(
-    'requires converted status for operated=%s',
-    async (operated) => {
+  it.each(['unconfirmed-loss', 'already-operated'])(
+    'rejects operation for %s',
+    async (state) => {
       const f = fixture('linxi');
+      f.row.operated = state === 'already-operated';
       await expectConflict(
-        f.direct.operate(f.row.id, { version: 2, operated }, f.actor),
-        ErrorCode.DIRECT_LEDGER_NOT_CONVERTED,
+        f.direct.operate(f.row.id, { version: 2 }, f.actor),
+        ErrorCode.DIRECT_LEDGER_NOT_PENDING_OPERATION,
       );
       expect(f.query).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('does not confirm a no-loss entry', async () => {
+    const f = fixture('linxi');
+    f.row.loss = false;
+    await expectConflict(
+      f.direct.review(f.row.id, 2, f.actor),
+      ErrorCode.DIRECT_LEDGER_NOT_PENDING_CONFIRMATION,
+    );
+  });
 
   it.each([
     [true, true, ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED],

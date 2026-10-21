@@ -4,7 +4,8 @@ import { ErrorCode } from '../common/constants/error-code';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   AgencyOptionsQueryDto,
-  LedgerQueryDto,
+  ShengxuFilterOptionsQueryDto,
+  ShengxuLedgerQueryDto,
   ShengxuLedgerInputDto,
   UpdateShengxuLedgerDto,
 } from './ledger.dto';
@@ -82,7 +83,40 @@ export class ShengxuLedgersService {
     );
     return row ?? missing();
   }
-  async list(query: LedgerQueryDto, actor: AuthenticatedUser) {
+  async filterOptions(
+    query: ShengxuFilterOptionsQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.access(actor);
+    const params: unknown[] = [];
+    let where = 'WHERE true';
+    const [idColumn, nameColumn] = {
+      creator: ['creator_id', 'creator_name'],
+      agency: ['agency_id', 'agency_name'],
+    }[query.kind];
+    where += ` AND ${idColumn} IS NOT NULL`;
+    const snapshots = `SELECT DISTINCT ON (${idColumn}) ${idColumn}::text AS id, ${nameColumn} AS name
+      FROM shengxu_ledgers ${where} ORDER BY ${idColumn}, shengxu_ledgers.updated_at DESC, shengxu_ledgers.id DESC`;
+    const search = query.keyword?.trim()
+      ? `WHERE name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`
+      : '';
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total FROM (${snapshots}) options ${search}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT id,name FROM (${snapshots}) options ${search} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  async list(query: ShengxuLedgerQueryDto, actor: AuthenticatedUser) {
     this.access(actor);
     if (query.from && query.to && query.from > query.to)
       invalid('开始日期不能晚于结束日期');
@@ -92,6 +126,8 @@ export class ShengxuLedgersService {
     if (query.to) where += ` AND record_date <= $${params.push(query.to)}`;
     if (query.creatorId)
       where += ` AND creator_id = $${params.push(query.creatorId)}`;
+    if (query.agencyId)
+      where += ` AND agency_id=$${params.push(query.agencyId)}`;
     if (query.keyword?.trim()) {
       const p = `$${params.push(`%${query.keyword.trim()}%`)}`;
       where += ` AND (agency_name ILIKE ${p} OR contact_name ILIKE ${p} OR creator_name ILIKE ${p} OR itinerary ILIKE ${p})`;

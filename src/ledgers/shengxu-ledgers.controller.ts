@@ -16,7 +16,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
 import {
-  LedgerQueryDto,
+  ShengxuLedgerQueryDto,
+  ShengxuFilterOptionsQueryDto,
   ShengxuLedgerInputDto,
   UpdateShengxuLedgerDto,
   LedgerDeleteQueryDto,
@@ -32,10 +33,19 @@ export class ShengxuLedgersController {
   @Get()
   @Permissions('ledger:shengxu:list')
   list(
-    @Query() query: LedgerQueryDto,
+    @Query() query: ShengxuLedgerQueryDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.service.list(query, actor);
+  }
+
+  @Get('filter-options')
+  @Permissions('ledger:shengxu:list')
+  filterOptions(
+    @Query() query: ShengxuFilterOptionsQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.filterOptions(query, actor);
   }
 
   @Get('agencies')

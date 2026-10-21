@@ -4,6 +4,7 @@ import { ErrorCode } from '../common/constants/error-code';
 import { AuthenticatedUser } from '../auth/auth.types';
 import {
   DirectLedgerInputDto,
+  DirectFilterOptionsQueryDto,
   CreateDirectLedgerDto,
   DirectLedgerQueryDto,
   LedgerOperationDto,
@@ -32,18 +33,20 @@ interface DirectRow {
   receivingAccountId: string | null;
   receivingAccountName: string;
   orderStatus: 'unconverted' | 'converted';
+  loss: boolean;
   reviewedAt: Date | null;
   operatedAt: Date | null;
   operated: boolean;
   version: number;
 }
+const WORKFLOW_STATUS = `CASE WHEN operated THEN 'operated' WHEN loss AND reviewed_at IS NULL THEN 'pending_confirmation' ELSE 'pending_operation' END`;
 const SELECT = `id,business_unit AS "businessUnit",order_no AS "orderNo",received_date::text AS "receivedDate",
  to_char(received_date,'YYYY-MM') AS "receivedMonth",source,creator_id AS "creatorId",creator_name AS "creatorName",
  receiving_account_id AS "receivingAccountId",receiving_account_name AS "receivingAccountName",operator_id AS "operatorId",operator_name AS "operatorName",
  order_status AS "orderStatus",effective_contact AS "effectiveContact",proposal_sent AS "proposalSent",loss,priority,itinerary,
  not_converted_reason AS "notConvertedReason",loss_note AS "lossNote",remark,feedback_reason AS "feedbackReason",solution,
  deal_date::text AS "dealDate",departure_date::text AS "departureDate",complaint,satisfied,
- reviewed_at AS "reviewedAt",reviewed_by AS "reviewedBy",operated,operated_at AS "operatedAt",
+ ${WORKFLOW_STATUS} AS "workflowStatus",reviewed_at AS "reviewedAt",reviewed_by AS "reviewedBy",operated,operated_at AS "operatedAt",
  version,created_at AS "createdAt",updated_at AS "updatedAt",updated_by AS "updatedBy"`;
 
 @Injectable()
@@ -69,6 +72,7 @@ export class DirectLedgersService {
     const edit =
       manage &&
       !row.reviewedAt &&
+      !row.operatedAt &&
       actor.permissions.includes('ledger:direct:update');
     return {
       ...row,
@@ -83,12 +87,15 @@ export class DirectLedgersService {
         canReview:
           actor.scope === row.businessUnit &&
           isManager(actor) &&
+          row.loss &&
           !row.reviewedAt &&
+          !row.operated &&
           actor.permissions.includes('ledger:direct:review'),
         canOperate:
           actor.scope === row.businessUnit &&
           actor.id === row.operatorId &&
-          row.orderStatus === 'converted' &&
+          !row.operated &&
+          (!row.loss || Boolean(row.reviewedAt)) &&
           actor.permissions.includes('ledger:direct:operate'),
         canChangeStatus:
           edit &&
@@ -114,6 +121,39 @@ export class DirectLedgersService {
     );
     return row ?? missing();
   }
+  async filterOptions(
+    query: DirectFilterOptionsQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.access(actor);
+    const params: unknown[] = [];
+    let where = `WHERE business_unit=$${params.push(directUnit(actor, query.businessUnit))}`;
+    const [idColumn, nameColumn] = {
+      creator: ['creator_id', 'creator_name'],
+      operator: ['operator_id', 'operator_name'],
+    }[query.kind];
+    where += ` AND ${idColumn} IS NOT NULL`;
+    const snapshots = `SELECT DISTINCT ON (${idColumn}) ${idColumn}::text AS id, ${nameColumn} AS name
+      FROM direct_ledgers ${where} ORDER BY ${idColumn}, direct_ledgers.updated_at DESC, direct_ledgers.id DESC`;
+    const search = query.keyword?.trim()
+      ? `WHERE name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`
+      : '';
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total FROM (${snapshots}) options ${search}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT id,name FROM (${snapshots}) options ${search} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
   async list(query: DirectLedgerQueryDto, actor: AuthenticatedUser) {
     this.access(actor);
     const unit = directUnit(actor, query.businessUnit);
@@ -126,6 +166,10 @@ export class DirectLedgersService {
     if (query.to) where += ` AND received_date <= $${params.push(query.to)}`;
     if (query.creatorId)
       where += ` AND creator_id=$${params.push(query.creatorId)}`;
+    if (query.operatorId)
+      where += ` AND operator_id=$${params.push(query.operatorId)}`;
+    if (query.workflowStatus)
+      where += ` AND (${WORKFLOW_STATUS})=$${params.push(query.workflowStatus)}`;
     if (query.orderStatus)
       where += ` AND order_status=$${params.push(query.orderStatus)}`;
     if (query.keyword?.trim()) {
@@ -261,7 +305,12 @@ export class DirectLedgersService {
       if (row.reviewedAt)
         conflict(
           ErrorCode.DIRECT_LEDGER_REVIEWED_READ_ONLY,
-          '已审核台账不能修改普通字段，仅指定操作计调可更新是否操作',
+          '已确认台账不能修改普通字段',
+        );
+      if (row.operatedAt)
+        conflict(
+          ErrorCode.DIRECT_LEDGER_OPERATED_READ_ONLY,
+          '已操作台账不能修改普通字段',
         );
       if (
         row.orderStatus !== input.orderStatus &&
@@ -269,11 +318,6 @@ export class DirectLedgersService {
         !isManager(actor)
       )
         forbidden();
-      if (row.operatedAt && input.orderStatus !== 'converted')
-        conflict(
-          ErrorCode.DIRECT_LEDGER_STATUS_ROLLBACK_FORBIDDEN,
-          '已操作台账不能改回未成团',
-        );
       const data = {
         ...(await this.values(manager, input, row.businessUnit, row)),
         updated_by: actor.id,
@@ -295,10 +339,10 @@ export class DirectLedgersService {
     return this.db.transaction(async (manager) => {
       const row = await this.row(manager, id, actor, true);
       assertVersion(row.version, version);
-      if (row.reviewedAt)
+      if (!row.loss || row.reviewedAt || row.operated)
         conflict(
-          ErrorCode.DIRECT_LEDGER_ALREADY_REVIEWED,
-          '台账已审核，无需重复审核',
+          ErrorCode.DIRECT_LEDGER_NOT_PENDING_CONFIRMATION,
+          '仅待确认的亏损台账需要负责人确认',
         );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET reviewed_at=now(),reviewed_by=$2,updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
@@ -317,14 +361,14 @@ export class DirectLedgersService {
       const row = await this.row(manager, id, actor, true);
       if (row.operatorId !== actor.id) forbidden();
       assertVersion(row.version, input.version);
-      if (row.orderStatus !== 'converted')
+      if (row.operated || (row.loss && !row.reviewedAt))
         conflict(
-          ErrorCode.DIRECT_LEDGER_NOT_CONVERTED,
-          '已成团后才能更新是否操作',
+          ErrorCode.DIRECT_LEDGER_NOT_PENDING_OPERATION,
+          '仅待操作的台账可以标记已操作',
         );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
-        `UPDATE direct_ledgers SET operated=$2,operated_at=CASE WHEN $2 THEN coalesce(operated_at,now()) ELSE operated_at END,updated_by=$3,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
-        [id, input.operated, actor.id],
+        `UPDATE direct_ledgers SET operated=true,operated_at=coalesce(operated_at,now()),updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
+        [id, actor.id],
       );
       return this.present(saved, actor);
     });
@@ -336,7 +380,7 @@ export class DirectLedgersService {
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, version);
       if (row.reviewedAt)
-        conflict(ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED, '已审核台账不能删除');
+        conflict(ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED, '已确认台账不能删除');
       if (row.operatedAt)
         conflict(
           ErrorCode.DIRECT_LEDGER_DELETE_OPERATED,

@@ -17,6 +17,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
 import {
   DirectLedgerQueryDto,
+  DirectFilterOptionsQueryDto,
   CreateDirectLedgerDto,
   UpdateDirectLedgerDto,
   LedgerDeleteQueryDto,
@@ -37,6 +38,15 @@ export class DirectLedgersController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.service.list(query, actor);
+  }
+
+  @Get('filter-options')
+  @Permissions('ledger:direct:list')
+  filterOptions(
+    @Query() query: DirectFilterOptionsQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.filterOptions(query, actor);
   }
 
   @Get('operators')

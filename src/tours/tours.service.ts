@@ -7,6 +7,7 @@ import type { PageResult } from '../common/types/page-result';
 import { countryCatalog } from '../system/business-dictionaries/dictionary-catalogs';
 import {
   CancelTourDto,
+  TourFilterOptionsQueryDto,
   CreateTourDto,
   ManualTourSourceDto,
   TourScheduleDto,
@@ -14,6 +15,7 @@ import {
   RatingScoreDto,
   TourFlightQueryDto,
   TourGuideQueryDto,
+  TourLanguageQueryDto,
   TourInputDto,
   TourQueryDto,
   TourSourceQueryDto,
@@ -73,7 +75,7 @@ const RATING_SELECT = RATING_FIELDS.map(
 const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModule", t.business_unit AS "businessUnit",
   t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
   t.inquiry_code AS "inquiryCode", t.itinerary_code AS "itineraryCode", t.quote_code AS "quoteCode",
-  t.agency_name AS "agencyName", t.contact_name AS "contactName", t.days, t.start_date::text AS "startDate",
+  t.agency_id AS "agencyId", t.agency_name AS "agencyName", t.contact_name AS "contactName", t.days, t.start_date::text AS "startDate",
   to_char(t.pickup_at,'YYYY-MM-DD HH24:MI') AS "pickupAt", to_char(t.drop_at,'YYYY-MM-DD HH24:MI') AS "dropAt",
   t.occupy_from::text AS "occupyFrom", t.occupy_to::text AS "occupyTo",
   t.country_item_id AS "countryItemId", t.country_code AS "countryCode", t.country_name AS "countryName",
@@ -97,6 +99,7 @@ interface Resolved {
   status: string;
   ownerId: string;
   ownerName: string;
+  agencyId?: string | null;
   agencyName: string;
   contactName: string;
   countryItemId: string | null;
@@ -184,6 +187,45 @@ export class ToursService {
     );
   }
 
+  async filterOptions(
+    query: TourFilterOptionsQueryDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.require(actor, 'tour:list');
+    const params: unknown[] = [];
+    let where = `WHERE true${this.visible(actor, params)}`;
+    if (query.businessUnit)
+      where += ` AND t.business_unit=$${params.push(query.businessUnit)}`;
+    const [idColumn, nameColumn] = {
+      collectCoordinator: [
+        't.collect_coordinator_id',
+        't.collect_coordinator_name',
+      ],
+      operator: ['t.operator_id', 't.operator_name'],
+      agency: ['t.agency_name', 't.agency_name'],
+    }[query.kind];
+    where += ` AND ${idColumn} IS NOT NULL`;
+    const snapshots = `SELECT DISTINCT ON (${idColumn}) ${idColumn}::text AS id, ${nameColumn} AS name
+      FROM tours t ${where} ORDER BY ${idColumn}, t.updated_at DESC, t.id DESC`;
+    const search = query.keyword?.trim()
+      ? `WHERE name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`
+      : '';
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total FROM (${snapshots}) options ${search}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT id,name FROM (${snapshots}) options ${search} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
   async list(
     query: TourQueryDto,
     user: AuthenticatedUser,
@@ -193,6 +235,14 @@ export class ToursService {
     let where = `WHERE true${this.visible(user, params)}`;
     if (query.businessUnit)
       where += ` AND t.business_unit = $${params.push(query.businessUnit)}`;
+    if (query.from && query.to && query.from > query.to)
+      invalid('开始日期不能晚于结束日期');
+    if (query.collectCoordinatorId)
+      where += ` AND t.collect_coordinator_id=$${params.push(query.collectCoordinatorId)}`;
+    if (query.operatorId)
+      where += ` AND t.operator_id=$${params.push(query.operatorId)}`;
+    if (query.agencyName !== undefined)
+      where += ` AND t.agency_name=$${params.push(query.agencyName)}`;
     if (query.status) where += ` AND t.status = $${params.push(query.status)}`;
     if (query.guideId)
       where += ` AND t.guide_id = $${params.push(query.guideId)}`;
@@ -325,7 +375,31 @@ export class ToursService {
     );
   }
 
-  /** Guides free for the whole occupancy window derived from the dates and flights. */
+  async guideLanguages(query: TourLanguageQueryDto, user: AuthenticatedUser) {
+    this.require(user, 'tour:list');
+    const params: unknown[] = [];
+    let where =
+      "WHERE status='enabled' AND deleted_at IS NULL AND length(btrim(language)) BETWEEN 1 AND 100";
+    if (query.keyword?.trim())
+      where += ` AND btrim(language) ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(DISTINCT btrim(language)) AS total FROM resource_guide_people ${where}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT DISTINCT btrim(language) AS id, btrim(language) AS name FROM resource_guide_people ${where}
+       ORDER BY name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  /** Guides matching the language and free for the whole occupancy window. */
   async availableGuides(query: TourGuideQueryDto, user: AuthenticatedUser) {
     this.require(user, 'tour:list');
     if (!this.unitAllowed(user, query.businessUnit)) forbidden();
@@ -346,13 +420,13 @@ export class ToursService {
     );
     return this.db.query<Row[]>(
       `SELECT g.id, g.code, g.name, g.language FROM resource_guide_people g
-       WHERE g.status = 'enabled' AND g.deleted_at IS NULL
+       WHERE g.status = 'enabled' AND g.deleted_at IS NULL AND btrim(g.language)=$4
          AND NOT EXISTS (SELECT 1 FROM resource_guide_leaves l WHERE l.guide_person_id = g.id AND l.deleted_at IS NULL
            AND l.start_date <= $2 AND l.end_date >= $1)
          AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.guide_id = g.id AND t.status = 'active'
            AND t.occupy_from <= $2 AND t.occupy_to >= $1 AND ($3::uuid IS NULL OR t.id <> $3))
        ORDER BY g.code, g.id`,
-      [s.occupyFrom, s.occupyTo, query.excludeTourId ?? null],
+      [s.occupyFrom, s.occupyTo, query.excludeTourId ?? null, query.language],
     );
   }
 
@@ -452,6 +526,24 @@ export class ToursService {
             input.collectCoordinatorId,
             input.businessUnit,
           );
+    let agencyId: string | null = null;
+    let agencyName = input.businessUnit === 'linxi' ? '霖熹' : '独立站';
+    if (input.businessUnit === 'shengxu') {
+      agencyId = input.agencyId ?? null;
+      if (existing && agencyId === (existing.agency_id ?? null)) {
+        agencyName = existing.agency_name as string;
+      } else {
+        this.require(user, 'resource:agency:list');
+        if (!agencyId) invalid('请选择盛旭组团社');
+        const [agency] = await manager.query<{ name: string }[]>(
+          `SELECT name FROM resource_agencies WHERE id=$1 AND business_unit='shengxu'
+           AND status='enabled' AND deleted_at IS NULL FOR SHARE`,
+          [agencyId],
+        );
+        if (!agency) invalid('请选择启用的盛旭组团社');
+        agencyName = agency.name;
+      }
+    } else if (input.agencyId != null) invalid('霖熹和独立站使用固定平台');
     const countries = existing
       ? [
           {
@@ -481,7 +573,8 @@ export class ToursService {
       status: 'active',
       ownerId: owner.id,
       ownerName: owner.name,
-      agencyName: input.agencyName,
+      agencyId,
+      agencyName,
       contactName: input.contactName,
       countryItemId: input.countryItemId,
       countryCode: country.code,
@@ -529,6 +622,19 @@ export class ToursService {
     return rows[0] ?? invalid('操作计调必须是当前业务的启用计调');
   }
 
+  private async validateLanguage(
+    manager: EntityManager,
+    language: string,
+    existing?: Row,
+  ) {
+    if (!language || language === existing?.language) return;
+    const rows = await manager.query<unknown[]>(
+      `SELECT 1 FROM resource_guide_people WHERE status='enabled' AND deleted_at IS NULL AND btrim(language)=$1 LIMIT 1`,
+      [language],
+    );
+    if (!rows.length) invalid('请选择已有导游的语种');
+  }
+
   /** Locks the guide and rejects leave or tour overlap without naming other tours. */
   private async lockGuide(
     manager: EntityManager,
@@ -537,15 +643,18 @@ export class ToursService {
     from: string,
     to: string,
     excludeTourId: string | null,
+    language: string,
   ) {
     const guide = await manager.query<
-      { id: string; name: string; code: string }[]
+      { id: string; name: string; code: string; language: string | null }[]
     >(
-      `SELECT id, name, code FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
+      `SELECT id, name, code, language FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
        AND deleted_at IS NULL FOR UPDATE`,
       [guideId],
     );
     if (!guide[0]) invalid('导游不可选');
+    if (!language || guide[0].language?.trim() !== language)
+      invalid('导游语种与所选语种不匹配');
     const leave = await manager.query<unknown[]>(
       `SELECT 1 FROM resource_guide_leaves WHERE guide_person_id = $1 AND deleted_at IS NULL
        AND start_date <= $3 AND end_date >= $2 LIMIT 1`,
@@ -656,7 +765,12 @@ export class ToursService {
       status: i.status as string,
       ownerId: i.owner_id as string,
       ownerName: i.owner as string,
-      agencyName: extra.agency,
+      agencyName:
+        unit === 'shengxu'
+          ? extra.agency
+          : unit === 'linxi'
+            ? '霖熹'
+            : '独立站',
       contactName: extra.contact,
       countryItemId: i.country_item_id as string | null,
       countryCode: i.country_code as string | null,
@@ -731,6 +845,7 @@ export class ToursService {
         input.operatorId,
         src.businessUnit,
       );
+      await this.validateLanguage(manager, input.language);
       const guide = input.guideId
         ? await this.lockGuide(
             manager,
@@ -739,6 +854,7 @@ export class ToursService {
             s.occupyFrom,
             s.occupyTo,
             null,
+            input.language,
           )
         : null;
 
@@ -774,9 +890,9 @@ export class ToursService {
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
-          guide_id, remark, created_by, updated_by, schedule_mode, itinerary_summary, guide_name, guide_code)
+          guide_id, remark, created_by, updated_by, schedule_mode, itinerary_summary, guide_name, guide_code, agency_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21,$39,$40,$41,$42) RETURNING id`,
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21,$39,$40,$41,$42,$43) RETURNING id`,
         [
           tourNo,
           src.module,
@@ -820,6 +936,7 @@ export class ToursService {
           src.itinerarySummary ?? '',
           guide?.name ?? null,
           guide?.code ?? null,
+          src.agencyId ?? null,
         ],
       );
       return inserted[0].id;
@@ -916,8 +1033,10 @@ export class ToursService {
         if (this.hasRatingValues(rating[0]))
           conflict('已录入评分，不能更换或清空导游');
       }
+      await this.validateLanguage(manager, input.language, tour);
       const retainedGuideSchedule =
         newGuide === tour.guide_id &&
+        input.language === tour.language &&
         s.pickupAt === tour.pickup_at &&
         s.dropAt === tour.drop_at;
       const guide =
@@ -929,6 +1048,7 @@ export class ToursService {
               s.occupyFrom,
               s.occupyTo,
               id,
+              input.language,
             )
           : null;
       await manager.query(
@@ -936,7 +1056,7 @@ export class ToursService {
           pickup_flight_id=$9, drop_flight_id=$10, pickup_flight=$11::jsonb, drop_flight=$12::jsonb,
           pickup_at=$13, drop_at=$14, occupy_from=$15, occupy_to=$16, guide_id=$17, remark=$18,
           schedule_mode=$20, itinerary_summary=$21, guide_name=$22, guide_code=$23,
-          agency_name=$24, contact_name=$25, start_date=$26, days=$27, collect_coordinator_id=$28, collect_coordinator_name=$29,
+          agency_name=$24, contact_name=$25, start_date=$26, days=$27, collect_coordinator_id=$28, collect_coordinator_name=$29, agency_id=$30,
           version=version+1, updated_at=now(), updated_by=$19 WHERE id=$1`,
         [
           id,
@@ -970,6 +1090,7 @@ export class ToursService {
           src?.days ?? tour.days,
           src?.ownerId ?? tour.collect_coordinator_id,
           src?.ownerName ?? tour.collect_coordinator_name,
+          src ? (src.agencyId ?? null) : tour.agency_id,
         ],
       );
     });
