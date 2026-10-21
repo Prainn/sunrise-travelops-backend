@@ -1,4 +1,5 @@
 import { Transform, Type } from 'class-transformer';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsDefined,
@@ -147,9 +148,38 @@ export class TourOperatorQueryDto {
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
 }
 
-export class TourFlightQueryDto {
-  @IsOptional() @IsString() @MaxLength(100) keyword?: string;
-  @IsOptional() @IsIn(UNITS) businessUnit?: (typeof UNITS)[number];
+export class TourFlightQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  declare page: number;
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+  declare pageSize: number;
+  @ApiPropertyOptional({ maxLength: 100 })
+  @Transform(trim)
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  declare keyword?: string;
+  @ApiPropertyOptional({
+    enum: UNITS,
+    description:
+      'Required for headquarters; otherwise defaults to the current business scope',
+  })
+  @IsOptional()
+  @IsIn(UNITS)
+  businessUnit?: (typeof UNITS)[number];
+}
+
+export class TourFlightOptionResponse {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty() flightNumber: string;
+  @ApiProperty() departureTime: string;
+  @ApiProperty() arrivalTime: string;
+  @ApiProperty() departureCode: string;
+  @ApiProperty() departureName: string;
+  @ApiProperty() departureEnglishName: string;
+  @ApiProperty() arrivalCode: string;
+  @ApiProperty() arrivalName: string;
+  @ApiProperty() arrivalEnglishName: string;
 }
 
 export class TourLanguageQueryDto extends PaginationQueryDto {

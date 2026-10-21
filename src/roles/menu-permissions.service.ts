@@ -5,7 +5,7 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import { LoginScope } from '../users/user-identity.entity';
 import {
   allowedMenuKeys,
-  MENU_DEFINITIONS,
+  MENU_GROUPS,
   MENU_ROLES,
   roleMenuKeys,
 } from './menu-definitions';
@@ -59,8 +59,26 @@ export class MenuPermissionsService {
       [MENU_ROLES],
     );
     return {
-      menus: MENU_DEFINITIONS,
+      groups: MENU_GROUPS,
       roles: rows.map((row) => this.present(row)),
+    };
+  }
+
+  navigation(actor: AuthenticatedUser) {
+    const root = actor.scope === 'headquarters' && actor.roles.includes('ROOT');
+    return {
+      groups: MENU_GROUPS.map((group) => ({
+        ...group,
+        children: group.children.filter(
+          (item) =>
+            item.scopes.includes(actor.scope) &&
+            (root ||
+              (actor.menuKeys.includes(item.menuKey) &&
+                item.permissions.some((permission) =>
+                  actor.permissions.includes(permission),
+                ))),
+        ),
+      })).filter((group) => group.children.length > 0),
     };
   }
 

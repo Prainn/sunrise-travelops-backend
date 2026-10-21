@@ -9,11 +9,14 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
+import {
+  ApiCommonErrorResponses,
+  ApiPaginatedResponse,
+} from '../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../resources/common/resource.dto';
 import { GuideLeavesService } from './guide-leaves.service';
 import {
@@ -25,6 +28,7 @@ import {
   RatingQueryDto,
   RatingScoreDto,
   TourFlightQueryDto,
+  TourFlightOptionResponse,
   TourOperatorQueryDto,
   TourGuideQueryDto,
   TourLanguageQueryDto,
@@ -77,6 +81,8 @@ export class ToursController {
 
   @Get('flights')
   @Permissions('tour:list')
+  @ApiOperation({ summary: 'Search selectable flights with pagination' })
+  @ApiPaginatedResponse(TourFlightOptionResponse)
   flights(
     @Query() query: TourFlightQueryDto,
     @CurrentUser() user: AuthenticatedUser,

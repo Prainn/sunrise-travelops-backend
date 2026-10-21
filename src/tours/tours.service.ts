@@ -14,6 +14,7 @@ import {
   RatingQueryDto,
   RatingScoreDto,
   TourFlightQueryDto,
+  TourFlightOptionResponse,
   TourGuideQueryDto,
   TourLanguageQueryDto,
   TourInputDto,
@@ -348,7 +349,10 @@ export class ToursService {
     );
   }
 
-  async flights(query: TourFlightQueryDto, user: AuthenticatedUser) {
+  async flights(
+    query: TourFlightQueryDto,
+    user: AuthenticatedUser,
+  ): Promise<PageResult<TourFlightOptionResponse>> {
     this.require(user, 'tour:list');
     const unit = query.businessUnit ?? (user.scope as Unit);
     if (
@@ -361,18 +365,30 @@ export class ToursService {
     const where = keyword
       ? ` AND (f.flight_number ILIKE $${params.push(`%${keyword}%`)} OR d.code ILIKE $${params.length} OR a.code ILIKE $${params.length} OR d.name ILIKE $${params.length} OR a.name ILIKE $${params.length} OR d.english_name ILIKE $${params.length} OR a.english_name ILIKE $${params.length})`
       : '';
-    return this.db.query<Row[]>(
-      `SELECT f.id, f.flight_number AS "flightNumber", f.departure_time AS "departureTime", f.arrival_time AS "arrivalTime",
-        d.code AS "departureCode", d.name AS "departureName", d.english_name AS "departureEnglishName",
-        a.code AS "arrivalCode", a.name AS "arrivalName", a.english_name AS "arrivalEnglishName"
-       FROM resource_flights f
+    const from = `FROM resource_flights f
        JOIN system_business_dictionary_items d ON d.id = f.departure_airport_id
        JOIN system_business_dictionary_items a ON a.id = f.arrival_airport_id
        WHERE f.status = 'enabled' AND f.deleted_at IS NULL
-         AND d.status = 'enabled' AND d.deleted_at IS NULL AND a.status = 'enabled' AND a.deleted_at IS NULL${where}
-       ORDER BY f.flight_number, f.departure_time, f.id`,
+         AND d.status = 'enabled' AND d.deleted_at IS NULL AND a.status = 'enabled' AND a.deleted_at IS NULL${where}`;
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total ${from}`,
       params,
     );
+    const list = await this.db.query<TourFlightOptionResponse[]>(
+      `SELECT f.id, f.flight_number AS "flightNumber", f.departure_time AS "departureTime", f.arrival_time AS "arrivalTime",
+        d.code AS "departureCode", d.name AS "departureName", d.english_name AS "departureEnglishName",
+        a.code AS "arrivalCode", a.name AS "arrivalName", a.english_name AS "arrivalEnglishName"
+       ${from}
+       ORDER BY f.flight_number, f.departure_time, f.id
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async guideLanguages(query: TourLanguageQueryDto, user: AuthenticatedUser) {
