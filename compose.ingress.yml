@@ -16,6 +16,8 @@ services:
       - /run/sunrise-status:/run/sunrise-status:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /opt/sunrise-travelops-dev/acme:/var/www/acme:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
     networks: [dev, prod]
     logging:
       driver: json-file

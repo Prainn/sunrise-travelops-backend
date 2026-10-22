@@ -41,6 +41,8 @@ services:
       - "127.0.0.1:${DATABASE_HOST_PORT:?required}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U travelops -d travelops_${DEPLOY_ENV:?required}"]
       interval: 5s
@@ -56,6 +58,9 @@ services:
   migrate:
     image: ${API_IMAGE:?required}
     environment: *api-environment
+    volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
     command: ["node", "node_modules/typeorm/cli.js", "migration:run", "-d", "dist/database/data-source.js"]
     depends_on:
       postgres:
@@ -68,6 +73,9 @@ services:
   api:
     image: ${API_IMAGE:?required}
     environment: *api-environment
+    volumes:
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,6 +106,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - dozzle_data:/data
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
     networks:
       app:
         aliases: ["dozzle-${DEPLOY_ENV}"]
