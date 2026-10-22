@@ -76,10 +76,18 @@ export async function coordinator(
   manager: EntityManager,
   id: string,
   unit: string,
+  duty: 'reception' | 'operation' = 'reception',
 ) {
   const [row] = await manager.query<{ id: string; name: string }[]>(
-    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2 FOR SHARE OF u,i`,
-    [unit, id],
+    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2 AND i.coordinator_duty IN ($3,'both') FOR SHARE OF u,i`,
+    [unit, id, duty],
   );
-  return row ?? invalid('请选择本业务的启用计调');
+  return (
+    row ??
+    invalid(
+      duty === 'operation'
+        ? '请选择本业务启用的操作计调'
+        : '请选择本业务启用的收客计调',
+    )
+  );
 }

@@ -51,7 +51,14 @@ export const TOUR_PERMISSIONS = [
   'tour:rating:update',
 ] as const;
 
+export const BUSINESS_GROUP_PERMISSIONS = [
+  'sys:business-group:list',
+  'sys:business-group:create',
+  'sys:business-group:update',
+] as const;
+
 export const ADMIN_PERMISSIONS = [
+  ...BUSINESS_GROUP_PERMISSIONS,
   'sys:operation-log:list',
   'sys:user:list',
   'sys:user:create',
@@ -89,6 +96,9 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:business-group:list': '查看业务组',
+  'sys:business-group:create': '新增业务组',
+  'sys:business-group:update': '维护业务组及成员',
   'website:visit:list': '查看独立站访问记录',
   'website:visit:export': '导出独立站访问记录',
   'sys:menu-permission:list': '查看菜单权限',

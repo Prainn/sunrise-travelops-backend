@@ -1,3 +1,13 @@
+import {
+  assignmentInvalid,
+  CoordinatorDuty,
+  requireBusinessGroup,
+} from './coordinator-assignment';
+import { assertBusinessGroupAccess } from './business-groups.service';
+import {
+  UpdateCoordinatorDutyDto,
+  UpdateUserBusinessGroupDto,
+} from './dto/business-group.dto';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -38,6 +48,7 @@ export class UserManagementService {
       .createQueryBuilder(UserEntity, 'u')
       .leftJoinAndSelect('u.identities', 'identity')
       .leftJoinAndSelect('identity.roles', 'role')
+      .leftJoinAndSelect('identity.businessGroup', 'businessGroup')
       .where('u.is_superuser = false');
     if (actor.scope !== 'headquarters')
       qb.andWhere(
@@ -48,6 +59,23 @@ export class UserManagementService {
   }
   async getPage(query: UserQueryDto, actor: AuthenticatedUser) {
     const qb = this.query(actor);
+    if (query.scope) {
+      if (actor.scope !== 'headquarters' && query.scope !== actor.scope)
+        denied();
+      qb.andWhere('identity.scope=:selectedScope', {
+        selectedScope: query.scope,
+      });
+    }
+    if (query.businessGroupId) {
+      if (!['headquarters', 'linxi'].includes(actor.scope)) denied();
+      qb.andWhere('identity.business_group_id=:groupId', {
+        groupId: query.businessGroupId,
+      });
+    }
+    if (query.coordinatorDuty)
+      qb.andWhere('identity.coordinator_duty=:duty', {
+        duty: query.coordinatorDuty,
+      });
     if (query.keyword?.trim())
       qb.andWhere(
         '(u.username ILIKE :keyword OR u.nickname ILIKE :keyword OR u.mobile ILIKE :keyword)',
@@ -240,6 +268,85 @@ export class UserManagementService {
     }
     return result;
   }
+  private async assignment(
+    manager: EntityManager,
+    input: IdentityInput,
+    roles: RoleEntity[],
+    existing?: UserIdentityEntity,
+  ) {
+    const coordinator = roles.some((role) => role.code === 'COORDINATOR');
+    if (!coordinator && input.coordinatorDuty != null)
+      assignmentInvalid('只有计调账号可以设置计调分工');
+    const coordinatorDuty: CoordinatorDuty | null = coordinator
+      ? (input.coordinatorDuty ?? existing?.coordinatorDuty ?? 'reception')
+      : null;
+    const businessGroupId = input.businessGroupId ?? null;
+    if (input.scope === 'linxi') {
+      if (!businessGroupId) assignmentInvalid('请选择霖熹账号所属业务组');
+      if (businessGroupId !== existing?.businessGroupId)
+        await requireBusinessGroup(manager, businessGroupId);
+    } else if (businessGroupId) assignmentInvalid('只有霖熹账号可以设置业务组');
+    return { coordinatorDuty, businessGroupId };
+  }
+
+  private assertUserVersion(user: UserEntity, version: number) {
+    if (user.version !== version)
+      throw new BusinessException({
+        code: 'CONFLICT',
+        message: '用户已更新，请刷新后重试',
+        status: HttpStatus.CONFLICT,
+        details: { currentVersion: user.version },
+      });
+  }
+
+  async updateCoordinatorDuty(
+    id: string,
+    input: UpdateCoordinatorDutyDto,
+    actor: AuthenticatedUser,
+  ) {
+    if (!actor.permissions.includes('sys:user:update')) denied();
+    return this.dataSource.transaction(async (manager) => {
+      const user = await this.requireUser(id, actor, manager, true);
+      this.assertUserVersion(user, input.version);
+      if (user.identities.length !== 1)
+        assignmentInvalid('请先明确账号的唯一登录范围');
+      const identity = user.identities[0];
+      if (
+        !identity.roles.some(
+          (role) => role.code === 'COORDINATOR' && role.isEnabled,
+        )
+      )
+        assignmentInvalid('只有计调账号可以设置计调分工');
+      await manager.update(UserIdentityEntity, identity.id, {
+        coordinatorDuty: input.coordinatorDuty,
+      });
+      await manager.update(UserEntity, id, { updatedBy: actor.id });
+      return this.getFormDataWithManager(id, actor, manager);
+    });
+  }
+
+  async updateBusinessGroup(
+    id: string,
+    input: UpdateUserBusinessGroupDto,
+    actor: AuthenticatedUser,
+  ) {
+    assertBusinessGroupAccess(actor, 'update');
+    return this.dataSource.transaction(async (manager) => {
+      const user = await this.requireUser(id, actor, manager, true);
+      this.assertUserVersion(user, input.version);
+      if (user.identities.length !== 1 || user.identities[0].scope !== 'linxi')
+        assignmentInvalid('只有单一霖熹身份的账号可以设置业务组');
+      const identity = user.identities[0];
+      if (identity.businessGroupId !== input.businessGroupId)
+        await requireBusinessGroup(manager, input.businessGroupId);
+      await manager.update(UserIdentityEntity, identity.id, {
+        businessGroupId: input.businessGroupId,
+      });
+      await manager.update(UserEntity, id, { updatedBy: actor.id });
+      return this.getFormDataWithManager(id, actor, manager);
+    });
+  }
+
   private async countImpact(
     id: string,
     manager: EntityManager,
@@ -311,6 +418,7 @@ export class UserManagementService {
             scope: grant.input.scope,
             deptId: grant.input.deptId,
             roles: grant.roles,
+            ...(await this.assignment(manager, grant.input, grant.roles)),
           }),
         );
       return {
@@ -378,6 +486,7 @@ export class UserManagementService {
             scope: grant.input.scope,
             deptId: grant.input.deptId,
             roles: grant.roles,
+            ...(await this.assignment(manager, grant.input, grant.roles, old)),
             refreshTokenHash: null,
           }),
         );
@@ -428,6 +537,7 @@ export class UserManagementService {
   private response(user: UserEntity) {
     return {
       id: user.id,
+      version: user.version,
       username: user.username,
       nickname: user.nickname,
       englishName: user.englishName,
@@ -442,6 +552,10 @@ export class UserManagementService {
         id: i.id,
         scope: i.scope,
         deptId: i.deptId,
+        coordinatorDuty: i.coordinatorDuty,
+        businessGroupId: i.businessGroupId,
+        businessGroupName: i.businessGroup?.name ?? null,
+        businessGroupStatus: i.businessGroup?.status ?? null,
         deptName:
           DEPARTMENT_OPTIONS.find((d) => d.value === i.deptId)?.label ?? '',
         roleIds: i.roles.map((r) => r.id),

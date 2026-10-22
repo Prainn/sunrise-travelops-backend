@@ -1,3 +1,4 @@
+import { COORDINATOR_DUTIES, CoordinatorDuty } from '../coordinator-assignment';
 import { LOGIN_SCOPES, LoginScope } from '../user-identity.entity';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
@@ -37,6 +38,18 @@ const toDateRange = ({ value }: { value: unknown }): unknown => {
 };
 
 export class UserQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: LOGIN_SCOPES })
+  @IsOptional()
+  @IsIn(LOGIN_SCOPES)
+  scope?: LoginScope;
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  businessGroupId?: string;
+  @ApiPropertyOptional({ enum: COORDINATOR_DUTIES })
+  @IsOptional()
+  @IsIn(COORDINATOR_DUTIES)
+  coordinatorDuty?: CoordinatorDuty;
   @ApiPropertyOptional({ enum: [0, 1] })
   @IsOptional()
   @Type(() => Number)
@@ -90,6 +103,22 @@ export class TourCodeSuggestionResponse {
 }
 
 export class IdentityInput {
+  @ApiPropertyOptional({
+    enum: COORDINATOR_DUTIES,
+    nullable: true,
+    description: '仅计调可设置，默认 reception；移除计调角色时传 null 或省略',
+  })
+  @IsOptional()
+  @IsIn(COORDINATOR_DUTIES)
+  coordinatorDuty?: CoordinatorDuty | null;
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: '霖熹必填，其余身份必须为空',
+  })
+  @IsOptional()
+  @IsUUID()
+  businessGroupId?: string | null;
   @IsOptional() @IsUUID() id?: string;
   @IsIn(LOGIN_SCOPES) scope: LoginScope;
   @ApiProperty()
@@ -222,6 +251,13 @@ export class UserBatchIdsQueryDto {
 }
 
 export class UserIdentityResponse {
+  @ApiProperty({ enum: COORDINATOR_DUTIES, nullable: true })
+  coordinatorDuty: CoordinatorDuty | null;
+  @ApiProperty({ type: String, nullable: true }) businessGroupId: string | null;
+  @ApiProperty({ type: String, nullable: true }) businessGroupName:
+    string | null;
+  @ApiProperty({ enum: ['enabled', 'disabled'], nullable: true })
+  businessGroupStatus: 'enabled' | 'disabled' | null;
   @ApiProperty({ format: 'uuid' })
   id: string;
 
@@ -242,6 +278,7 @@ export class UserIdentityResponse {
 }
 
 export class UserItemResponse {
+  @ApiProperty() version: number;
   id: string;
   username: string;
   nickname: string;

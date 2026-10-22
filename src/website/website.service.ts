@@ -17,7 +17,6 @@ import type {
   WebsiteDay,
   WebsiteItinerary,
   WebsiteItineraryInput,
-  WebsiteLog,
   WebsiteInquiryLog,
   WebsiteLogAction,
   WebsiteLogMetadata,
@@ -845,29 +844,6 @@ export class WebsiteService {
       );
       return updated;
     });
-  }
-  async logs(
-    id: string,
-    query: { page: number; pageSize: number },
-    user: AuthenticatedUser,
-  ) {
-    await this.inquiry(id, user);
-    const count = await this.db.manager.query<{ total: string }[]>(
-      'SELECT count(*)::text AS total FROM website_logs WHERE inquiry_id=$1',
-      [id],
-    );
-    const list = await this.db.manager.query<WebsiteLog[]>(
-      `SELECT id,action,target_id AS "targetId",actor_name AS "actorName",detail,
-      to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt"
-      FROM website_logs WHERE inquiry_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT $2 OFFSET $3`,
-      [id, query.pageSize, (query.page - 1) * query.pageSize],
-    );
-    return {
-      list,
-      total: Number(count[0].total),
-      page: query.page,
-      pageSize: query.pageSize,
-    };
   }
   private async logFilter(query: WebsiteLogQuery, user: AuthenticatedUser) {
     const params: unknown[] = [];

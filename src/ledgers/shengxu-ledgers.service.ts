@@ -165,7 +165,7 @@ export class ShengxuLedgersService {
     const params: unknown[] = [delegate ? 'shengxu' : owner];
     let where = `WHERE business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL AND ${
       delegate
-        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND u.id=resource_agencies.coordinator_id)`
+        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND i.coordinator_duty IN ('reception','both') AND u.id=resource_agencies.coordinator_id)`
         : 'coordinator_id=$1'
     }`;
     if (query.keyword?.trim())
@@ -291,7 +291,7 @@ export class ShengxuLedgersService {
           invalid('请选择关联启用盛旭计调的组团社');
         const creator = delegate
           ? await coordinator(manager, resources.coordinatorId!, 'shengxu')
-          : { id: actor.id, name: actor.nickname };
+          : await coordinator(manager, actor.id, 'shengxu');
         const [row] = await manager.query<ShengxuRow[]>(
           `INSERT INTO shengxu_ledgers(record_date,creator_id,creator_name,agency_id,contact_id,agency_name,country_or_region,city,contact_name,quoted_groups,converted_groups,quote_sent,itinerary,not_converted_reason,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${SELECT}`,
           [

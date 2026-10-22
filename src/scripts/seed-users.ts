@@ -224,6 +224,9 @@ async function seed(): Promise<void> {
             scope,
             deptId: input.deptId,
             roles: assignedRoles,
+            coordinatorDuty: input.roleCodes.includes('COORDINATOR')
+              ? (existing?.coordinatorDuty ?? 'reception')
+              : null,
             refreshTokenHash: null,
           }),
         );

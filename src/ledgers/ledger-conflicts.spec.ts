@@ -35,8 +35,8 @@ function fixture(unit: 'shengxu' | 'linxi') {
     creatorId: actor.id,
     operatorId: actor.id,
     operatorName: 'Test',
-    receivingAccountId: actor.id,
-    receivingAccountName: 'Test',
+    receivingGroupId: 'group',
+    receivingAccountName: '定制师测试组',
     agencyId: 'agency',
     agencyName: 'Agency',
     contactId: 'contact',
@@ -60,7 +60,7 @@ function fixture(unit: 'shengxu' | 'linxi') {
   const directInput = Object.assign(new UpdateDirectLedgerDto(), {
     receivedDate: '2026-10-20',
     source: 'Customer',
-    receivingAccountId: actor.id,
+    receivingGroupId: 'group',
     operatorId: actor.id,
     version: row.version,
   });
