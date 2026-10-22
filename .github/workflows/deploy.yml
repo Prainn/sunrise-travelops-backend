@@ -16,7 +16,7 @@ on:
       operation:
         description: Deploy this branch or roll back a retained verified release
         type: choice
-        options: [deploy, rollback]
+        options: [deploy, refresh-runtime, rollback]
         default: deploy
       release:
         description: Rollback release ID, or previous
@@ -91,7 +91,33 @@ jobs:
             echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if python3 - "$base" "$GITHUB_SHA" <<'PYCODE'
+          source_sha="$GITHUB_SHA"
+          if [[ "$OPERATION" == refresh-runtime ]]; then
+            stage='Select deployed source for runtime-only refresh'
+            test -z "$REVIEWED_MIGRATIONS" || { echo 'Runtime refresh cannot authorize migrations'; exit 1; }
+            source_sha=$(python3 - "$base" <<'PYCODE'
+          import json, re, sys
+          from pathlib import Path
+          state = json.loads((Path(sys.argv[1]) / 'backend/state.json').read_text())
+          current = state['current']
+          if not re.fullmatch(r'[0-9a-f]{40}-[0-9]+-[0-9]+', current):
+              raise ValueError('Runtime refresh requires a verified source commit')
+          record = json.loads((Path(sys.argv[1]) / 'backend/releases' / (current + '.json')).read_text())
+          if record['status'] != 'verified':
+              raise ValueError('Current release is not verified')
+          print(current.split('-')[0])
+          PYCODE
+            )
+            mkdir "$source/runtime-source"
+            curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 120 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/tarball/$source_sha" -o "$source/runtime-source.tar.gz"
+            tar -xzf "$source/runtime-source.tar.gz" --strip-components=1 -C "$source/runtime-source"
+            cp Dockerfile "$source/runtime-source/Dockerfile"
+            cd "$source/runtime-source"
+            echo "Runtime refresh preserves application source $source_sha; Dockerfile from $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$OPERATION" != refresh-runtime ]] && python3 - "$base" "$GITHUB_SHA" <<'PYCODE'
           import json, sys
           from pathlib import Path
           base, sha = Path(sys.argv[1]), sys.argv[2]
@@ -107,10 +133,13 @@ jobs:
           fi
           stage='Release safety checks'
           python3 scripts/test_deploy.py
-          release="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          image="sunrise-travelops-api:sha-$GITHUB_SHA"
+          release="${source_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          image="sunrise-travelops-api:sha-$source_sha"
+          if [[ "$OPERATION" == refresh-runtime ]]; then
+            image="$image-runtime-$GITHUB_SHA"
+          fi
           stage='Build and verify candidate image'
-          docker buildx build --builder sunrise --load --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$image" .
+          docker buildx build --builder sunrise --load --label "org.opencontainers.image.revision=$source_sha" -t "$image" .
           stage='Migration review, activation and health verification'
           result=0
           python3 scripts/deploy.py deploy "$release" "$image" || result=$?
