@@ -48,6 +48,7 @@ export const TOUR_PERMISSIONS = [
   'tour:create',
   'tour:update',
   'tour:cancel',
+  'tour:rating:list',
   'tour:rating:update',
 ] as const;
 
@@ -185,6 +186,7 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'tour:create': '创建旅行团',
   'tour:update': '修改旅行团',
   'tour:cancel': '撤销旅行团',
+  'tour:rating:list': '查看导游评分',
   'tour:rating:update': '导游评分',
   'website:inquiry:list': '查看独立站询盘',
   'website:inquiry:create': '创建独立站询盘',

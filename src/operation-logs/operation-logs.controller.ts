@@ -1,6 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
+import { LOGIN_SCOPES, LoginScope } from '../users/user-identity.entity';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
@@ -9,10 +11,19 @@ import {
   OperationLogsService,
 } from './operation-logs.service';
 
-class OperationLogQueryDto extends PaginationQueryDto {
+export class OperationLogQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: OPERATION_CATEGORIES })
   @IsOptional()
   @IsIn(OPERATION_CATEGORIES)
   category?: OperationCategory;
+
+  @ApiPropertyOptional({
+    enum: LOGIN_SCOPES,
+    description: '操作发生时的登录业务范围',
+  })
+  @IsOptional()
+  @IsIn(LOGIN_SCOPES)
+  scope?: LoginScope;
 }
 
 @ApiTags('System')
@@ -25,6 +36,11 @@ export class OperationLogsController {
   @Permissions('sys:operation-log:list')
   @ApiOperation({ summary: 'List operation logs' })
   list(@Query() query: OperationLogQueryDto) {
-    return this.logs.page(query.page, query.pageSize, query.category);
+    return this.logs.page(
+      query.page,
+      query.pageSize,
+      query.category,
+      query.scope,
+    );
   }
 }

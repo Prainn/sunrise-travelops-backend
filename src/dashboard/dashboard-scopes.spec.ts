@@ -46,7 +46,7 @@ function user(
     deptId: null,
     deptName: '',
     roles: [role],
-    permissions: effectivePermissions(scope, [role]),
+    permissions: effectivePermissions(scope, [role], 'operation'),
     menuKeys: [],
   };
 }

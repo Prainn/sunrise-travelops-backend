@@ -20,7 +20,7 @@ describe('headquarters permissions', () => {
     const permissions = effectivePermissions('headquarters', [role]);
     expect(permissions).toContain('tour:list');
     for (const permission of TOUR_PERMISSIONS.filter(
-      (p) => p !== 'tour:list',
+      (p) => !p.endsWith(':list'),
     )) {
       expect(permissions).not.toContain(permission);
     }
@@ -54,8 +54,8 @@ const websitePermissions = (
   scope: Parameters<typeof effectivePermissions>[0],
   roles: string[],
 ) =>
-  effectivePermissions(scope, roles).filter((code) =>
-    code.startsWith('website:'),
+  effectivePermissions(scope, roles).filter(
+    (code) => code.startsWith('website:') && !code.startsWith('website:visit:'),
   );
 
 describe('independent website permissions', () => {
@@ -202,6 +202,34 @@ describe('ledger permissions', () => {
           p.startsWith('ledger:'),
         ),
       ).toEqual([]);
+    },
+  );
+});
+
+describe('tour duty permissions', () => {
+  it.each(['shengxu', 'linxi', 'website'] as const)(
+    '%s separates creation, management and rating access for every duty',
+    (scope) => {
+      for (const duty of ['reception', 'operation', 'both', null] as const) {
+        const permissions = effectivePermissions(scope, ['COORDINATOR'], duty);
+        expect(permissions.includes('tour:create')).toBe(scope === 'shengxu');
+        for (const action of ['list', 'update', 'cancel']) {
+          expect(permissions.includes(`tour:${action}`)).toBe(
+            scope === 'shengxu' || duty === 'operation' || duty === 'both',
+          );
+        }
+        expect(permissions).toEqual(
+          expect.arrayContaining(['tour:rating:list', 'tour:rating:update']),
+        );
+        for (const roles of [
+          ['BUSINESS_MANAGER'],
+          ['BUSINESS_MANAGER', 'COORDINATOR'],
+        ]) {
+          expect(effectivePermissions(scope, roles, duty)).toEqual(
+            expect.arrayContaining([...TOUR_PERMISSIONS]),
+          );
+        }
+      }
     },
   );
 });

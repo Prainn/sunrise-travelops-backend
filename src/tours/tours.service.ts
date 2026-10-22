@@ -1178,7 +1178,7 @@ export class ToursService {
     query: RatingQueryDto,
     user: AuthenticatedUser,
   ): Promise<PageResult<Row>> {
-    this.require(user, 'tour:list');
+    this.require(user, 'tour:rating:list');
     const params: unknown[] = [];
     let where = `WHERE t.guide_id IS NOT NULL${this.visible(user, params)}`;
     if (query.guideId)

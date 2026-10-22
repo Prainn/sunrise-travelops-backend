@@ -109,7 +109,7 @@ export class ToursController {
   }
 
   @Get('ratings')
-  @Permissions('tour:list')
+  @Permissions('tour:rating:list')
   ratings(
     @Query() query: RatingQueryDto,
     @CurrentUser() user: AuthenticatedUser,

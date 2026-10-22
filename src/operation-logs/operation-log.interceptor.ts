@@ -54,6 +54,37 @@ function actionFor(
     if (handler === 'updateProfile')
       return { category: 'user', label: '编辑本人资料' };
   }
+  if (
+    controller === 'ShengxuLedgersController' ||
+    controller === 'DirectLedgersController'
+  ) {
+    const ledger =
+      controller === 'ShengxuLedgersController'
+        ? '盛旭台账'
+        : '霖熹/独立站台账';
+    const labels: Record<string, string> = {
+      create: `新增${ledger}`,
+      update: `编辑${ledger}`,
+      delete: `删除${ledger}`,
+      ...(controller === 'DirectLedgersController'
+        ? { review: `审核${ledger}`, operate: `保存${ledger}操作信息` }
+        : {}),
+    };
+    return labels[handler]
+      ? { category: 'ledger', label: labels[handler] }
+      : null;
+  }
+  if (controller === 'WebsiteVisitsController') {
+    if (handler === 'create')
+      return {
+        category: 'website-visit',
+        label: '访问记录生成询盘',
+        parentKey: 'id',
+        resultId: true,
+      };
+    if (handler === 'export')
+      return { category: 'website-visit', label: '导出独立站访问记录' };
+  }
   if (controller === 'InquiriesController') {
     const actions: Record<string, Action> = {
       create: { category: 'inquiry', label: '新增询盘', resultId: true },
@@ -277,7 +308,7 @@ export class OperationLogInterceptor implements NestInterceptor {
     };
     const targetIds = (item: Record<string, unknown> = {}): unknown[] => {
       if (context.getHandler().name.startsWith('delete'))
-        return ids(request.query.ids);
+        return ids(request.params.id ?? request.query.ids);
       const recordId = action.resultId
         ? item.id
         : (request.params.id ??

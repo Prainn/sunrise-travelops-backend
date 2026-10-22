@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import type { LoginScope } from '../users/user-identity.entity';
 import { OperationLogEntity } from './operation-log.entity';
 
 export const OPERATION_CATEGORIES = [
@@ -16,6 +17,8 @@ export const OPERATION_CATEGORIES = [
   'guide-leave',
   'guide-rating',
   'website-config',
+  'ledger',
+  'website-visit',
 ] as const;
 export type OperationCategory = (typeof OPERATION_CATEGORIES)[number];
 
@@ -42,9 +45,14 @@ export class OperationLogsService {
     if (entries.length) await this.logs.insert(entries);
   }
 
-  async page(page: number, pageSize: number, category?: OperationCategory) {
+  async page(
+    page: number,
+    pageSize: number,
+    category?: OperationCategory,
+    scope?: LoginScope,
+  ) {
     const [list, total] = await this.logs.findAndCount({
-      where: category ? { category } : {},
+      where: { ...(category ? { category } : {}), ...(scope ? { scope } : {}) },
       order: { time: 'DESC', id: 'DESC' },
       skip: (page - 1) * pageSize,
       take: pageSize,

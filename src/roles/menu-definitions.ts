@@ -133,7 +133,7 @@ export const MENU_DEFINITIONS = [
     key: 'guide-ratings',
     title: 'guideRatings',
     group: 'guideManagement',
-    permissions: ['tour:list'],
+    permissions: ['tour:rating:list'],
   },
   {
     key: 'tours',
@@ -284,7 +284,8 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
 ];
 
 export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {
-  const permissions = effectivePermissions(scope, roles);
+  // Role-menu configuration is the upper bound across duties; navigation uses live actor permissions.
+  const permissions = effectivePermissions(scope, roles, 'both');
   return MENU_DEFINITIONS.filter(
     (menu) =>
       (!('scopes' in menu) ||

@@ -7,6 +7,7 @@ import {
   TOUR_PERMISSIONS,
   WEBSITE_PERMISSIONS,
 } from './permissions';
+import type { CoordinatorDuty } from '../users/coordinator-assignment';
 import { LoginScope } from '../users/user-identity.entity';
 const userPermissions = ADMIN_PERMISSIONS.filter((p) =>
   p.startsWith('sys:user:'),
@@ -17,6 +18,7 @@ const reads = [
   ),
   'itinerary:download',
   'tour:list',
+  'tour:rating:list',
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
@@ -36,6 +38,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'itinerary:list',
     'itinerary:download',
     'tour:list',
+    'tour:rating:list',
   ],
   BUSINESS_MANAGER: [
     'sys:business-dictionary:list',
@@ -86,6 +89,7 @@ const WEBSITE_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
 export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
+  coordinatorDuty: CoordinatorDuty | null = null,
 ): string[] {
   const visitPermissions =
     (scope === 'website' &&
@@ -147,5 +151,20 @@ export function effectivePermissions(
           : []),
       ]),
     ),
-  ].sort();
+  ]
+    .filter((permission) => {
+      if (
+        !['linxi', 'website'].includes(scope) ||
+        selected.includes('BUSINESS_MANAGER') ||
+        !permission.startsWith('tour:') ||
+        permission.startsWith('tour:rating:')
+      )
+        return true;
+      // Direct-business coordinators never create tours; only operation/both can manage them.
+      return (
+        permission !== 'tour:create' &&
+        (coordinatorDuty === 'operation' || coordinatorDuty === 'both')
+      );
+    })
+    .sort();
 }

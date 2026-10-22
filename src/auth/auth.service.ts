@@ -155,7 +155,7 @@ export class AuthService {
         DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
         '',
       roles,
-      permissions: effectivePermissions(scope, roles),
+      permissions: effectivePermissions(scope, roles, identity.coordinatorDuty),
       menuKeys,
     };
   }
