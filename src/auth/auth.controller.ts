@@ -44,7 +44,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 150, ttl: 60_000 } })
   @ApiOperation({ summary: 'Log in with username and password' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
   login(@Body() input: LoginDto, @Req() request: Request) {
@@ -62,7 +62,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @ApiOperation({ summary: 'Rotate access and refresh tokens' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
   refresh(@Body() input: RefreshTokenDto) {
