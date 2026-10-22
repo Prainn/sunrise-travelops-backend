@@ -9,7 +9,7 @@ export class AddWebsiteInquiryLogSummary1793059200000 implements MigrationInterf
       ADD COLUMN target_code text,
       ADD COLUMN summary text,
       ADD COLUMN changes jsonb CHECK(changes IS NULL OR jsonb_typeof(changes)='array'),
-      ADD COLUMN metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(metadata)='object);
+      ADD COLUMN metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(metadata)='object');
       CREATE INDEX website_logs_time ON website_logs(occurred_at DESC,id DESC);
       UPDATE role_menu_configs SET menu_keys=array_append(menu_keys,'website-inquiry-summary'),version=version+1,updated_at=now()
       WHERE role_id IN (SELECT id FROM roles WHERE code IN ('ROOT','ADMIN','EXECUTIVE','BUSINESS_MANAGER','COORDINATOR'))
