@@ -34,6 +34,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.identityId,
       payload.scope,
       payload.menuKeys,
+      payload.sid,
+      payload.sv,
     );
   }
 }

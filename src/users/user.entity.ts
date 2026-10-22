@@ -31,6 +31,9 @@ export class UserEntity extends AuditedEntity {
   @Column({ name: 'english_name', type: 'varchar', length: 100 })
   englishName: string;
 
+  @Column({ name: 'account_link_id', type: 'uuid', nullable: true })
+  accountLinkId: string | null;
+
   @Column({ name: 'tour_code', type: 'varchar', length: 10, nullable: true })
   tourCode: string | null;
 

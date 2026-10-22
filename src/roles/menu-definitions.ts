@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'account-links',
+    title: 'accountLinks',
+    group: 'systemManagement',
+    permissions: ['sys:account-link:manage'],
+    scopes: ['headquarters'],
+  },
+  {
     key: 'menu-permissions',
     title: 'menuPermissions',
     group: 'systemManagement',
@@ -225,6 +232,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),
       menuItem('business-groups', 'BusinessGroups'),
+      menuItem('account-links', 'AccountLinks'),
       menuItem('operations', 'OperationLogs'),
     ],
   },

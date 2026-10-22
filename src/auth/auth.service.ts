@@ -1,3 +1,6 @@
+import { AccountLinksService } from '../users/account-links.service';
+import { lockAccountLinks } from '../users/account-links.rules';
+import { OperationLogEntity } from '../operation-logs/operation-log.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import {
   UserIdentityEntity,
@@ -17,7 +20,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { In, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import { PermissionEntity } from '../roles/permission.entity';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -36,6 +39,7 @@ export class AuthService {
     @InjectRepository(UserLoginRecordEntity)
     private readonly loginRecords: Repository<UserLoginRecordEntity>,
     private readonly menus: MenuPermissionsService,
+    private readonly links: AccountLinksService,
   ) {}
 
   async login(
@@ -62,7 +66,26 @@ export class AuthService {
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    const tokens = await this.issueTokens(user, identity);
+    const tokens = await this.users.manager.transaction(async (manager) => {
+      await lockAccountLinks(manager);
+      const current = await manager.findOne(UserIdentityEntity, {
+        where: { id: identity.id },
+        relations: { user: true, roles: true },
+      });
+      if (
+        !current?.user ||
+        current.user.deletedAt ||
+        current.user.status !== UserStatus.Enabled ||
+        current.user.passwordHash !== user.passwordHash ||
+        !current.roles.some((r) => r.isEnabled)
+      )
+        throw new BusinessException({
+          code: 'AUTH_INVALID_CREDENTIALS',
+          message: '用户名或密码错误',
+          status: HttpStatus.UNAUTHORIZED,
+        });
+      return this.issueTokens(current.user, current, undefined, manager);
+    });
     await this.loginRecords.save(
       this.loginRecords.create({
         userId: user.id,
@@ -92,29 +115,106 @@ export class AuthService {
       throw this.invalidRefreshToken();
     }
 
-    const identity = await this.users.manager.findOne(UserIdentityEntity, {
-      where: {
-        id: payload.identityId,
-        userId: payload.sub,
-        scope: payload.scope,
-      },
-      relations: { user: true, roles: true },
+    return this.users.manager.transaction(async (manager) => {
+      await lockAccountLinks(manager);
+      const session = await this.requireSession(manager, payload);
+      const identity = await manager.findOne(UserIdentityEntity, {
+        where: {
+          id: payload.identityId,
+          userId: payload.sub,
+          scope: payload.scope,
+        },
+        relations: { user: true, roles: true },
+      });
+      if (
+        !identity?.user ||
+        identity.user.deletedAt ||
+        identity.user.status !== UserStatus.Enabled ||
+        !identity.roles.some((r) => r.isEnabled) ||
+        !(await argon2.verify(session.refreshTokenHash, refreshToken))
+      )
+        throw this.invalidRefreshToken();
+      return this.issueTokens(
+        identity.user,
+        identity,
+        payload.menuKeys,
+        manager,
+        { id: payload.sid!, version: payload.sv! },
+      );
     });
-    if (
-      !identity?.user ||
-      identity.user.deletedAt ||
-      identity.user.status !== UserStatus.Enabled ||
-      !identity.roles.some((r) => r.isEnabled) ||
-      !identity.refreshTokenHash ||
-      !(await argon2.verify(identity.refreshTokenHash, refreshToken))
-    )
-      throw this.invalidRefreshToken();
-    return this.issueTokens(identity.user, identity, payload.menuKeys);
   }
 
-  async logout(identityId: string): Promise<void> {
-    await this.users.manager.update(UserIdentityEntity, identityId, {
-      refreshTokenHash: null,
+  private async requireSession(
+    manager: EntityManager,
+    payload: Pick<JwtPayload, 'sid' | 'sv' | 'sub' | 'identityId'>,
+  ) {
+    if (!payload.sid || !Number.isInteger(payload.sv))
+      throw this.invalidRefreshToken();
+    const [session] = await manager.query<{ refreshTokenHash: string }[]>(
+      `SELECT refresh_token_hash AS "refreshTokenHash" FROM auth_account_sessions WHERE id=$1 AND version=$2 AND user_id=$3 AND identity_id=$4 AND expires_at>now()`,
+      [payload.sid, payload.sv, payload.sub, payload.identityId],
+    );
+    if (!session) throw this.invalidRefreshToken();
+    return session;
+  }
+
+  async logout(actor: AuthenticatedUser): Promise<void> {
+    await this.users.manager.transaction(async (manager) => {
+      await lockAccountLinks(manager);
+      await manager.query(
+        'DELETE FROM auth_account_sessions WHERE id=$1 AND user_id=$2 AND version=$3',
+        [actor.sessionId, actor.id, actor.sessionVersion],
+      );
+    });
+  }
+
+  linkedAccounts(actor: AuthenticatedUser) {
+    return this.links.switchTargets(actor);
+  }
+
+  async switchAccount(
+    actor: AuthenticatedUser,
+    targetUserId: string,
+    ip: string,
+  ): Promise<AuthTokens> {
+    return this.users.manager.transaction(async (manager) => {
+      await lockAccountLinks(manager);
+      await this.requireSession(manager, {
+        sid: actor.sessionId,
+        sv: actor.sessionVersion,
+        sub: actor.id,
+        identityId: actor.identityId,
+      });
+      const target = await this.links.requireTarget(
+        manager,
+        actor,
+        targetUserId,
+      );
+      const tokens = await this.issueTokens(
+        target.user,
+        target,
+        undefined,
+        manager,
+        { id: actor.sessionId!, version: actor.sessionVersion! + 1 },
+      );
+      await manager.insert(OperationLogEntity, {
+        category: 'login',
+        action: '切换账号',
+        success: true,
+        actorId: actor.id,
+        actorName: actor.username,
+        scope: actor.scope,
+        ip: ip.slice(0, 64),
+        detail: JSON.stringify({
+          sessionId: actor.sessionId,
+          fromUserId: actor.id,
+          fromIdentityId: actor.identityId,
+          toUserId: target.userId,
+          toIdentityId: target.id,
+          toScope: target.scope,
+        }),
+      });
+      return tokens;
     });
   }
 
@@ -123,8 +223,25 @@ export class AuthService {
     identityId: string,
     scope: LoginScope,
     menuKeys: string[],
+    sessionId?: string,
+    sessionVersion?: number,
   ): Promise<AuthenticatedUser> {
     if (!identityId || !scope) throw this.invalidRefreshToken();
+    try {
+      await this.requireSession(this.users.manager, {
+        sid: sessionId,
+        sv: sessionVersion,
+        sub: userId,
+        identityId,
+      });
+    } catch (error) {
+      if (!(error instanceof BusinessException)) throw error;
+      throw new BusinessException({
+        code: 'AUTH_TOKEN_INVALID',
+        message: '访问令牌无效，请重新登录',
+        status: HttpStatus.UNAUTHORIZED,
+      });
+    }
     const identity = await this.users.manager.findOne(UserIdentityEntity, {
       where: { id: identityId, userId, scope },
       relations: { user: true, roles: true },
@@ -147,6 +264,8 @@ export class AuthService {
       id: user.id,
       username: user.username,
       nickname: user.nickname,
+      sessionId,
+      sessionVersion,
       identityId: identity.id,
       scope,
       scopeName: SCOPE_NAMES[scope],
@@ -181,41 +300,44 @@ export class AuthService {
     oldPassword: string,
     newPassword: string,
   ): Promise<void> {
-    const user = await this.users.findOne({
-      where: { id: userId, status: UserStatus.Enabled },
+    await this.users.manager.transaction(async (manager) => {
+      await lockAccountLinks(manager);
+      const user = await manager.findOne(UserEntity, {
+        where: { id: userId, status: UserStatus.Enabled },
+      });
+      if (!user) {
+        throw new BusinessException({
+          code: ErrorCode.AUTH_TOKEN_INVALID,
+          message: '访问令牌无效',
+          status: HttpStatus.UNAUTHORIZED,
+        });
+      }
+      const incorrectPassword = () =>
+        new BusinessException({
+          code: ErrorCode.AUTH_PASSWORD_INCORRECT,
+          message: '原密码不正确，请重新输入',
+          status: HttpStatus.BAD_REQUEST,
+        });
+      if (!(await argon2.verify(user.passwordHash, oldPassword)))
+        throw incorrectPassword();
+      const result = await manager.update(
+        UserEntity,
+        {
+          id: userId,
+          status: UserStatus.Enabled,
+          passwordHash: user.passwordHash,
+        },
+        {
+          passwordHash: await argon2.hash(newPassword),
+          updatedBy: userId,
+        },
+      );
+      if (!result.affected) throw incorrectPassword();
+      await manager.query(
+        'DELETE FROM auth_account_sessions WHERE user_id=$1',
+        [userId],
+      );
     });
-    if (!user) {
-      throw new BusinessException({
-        code: ErrorCode.AUTH_TOKEN_INVALID,
-        message: '访问令牌无效',
-        status: HttpStatus.UNAUTHORIZED,
-      });
-    }
-    const incorrectPassword = () =>
-      new BusinessException({
-        code: ErrorCode.AUTH_PASSWORD_INCORRECT,
-        message: '原密码不正确，请重新输入',
-        status: HttpStatus.BAD_REQUEST,
-      });
-    if (!(await argon2.verify(user.passwordHash, oldPassword)))
-      throw incorrectPassword();
-    const result = await this.users.update(
-      {
-        id: userId,
-        status: UserStatus.Enabled,
-        passwordHash: user.passwordHash,
-      },
-      {
-        passwordHash: await argon2.hash(newPassword),
-        updatedBy: userId,
-      },
-    );
-    if (!result.affected) throw incorrectPassword();
-    await this.users.manager.update(
-      UserIdentityEntity,
-      { userId },
-      { refreshTokenHash: null },
-    );
   }
 
   async getProfile(actor: AuthenticatedUser): Promise<UserProfileResponse> {
@@ -287,6 +409,8 @@ export class AuthService {
     user: UserEntity,
     identity: UserIdentityEntity,
     snapshot?: string[],
+    manager = this.users.manager,
+    session: { id: string; version: number } = { id: randomUUID(), version: 1 },
   ): Promise<AuthTokens> {
     const menuKeys =
       snapshot ??
@@ -301,6 +425,8 @@ export class AuthService {
       identityId: identity.id,
       scope: identity.scope,
       type: 'access',
+      sid: session.id,
+      sv: session.version,
       menuKeys,
     };
     const refreshPayload: JwtPayload = {
@@ -308,6 +434,8 @@ export class AuthService {
       identityId: identity.id,
       scope: identity.scope,
       type: 'refresh',
+      sid: session.id,
+      sv: session.version,
       menuKeys,
     };
     const accessExpiresIn = this.config.getOrThrow<string>('JWT_EXPIRES_IN');
@@ -327,8 +455,21 @@ export class AuthService {
       }),
     ]);
 
-    identity.refreshTokenHash = await argon2.hash(refreshToken);
-    await this.users.manager.save(identity);
+    const refreshHash = await argon2.hash(refreshToken);
+    const refreshExpiry = this.jwt.decode<{ exp: number }>(refreshToken).exp;
+    await manager.query(
+      `INSERT INTO auth_account_sessions(id,user_id,identity_id,version,refresh_token_hash,expires_at)
+      VALUES($1,$2,$3,$4,$5,to_timestamp($6)) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,identity_id=excluded.identity_id,
+      version=excluded.version,refresh_token_hash=excluded.refresh_token_hash,expires_at=excluded.expires_at`,
+      [
+        session.id,
+        user.id,
+        identity.id,
+        session.version,
+        refreshHash,
+        refreshExpiry,
+      ],
+    );
 
     const decoded = this.jwt.decode<{
       exp: number;

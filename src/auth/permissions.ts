@@ -97,6 +97,7 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:account-link:manage': '管理账号关联',
   'sys:business-group:list': '查看业务组',
   'sys:business-group:create': '新增业务组',
   'sys:business-group:update': '维护业务组及成员',

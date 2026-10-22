@@ -1,3 +1,7 @@
+import {
+  LinkedAccountResponse,
+  SwitchAccountDto,
+} from '../users/dto/account-link.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { Permissions } from './decorators/permissions.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -74,7 +78,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiNoContentResponse()
   logout(@CurrentUser() user: AuthenticatedUser) {
-    return this.auth.logout(user.identityId);
+    return this.auth.logout(user);
   }
 
   @Patch('me/profile')
@@ -123,6 +127,32 @@ export class AuthController {
   @ApiSuccessResponse({ type: ProfileSecurityResponse })
   getProfileSecurity(@CurrentUser() user: AuthenticatedUser) {
     return this.auth.getProfileSecurity(user);
+  }
+
+  @Get('linked-accounts')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List current and available linked business accounts',
+  })
+  @ApiSuccessResponse({ type: LinkedAccountResponse, isArray: true })
+  linkedAccounts(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.linkedAccounts(user);
+  }
+
+  @Post('switch-account')
+  @HttpCode(200)
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Switch this session to a linked account without a password',
+  })
+  @ApiSuccessResponse({ type: AuthTokensResponse })
+  switchAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() input: SwitchAccountDto,
+    @Req() req: Request,
+  ) {
+    return this.auth.switchAccount(user, input.targetUserId, req.ip ?? '');
   }
 
   @Get('me')
