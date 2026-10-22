@@ -18,7 +18,7 @@ describe('live tour duty and navigation', () => {
     };
     const findOne = jest.fn().mockResolvedValue(identity);
     const args = [
-      { manager: { findOne } },
+      { manager: { findOne, query: jest.fn().mockResolvedValue([{}]) } },
       {},
       {},
       {},
@@ -33,7 +33,7 @@ describe('live tour duty and navigation', () => {
       expect.arrayContaining(snapshot),
     );
     const current = () =>
-      auth.getCurrentUser('user', 'identity', 'linxi', snapshot);
+      auth.getCurrentUser('user', 'identity', 'linxi', snapshot, 'session', 1);
     const visible = async () =>
       menus
         .navigation(await current())

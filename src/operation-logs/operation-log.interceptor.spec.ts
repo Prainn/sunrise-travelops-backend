@@ -82,10 +82,16 @@ describe('OperationLogInterceptor', () => {
     logs.append.mockClear();
   });
 
-  it('covers every current backend mutation and export except technical/public collection endpoints', async () => {
+  it('covers mutations and exports not audited within their business transaction', async () => {
     const excluded = new Set([
       'AuthController.refresh', // Token renewal is not a user operation.
       'LynxController.register', // Public attribution collection, not an internal page.
+      // These services save audit rows in their transaction; account-links.integration-check
+      // verifies the committed audit alongside relation/session changes.
+      'AuthController.switchAccount',
+      'AccountLinksController.create',
+      'AccountLinksController.update',
+      'AccountLinksController.delete',
     ]);
     const missing: string[] = [];
     for (const [controller, handler] of operationRoutes()) {
