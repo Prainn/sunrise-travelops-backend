@@ -10,7 +10,7 @@ import {
 
 const SELECT =
   'g.id,g.name,g.status,g.version,g.created_at AS "createdAt",g.updated_at AS "updatedAt"';
-interface GroupRow {
+export interface GroupRow {
   id: string;
   name: string;
   status: 'enabled' | 'disabled';
