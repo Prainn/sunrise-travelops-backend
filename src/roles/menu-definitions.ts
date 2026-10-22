@@ -160,7 +160,14 @@ export const MENU_DEFINITIONS = [
     title: 'directLedger',
     group: 'dataLedgers',
     permissions: ['ledger:direct:list'],
-    scopes: ['headquarters', 'linxi', 'website'],
+    scopes: ['headquarters', 'linxi'],
+  },
+  {
+    key: 'website-ledger',
+    title: 'websiteLedger',
+    group: 'dataLedgers',
+    permissions: ['ledger:direct:list'],
+    scopes: ['headquarters', 'website'],
   },
 ] as const;
 
@@ -279,6 +286,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
       menuItem('shengxu-ledger', 'ShengxuLedger'),
       menuItem('website-visits', 'WebsiteVisits'),
       menuItem('direct-ledger', 'DirectLedger'),
+      menuItem('website-ledger', 'WebsiteLedger'),
     ],
   },
 ];
