@@ -19,7 +19,6 @@ import {
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
   WebsiteConfigDto,
   WebsiteConfigQuery,
@@ -101,15 +100,6 @@ export class WebsiteController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.archive(id, input.version, user);
-  }
-  @Get('inquiries/:id/logs')
-  @Permissions('website:inquiry:list')
-  logs(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query() query: PaginationQueryDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.logs(id, query, user);
   }
   @Get('inquiries/:id/itineraries')
   @Permissions('website:itinerary:list')
