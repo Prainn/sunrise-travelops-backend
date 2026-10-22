@@ -1,3 +1,4 @@
+import { AccountLinksService } from '../src/users/account-links.service';
 import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
 import { allowedMenuKeys } from '../src/roles/menu-definitions';
 /** Runs only against the disposable PostgreSQL 16 container on localhost:55439. */
@@ -173,6 +174,7 @@ async function main() {
       }),
       db.getRepository(UserLoginRecordEntity),
       new MenuPermissionsService(db),
+      new AccountLinksService(db),
     );
     const createActor = async (
       username: string,

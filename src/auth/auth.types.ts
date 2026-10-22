@@ -1,5 +1,7 @@
 import { LoginScope } from '../users/user-identity.entity';
 export interface AuthenticatedUser {
+  sessionId?: string;
+  sessionVersion?: number;
   id: string;
   username: string;
   permissions: string[];
@@ -14,6 +16,8 @@ export interface AuthenticatedUser {
 }
 
 export interface JwtPayload {
+  sid?: string;
+  sv?: number;
   sub: string;
   type: 'access' | 'refresh';
   identityId: string;

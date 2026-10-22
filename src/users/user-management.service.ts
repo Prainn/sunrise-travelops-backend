@@ -1,4 +1,9 @@
 import {
+  availableTourCode,
+  linkError,
+  lockAccountLinks,
+} from './account-links.rules';
+import {
   assignmentInvalid,
   CoordinatorDuty,
   requireBusinessGroup,
@@ -150,25 +155,7 @@ export class UserManagementService {
     value: string,
     excludeId: string | null = null,
   ) {
-    const code = value.trim().toUpperCase();
-    // Both create and update hold this lock until commit, so simultaneous saves
-    // cannot both pass the check. No account or identity outside scope is exposed.
-    await manager.query(
-      `SELECT pg_advisory_xact_lock(hashtext('user-tour-code'), hashtext($1))`,
-      [code],
-    );
-    const existing = await manager.query<{ exists: boolean }[]>(
-      `SELECT EXISTS(SELECT 1 FROM users WHERE deleted_at IS NULL
-       AND upper(btrim(tour_code))=$1 AND ($2::uuid IS NULL OR id<>$2::uuid)) AS exists`,
-      [code, excludeId],
-    );
-    if (existing[0].exists)
-      throw new BusinessException({
-        code: 'USER_TOUR_CODE_EXISTS',
-        message: '团号标识已被使用，请修改后保存',
-        status: HttpStatus.CONFLICT,
-      });
-    return code;
+    return availableTourCode(manager, value, excludeId);
   }
 
   private async requireUser(
@@ -306,6 +293,7 @@ export class UserManagementService {
   ) {
     if (!actor.permissions.includes('sys:user:update')) denied();
     return this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       const user = await this.requireUser(id, actor, manager, true);
       this.assertUserVersion(user, input.version);
       if (user.identities.length !== 1)
@@ -332,6 +320,7 @@ export class UserManagementService {
   ) {
     assertBusinessGroupAccess(actor, 'update');
     return this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       const user = await this.requireUser(id, actor, manager, true);
       this.assertUserVersion(user, input.version);
       if (user.identities.length !== 1 || user.identities[0].scope !== 'linxi')
@@ -389,6 +378,7 @@ export class UserManagementService {
     const password =
       input.password ?? `${randomBytes(12).toString('base64url')}A1!`;
     return this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       const grants = await this.identities(input.identities, actor, manager);
       const tourCode = await this.resolveTourCode(manager, input);
       const user = await manager.save(
@@ -436,8 +426,19 @@ export class UserManagementService {
   }
   async update(id: string, input: UpdateUserDto, actor: AuthenticatedUser) {
     return this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       const user = await this.requireUser(id, actor, manager, true);
       if (id === actor.id && input.status === 0) denied('不能停用当前账号');
+      if (
+        user.accountLinkId &&
+        (input.identities.length !== 1 ||
+          input.identities[0].scope !== user.identities[0]?.scope)
+      )
+        linkError(
+          '请先调整或解除账号关联，再修改业务范围',
+          'CONFLICT',
+          HttpStatus.CONFLICT,
+        );
       const grants = await this.identities(input.identities, actor, manager);
       const removedScopes = user.identities
         .filter(
@@ -470,6 +471,10 @@ export class UserManagementService {
         updatedBy: actor.id,
       });
       await manager.save(user);
+      await manager.query(
+        'DELETE FROM auth_account_sessions WHERE user_id=$1',
+        [id],
+      );
       for (const old of user.identities)
         if (!grants.some((g) => g.input.scope === old.scope))
           await manager.delete(UserIdentityEntity, old.id);
@@ -502,6 +507,7 @@ export class UserManagementService {
         status: HttpStatus.CONFLICT,
       });
     await this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       for (const id of [...new Set(ids)].sort()) {
         const user = await this.requireUser(id, actor, manager, true);
         if (
@@ -514,6 +520,12 @@ export class UserManagementService {
           )
         )
           denied('业务负责人不能删除其他业务负责人');
+        if (user.accountLinkId)
+          linkError(
+            '请先解除账号关联，再删除账号',
+            'CONFLICT',
+            HttpStatus.CONFLICT,
+          );
         await this.assertNoUnfinished(id, manager);
         await manager.delete(UserIdentityEntity, { userId: id });
         await manager.update(UserEntity, id, { updatedBy: actor.id });
@@ -523,7 +535,12 @@ export class UserManagementService {
   }
   async resetPassword(id: string, password: string, actor: AuthenticatedUser) {
     await this.dataSource.transaction(async (manager) => {
+      await lockAccountLinks(manager);
       const user = await this.requireUser(id, actor, manager, true);
+      await manager.query(
+        'DELETE FROM auth_account_sessions WHERE user_id=$1',
+        [id],
+      );
       user.passwordHash = await argon2.hash(password);
       user.updatedBy = actor.id;
       await manager.save(user);

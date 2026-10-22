@@ -1,5 +1,5 @@
 import { DataSource } from 'typeorm';
-import { allowedMenuKeys, roleMenuKeys } from './menu-definitions';
+import { allowedMenuKeys, MENU_GROUPS, roleMenuKeys } from './menu-definitions';
 import { MenuPermissionsService } from './menu-permissions.service';
 
 describe('website configuration menu scope', () => {
@@ -54,5 +54,65 @@ describe('website configuration menu scope', () => {
     expect(await menus.snapshot('headquarters', ['ROOT'])).toContain(
       'website-config',
     );
+  });
+});
+
+describe('separate direct ledger entries', () => {
+  const keys = ['direct-ledger', 'website-ledger'];
+
+  it.each(['ROOT', 'ADMIN', 'EXECUTIVE'])(
+    'allows headquarters %s to access both entries',
+    (role) => {
+      expect(allowedMenuKeys('headquarters', [role])).toEqual(
+        expect.arrayContaining(keys),
+      );
+    },
+  );
+
+  it.each(['BUSINESS_MANAGER', 'COORDINATOR'])(
+    'restricts %s navigation by current business despite stored cross-business grants',
+    async (role) => {
+      const service = new MenuPermissionsService({
+        query: jest.fn().mockResolvedValue([{ menuKeys: keys }]),
+      } as unknown as DataSource);
+      for (const [scope, key] of [
+        ['linxi', 'direct-ledger'],
+        ['website', 'website-ledger'],
+      ] as const) {
+        const snapshot = await service.snapshot(scope, [role]);
+        expect(snapshot.filter((value) => keys.includes(value))).toEqual([key]);
+        const navigation = service.navigation({
+          scope,
+          roles: [role],
+          menuKeys: keys,
+          permissions: ['ledger:direct:list'],
+        } as Parameters<MenuPermissionsService['navigation']>[0]);
+        expect(
+          navigation.groups
+            .flatMap((group) => group.children)
+            .map((item) => item.menuKey),
+        ).toEqual([key]);
+      }
+      expect(allowedMenuKeys('shengxu', [role])).not.toEqual(
+        expect.arrayContaining(['website-ledger']),
+      );
+      expect(allowedMenuKeys('website', ['RESOURCE_MANAGER'])).not.toContain(
+        'website-ledger',
+      );
+    },
+  );
+
+  it('keeps the ledger menus independently configurable and ordered', async () => {
+    const service = new MenuPermissionsService({
+      query: jest.fn().mockResolvedValue([{ menuKeys: ['direct-ledger'] }]),
+    } as unknown as DataSource);
+    expect(await service.snapshot('website', ['COORDINATOR'])).not.toContain(
+      'website-ledger',
+    );
+    const group = MENU_GROUPS.find((item) => item.key === 'data-ledgers')!;
+    expect(group.children.slice(-2).map((item) => item.routeName)).toEqual([
+      'DirectLedger',
+      'WebsiteLedger',
+    ]);
   });
 });

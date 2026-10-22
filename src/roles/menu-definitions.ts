@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'account-links',
+    title: 'accountLinks',
+    group: 'systemManagement',
+    permissions: ['sys:account-link:manage'],
+    scopes: ['headquarters'],
+  },
+  {
     key: 'menu-permissions',
     title: 'menuPermissions',
     group: 'systemManagement',
@@ -133,7 +140,7 @@ export const MENU_DEFINITIONS = [
     key: 'guide-ratings',
     title: 'guideRatings',
     group: 'guideManagement',
-    permissions: ['tour:list'],
+    permissions: ['tour:rating:list'],
   },
   {
     key: 'tours',
@@ -160,7 +167,14 @@ export const MENU_DEFINITIONS = [
     title: 'directLedger',
     group: 'dataLedgers',
     permissions: ['ledger:direct:list'],
-    scopes: ['headquarters', 'linxi', 'website'],
+    scopes: ['headquarters', 'linxi'],
+  },
+  {
+    key: 'website-ledger',
+    title: 'websiteLedger',
+    group: 'dataLedgers',
+    permissions: ['ledger:direct:list'],
+    scopes: ['headquarters', 'website'],
   },
 ] as const;
 
@@ -218,6 +232,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),
       menuItem('business-groups', 'BusinessGroups'),
+      menuItem('account-links', 'AccountLinks'),
       menuItem('operations', 'OperationLogs'),
     ],
   },
@@ -279,12 +294,14 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
       menuItem('shengxu-ledger', 'ShengxuLedger'),
       menuItem('website-visits', 'WebsiteVisits'),
       menuItem('direct-ledger', 'DirectLedger'),
+      menuItem('website-ledger', 'WebsiteLedger'),
     ],
   },
 ];
 
 export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {
-  const permissions = effectivePermissions(scope, roles);
+  // Role-menu configuration is the upper bound across duties; navigation uses live actor permissions.
+  const permissions = effectivePermissions(scope, roles, 'both');
   return MENU_DEFINITIONS.filter(
     (menu) =>
       (!('scopes' in menu) ||
