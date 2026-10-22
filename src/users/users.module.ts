@@ -1,3 +1,5 @@
+import { AccountLinksController } from './account-links.controller';
+import { AccountLinksService } from './account-links.service';
 import { BusinessGroupEntity } from './business-group.entity';
 import { BusinessGroupsController } from './business-groups.controller';
 import { BusinessGroupsService } from './business-groups.service';
@@ -18,8 +20,16 @@ import { UserManagementService } from './user-management.service';
       BusinessGroupEntity,
     ]),
   ],
-  controllers: [UserManagementController, BusinessGroupsController],
-  providers: [UserManagementService, BusinessGroupsService],
-  exports: [TypeOrmModule],
+  controllers: [
+    UserManagementController,
+    BusinessGroupsController,
+    AccountLinksController,
+  ],
+  providers: [
+    UserManagementService,
+    BusinessGroupsService,
+    AccountLinksService,
+  ],
+  exports: [TypeOrmModule, AccountLinksService],
 })
 export class UsersModule {}

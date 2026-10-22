@@ -643,7 +643,7 @@ export class WebsiteService {
         [creator.tourCode, day.date],
       );
       const base = tourNumberBase(
-        'KMLX-WIQ',
+        businessUnit === 'website' ? 'LYNX-INQ' : 'KMLX-WIQ',
         day.date,
         creator.tourCode,
         country.code,

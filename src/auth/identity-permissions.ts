@@ -22,6 +22,7 @@ const reads = [
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
+    'sys:account-link:manage',
     'sys:menu-permission:list',
     'sys:menu-permission:update',
     ...ADMIN_PERMISSIONS,
@@ -31,6 +32,7 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   EXECUTIVE: reads,
   ADMIN: [
+    'sys:account-link:manage',
     ...ADMIN_PERMISSIONS.filter(
       (p) => !p.startsWith('inquiry:') && !p.startsWith('itinerary:'),
     ),

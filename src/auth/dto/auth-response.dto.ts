@@ -7,6 +7,8 @@ export class AuthTokensResponse {
 }
 
 export class AuthenticatedUserResponse {
+  sessionId: string;
+  sessionVersion: number;
   id: string;
   username: string;
   nickname: string;

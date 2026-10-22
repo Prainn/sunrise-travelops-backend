@@ -1,3 +1,4 @@
+import { AccountLinksService } from '../src/users/account-links.service';
 /** Only uses the task's disposable PostgreSQL at 127.0.0.1:55441. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -230,6 +231,7 @@ async function main() {
       config,
       db.getRepository(UserLoginRecordEntity),
       menus,
+      new AccountLinksService(db),
     );
     const website = new WebsiteService(db),
       tours = new ToursService(db);

@@ -883,7 +883,11 @@ export class ToursService {
       );
       const sequence = counter[0].last_value;
       const base = tourNumberBase(
-        src.businessUnit === 'shengxu' ? 'YNSS' : 'KMLX',
+        src.businessUnit === 'shengxu'
+          ? 'YNSS'
+          : src.businessUnit === 'website'
+            ? 'LYNX'
+            : 'KMLX',
         src.startDate!,
         creatorCode!,
         src.countryCode!,
