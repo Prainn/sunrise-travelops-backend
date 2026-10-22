@@ -68,6 +68,27 @@ export class UserQueryDto extends PaginationQueryDto {
   createTime?: string[];
 }
 
+export class TourCodeSuggestionQueryDto {
+  @ApiProperty()
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  englishName: string;
+
+  @ApiProperty()
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  nickname: string;
+}
+
+export class TourCodeSuggestionResponse {
+  @ApiProperty({ type: String, nullable: true, example: 'EM' })
+  tourCode: string | null;
+}
+
 export class IdentityInput {
   @IsOptional() @IsUUID() id?: string;
   @IsIn(LOGIN_SCOPES) scope: LoginScope;
@@ -100,12 +121,23 @@ class UserEditableFieldsDto {
   @MaxLength(100)
   englishName: string;
 
-  @ApiProperty({ example: 'LM' })
+  @ApiPropertyOptional({
+    example: 'LM',
+    description: 'Required for business identities; optional for headquarters',
+  })
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
+  @ValidateIf(
+    (input: UserEditableFieldsDto, value: unknown) =>
+      !(
+        input.identities?.length === 1 &&
+        input.identities[0].scope === 'headquarters' &&
+        (value === undefined || value === null || value === '')
+      ),
+  )
   @Matches(/^[A-Z0-9]{1,10}$/)
-  tourCode: string;
+  tourCode?: string | null;
 
   @ApiPropertyOptional({ default: '' })
   @IsOptional()

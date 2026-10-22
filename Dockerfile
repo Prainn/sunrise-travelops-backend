@@ -1,4 +1,4 @@
-FROM node:24-alpine AS dependencies
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS dependencies
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -14,7 +14,7 @@ COPY test ./test
 COPY scripts/check-migration-names.mjs ./scripts/check-migration-names.mjs
 RUN pnpm verify:release
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:44fce696f38ba8c987c4db89954051000bbd05ffd8d8659ba15ed4a8602e937f AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S nodejs && adduser -S nestjs -G nodejs

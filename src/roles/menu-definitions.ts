@@ -11,11 +11,11 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
-    key: 'website-visits',
-    title: 'websiteVisits',
-    group: 'dataLedgers',
-    permissions: ['website:visit:list'],
-    scopes: ['headquarters', 'website'],
+    key: 'menu-permissions',
+    title: 'menuPermissions',
+    group: 'systemManagement',
+    permissions: ['sys:menu-permission:list'],
+    scopes: ['headquarters'],
   },
   {
     key: 'dict',
@@ -42,13 +42,6 @@ export const MENU_DEFINITIONS = [
     permissions: ['sys:operation-log:list'],
   },
   {
-    key: 'menu-permissions',
-    title: 'menuPermissions',
-    group: 'systemManagement',
-    permissions: ['sys:menu-permission:list'],
-    scopes: ['headquarters'],
-  },
-  {
     key: 'inquiries',
     title: 'inquiryList',
     group: 'inquiries',
@@ -60,6 +53,13 @@ export const MENU_DEFINITIONS = [
     group: 'inquiries',
     permissions: ['inquiry:list'],
     scopes: ['headquarters', 'shengxu'],
+  },
+  {
+    key: 'website-inquiry-summary',
+    title: 'inquiryLogReport',
+    group: 'websiteInquiries',
+    permissions: ['website:inquiry:list'],
+    scopes: ['headquarters', 'linxi', 'website'],
   },
   {
     key: 'website-config',
@@ -142,6 +142,13 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters', 'shengxu'],
   },
   {
+    key: 'website-visits',
+    title: 'websiteVisits',
+    group: 'dataLedgers',
+    permissions: ['website:visit:list'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
     key: 'direct-ledger',
     title: 'directLedger',
     group: 'dataLedgers',
@@ -149,6 +156,124 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters', 'linxi', 'website'],
   },
 ] as const;
+
+export interface MenuNavigationItem {
+  key: string;
+  menuKey: string;
+  title: string;
+  routeName: string;
+  scopes: LoginScope[];
+  permissions: string[];
+}
+
+export interface MenuNavigationGroup {
+  key: string;
+  title: string;
+  routeName: string;
+  children: MenuNavigationItem[];
+}
+
+type MenuKey = (typeof MENU_DEFINITIONS)[number]['key'];
+const ALL_SCOPES: LoginScope[] = [
+  'headquarters',
+  'shengxu',
+  'linxi',
+  'website',
+];
+
+function menuItem(
+  menuKey: MenuKey,
+  routeName: string,
+  access?: Pick<MenuNavigationItem, 'scopes' | 'permissions'>,
+): MenuNavigationItem {
+  const definition = MENU_DEFINITIONS.find((menu) => menu.key === menuKey)!;
+  return {
+    key: routeName,
+    menuKey,
+    title: definition.title,
+    routeName,
+    scopes:
+      access?.scopes ??
+      ('scopes' in definition ? [...definition.scopes] : [...ALL_SCOPES]),
+    permissions: access?.permissions ?? [...definition.permissions],
+  };
+}
+
+/** Shared display order; node identity is distinct from the persisted grant key. */
+export const MENU_GROUPS: MenuNavigationGroup[] = [
+  {
+    key: 'system',
+    title: 'systemManagement',
+    routeName: 'System',
+    children: [
+      menuItem('menu-permissions', 'MenuPermissions'),
+      menuItem('dict', 'Dict'),
+      menuItem('business-dict', 'BusinessCategory'),
+      menuItem('users', 'User'),
+      menuItem('operations', 'OperationLogs'),
+    ],
+  },
+  {
+    key: 'inquiries',
+    title: 'inquiries',
+    routeName: 'Inquiries',
+    children: [
+      menuItem('inquiries', 'InquiryList', {
+        scopes: ['headquarters', 'shengxu'],
+        permissions: ['inquiry:list'],
+      }),
+      menuItem('inquiry-summary', 'InquiryLogReport'),
+    ],
+  },
+  {
+    key: 'website-inquiries',
+    title: 'websiteInquiries',
+    routeName: 'WebsiteInquiries',
+    children: [
+      menuItem('inquiries', 'WebsiteInquiryList', {
+        scopes: ['headquarters', 'linxi', 'website'],
+        permissions: ['website:inquiry:list'],
+      }),
+      menuItem('website-inquiry-summary', 'WebsiteInquiryLogReport'),
+    ],
+  },
+  {
+    key: 'resources',
+    title: 'tourismResources',
+    routeName: 'TourismResources',
+    children: [
+      menuItem('website-config', 'WebsiteResources'),
+      menuItem('agency', 'Agency'),
+      menuItem('city', 'CityResource'),
+      menuItem('hotel', 'Hotel'),
+      menuItem('restaurant', 'Restaurant'),
+      menuItem('attraction', 'Attraction'),
+      menuItem('transport', 'TransportResource'),
+      menuItem('flight', 'FlightResource'),
+    ],
+  },
+  {
+    key: 'guides',
+    title: 'guideManagement',
+    routeName: 'GuideManagement',
+    children: [
+      menuItem('guide-people', 'Guide'),
+      menuItem('guide-leaves', 'GuideLeaves'),
+      menuItem('guide-ratings', 'GuideRatings'),
+    ],
+  },
+  {
+    key: 'data-ledgers',
+    title: 'dataLedgers',
+    routeName: 'DataLedgers',
+    children: [
+      menuItem('tours', 'TourList'),
+      menuItem('shengxu-ledger', 'ShengxuLedger'),
+      menuItem('website-visits', 'WebsiteVisits'),
+      menuItem('direct-ledger', 'DirectLedger'),
+    ],
+  },
+];
 
 export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {
   const permissions = effectivePermissions(scope, roles);

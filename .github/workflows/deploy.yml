@@ -41,7 +41,10 @@ jobs:
           READY: ${{ vars.SELF_HOSTED_READY }}
         run: test "$READY" = true || { echo 'Self-hosted cutover not ready; registration and branch protections required'; exit 1; }
   deploy:
+    name: Build and release gate
     needs: ready
+    outputs:
+      deployment_status: ${{ steps.release.outputs.deployment_status }}
     runs-on: [self-hosted, Linux, X64, sunrise-backend]
     timeout-minutes: 60
     env:
@@ -55,19 +58,24 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Serialized build, release or rollback
+        id: release
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          stage='Acquire release lock'
+          trap 'code=$?; echo "::error title=Backend release failed::Stage: $stage (exit $code). See the command error above."; printf "\n### Backend release failed\n\nStage: %s (exit %s). See the command error in this step.\n" "$stage" "$code" >> "$GITHUB_STEP_SUMMARY"' ERR
           export PATH="/opt/sunrise-ci/node/bin:$PATH"
           exec 9>/opt/sunrise-ci/build.lock
           flock -w 2700 9
           export SUNRISE_LOCK_HELD=1
+          stage='Validate candidate and current branch'
           test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"
           # Re-read the branch after waiting; never activate an obsolete queued commit.
           remote=$(curl --fail --silent --show-error --retry 2 --connect-timeout 10 --max-time 60 \
             -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/commits/$GITHUB_REF_NAME" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
           test "$remote" = "$GITHUB_SHA" || { echo 'Branch advanced while queued; rerun its current commit'; exit 1; }
+          stage='Download candidate source'
           source=$(mktemp -d "$RUNNER_TEMP/sunrise-source.XXXXXX")
           trap 'rm -rf -- "$source"' EXIT
           curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 120 \
@@ -78,7 +86,9 @@ jobs:
           cd "$source"
           base="/opt/sunrise-travelops-$DEPLOY_ENV"
           if [[ "$OPERATION" == rollback ]]; then
+            stage='Rollback and verify health'
             python3 scripts/deploy.py rollback "$ROLLBACK_RELEASE"
+            echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if python3 - "$base" "$GITHUB_SHA" <<'PYCODE'
@@ -91,12 +101,49 @@ jobs:
           sys.exit(0 if current.startswith(sha + '-') else 1)
           PYCODE
           then
-            echo "This commit is already deployed" >> "$GITHUB_STEP_SUMMARY"
+            echo "This commit is already deployed; no new release was performed." >> "$GITHUB_STEP_SUMMARY"
+            echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          stage='Release safety checks'
           python3 scripts/test_deploy.py
           release="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           image="sunrise-travelops-api:sha-$GITHUB_SHA"
+          stage='Build and verify candidate image'
           docker buildx build --builder sunrise --load --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$image" .
-          python3 scripts/deploy.py deploy "$release" "$image"
+          stage='Migration review, activation and health verification'
+          result=0
+          python3 scripts/deploy.py deploy "$release" "$image" || result=$?
+          if [[ "$result" == 78 ]]; then
+            echo 'deployment_status=waiting_migration' >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [[ "$result" != 0 ]]; then
+            echo "::error title=Backend release failed::Stage: $stage (exit $result). See the deployment error above."
+            exit "$result"
+          fi
+          stage='Read verified release status'
           python3 scripts/deploy.py status >> "$GITHUB_STEP_SUMMARY"
+          echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
+  result:
+    name: ${{ needs.deploy.outputs.deployment_status == 'waiting_migration' && 'Waiting for migration (NOT deployed)' || 'Deployment verified' }}
+    needs: deploy
+    runs-on: ubuntu-latest
+    env:
+      DEPLOYMENT_STATUS: ${{ needs.deploy.outputs.deployment_status }}
+    steps:
+      - name: Report deployment outcome
+        run: |
+          case "$DEPLOYMENT_STATUS" in
+            waiting_migration)
+              echo '::warning::等待迁移处理（未发布）。请查看 Build and release gate 的迁移清单与处理要求。'
+              echo '## 等待迁移处理（未发布）' >> "$GITHUB_STEP_SUMMARY"
+              echo '本次完成构建及检查，未切换应用。工作流通过不表示候选版本已发布。审核/维护完成后重新运行。' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            verified)
+              echo '## 发布完成（或该提交已发布）' >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo '::error::Missing deployment outcome; cannot confirm release.'
+              exit 1
+              ;;
+          esac

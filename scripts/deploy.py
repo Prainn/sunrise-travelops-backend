@@ -57,13 +57,68 @@ console.log(JSON.stringify(result));
 """
 
 
+class MigrationRequired(ValueError):
+    """The candidate needs migration review/maintenance before it can be deployed."""
+
+
+def public_diagnostic(text):
+    # Actions logs are public. Keep SQL/row output in the private operations log.
+    text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', str(text))
+    secrets = dict(os.environ)
+    try:
+        for line in (BASE / 'server.env').read_text().splitlines():
+            key, separator, value = line.partition('=')
+            if separator:
+                secrets[key.strip()] = value.strip().strip('\"\'')
+    except OSError:
+        pass
+    for key, value in secrets.items():
+        if value and re.search(r'PASSWORD|SECRET|TOKEN|(?:^|_)KEY$|(?:^|_)URL$', key, re.I):
+            text = text.replace(value, '***')
+    text = re.sub(r'(\w+://)[^\s/@]+:[^\s/@]+@', r'\1***@', text)
+    text = re.sub(r'(?i)(authorization\s*[:=]\s*)(?:Bearer|Basic)\s+\S+', r'\1***', text)
+    text = re.sub(r'(?i)(password|token|secret|authorization)(\s*[:=]\s*)[^\s,;]+', r'\1\2***', text)
+    lines = []
+    sql_block = False
+    for line in text.splitlines():
+        if not line.strip():
+            sql_block = False
+        if re.search(r'(?i)\b(query|parameters|detail|context|failing row)\s*:|\b(SELECT|INSERT INTO|UPDATE .* SET|DELETE FROM)\b', line):
+            sql_block = True
+            lines.append('[SQL/row details omitted; see backend/operations.log]')
+        elif not sql_block:
+            # Child output must never become an Actions workflow command.
+            lines.append(line.replace('::', ': :'))
+    return '\n'.join(lines[-20:])[:4000]
+
+
+def report_result(level, title, detail):
+    detail = public_diagnostic(detail)
+    print(title + ': ' + detail, file=sys.stderr)
+    if os.environ.get('GITHUB_ACTIONS') == 'true':
+        escaped = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::{level} title={title}::{escaped}', file=sys.stderr)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as file:
+            file.write('\n### ' + title + '\n\n' + '\n'.join('    ' + line for line in detail.splitlines()) + '\n')
+
+
 def run(command, env=None, input_file=None):
-    result = subprocess.run(command, cwd=BASE, env=env, stdin=input_file,
-                            capture_output=True, text=True, timeout=300)
+    label = ' '.join(command[:2])
+    try:
+        result = subprocess.run(command, cwd=BASE, env=env, stdin=input_file,
+                                capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(label + ' timed out after 300 seconds') from error
     if result.returncode:
-        with (STATE / 'operations.log').open('a') as log:
-            log.write(json.dumps(command) + '\n' + result.stdout + result.stderr + '\n')
-        raise RuntimeError(command[0] + ' failed; details in backend/operations.log')
+        detail = public_diagnostic(result.stderr) or 'No stderr; see backend/operations.log'
+        try:
+            with (STATE / 'operations.log').open('a') as log:
+                log.write(now() + '\n' + json.dumps(command) + '\n' + result.stdout + result.stderr + '\n')
+        except OSError as error:
+            detail += '\nCould not write backend/operations.log: ' + public_diagnostic(error)
+        raise RuntimeError(f'{label} failed (exit {result.returncode}): {detail}')
     return result.stdout.strip()
 
 
@@ -113,7 +168,8 @@ def check_schema(target, current, database, compatible, allow_migrations=False):
                          ', '.join(sorted(missing - set(compatible))))
     pending = target.keys() - set(database)
     if pending & BREAKING_MIGRATIONS:
-        raise ValueError('Destructive migration requires a separate maintenance plan, not compatibility confirmation')
+        raise MigrationRequired('Destructive migration requires a separate maintenance plan, not compatibility confirmation. '
+                                'Pending migrations: ' + ', '.join(sorted(pending)))
     if pending and not allow_migrations:
         raise ValueError('Pending migrations require manual backward-compatibility confirmation: ' +
                          ', '.join(sorted(pending)))
@@ -348,19 +404,33 @@ def main():
             raise ValueError('Image does not match requested commit')
         target = migrations(info['Id'])
         state = read_state()
-        pending = set(target) - set(applied())
+        database = applied()
+        # Schema corruption and incompatible rollback remain real failures, even if migrations are pending.
+        pending = set(check_schema(target, state['migration_history'], database,
+                                   state['compatible_migrations'], allow_migrations=True))
         reviewed = set(filter(None, os.environ.get('REVIEWED_MIGRATIONS', '').split(',')))
         if pending and pending != reviewed:
-            raise ValueError('Review compatibility and rerun with these exact pending migrations: ' + ','.join(sorted(pending)))
+            raise MigrationRequired('Review compatibility and rerun with these exact pending migrations: ' + ','.join(sorted(pending)))
         result = publish(release_id, info['Id'], bool(pending))
     else:
         raise ValueError('Expected status, bootstrap, deploy <release> <image>, or rollback <release|previous>')
     print(json.dumps(result))
 
 
-if __name__ == '__main__':
+def cli():
     try:
         main()
+        return 0
+    except MigrationRequired as error:
+        if sys.argv[1:2] == ['deploy']:
+            report_result('warning', 'Waiting for migration - NOT deployed', error)
+            return 78
+        report_result('error', 'Backend deployment failed', error)
+        return 1
     except Exception as error:
-        print('Backend deployment failed: ' + str(error), file=sys.stderr)
-        sys.exit(1)
+        report_result('error', 'Backend deployment failed', error)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(cli())

@@ -37,6 +37,8 @@ import {
   UserQueryDto,
   UpdateUserDto,
   UserItemResponse,
+  TourCodeSuggestionQueryDto,
+  TourCodeSuggestionResponse,
 } from './dto/user-management.dto';
 import { UserManagementService } from './user-management.service';
 
@@ -72,6 +74,14 @@ export class UserManagementController {
   @ApiSuccessResponse({ type: NumberOptionResponse, isArray: true })
   getDepartmentOptions(@CurrentUser() user: AuthenticatedUser) {
     return this.userManagement.getDepartmentOptions(user);
+  }
+
+  @Get('tour-code-suggestion')
+  @Permissions('sys:user:create')
+  @ApiOperation({ summary: 'Suggest an available tour code for a new user' })
+  @ApiSuccessResponse({ type: TourCodeSuggestionResponse })
+  suggestTourCode(@Query() query: TourCodeSuggestionQueryDto) {
+    return this.userManagement.suggestTourCode(query);
   }
 
   @Get(':id/inquiry-impact')

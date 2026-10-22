@@ -11,10 +11,12 @@ import {
   UserQueryDto,
   UpdateUserDto,
   IdentityInput,
+  TourCodeSuggestionQueryDto,
 } from './dto/user-management.dto';
 import { UserEntity, UserStatus } from './user.entity';
 import { DEPARTMENT_OPTIONS } from './user-management.constants';
 import { UserIdentityEntity, LOGIN_SCOPES } from './user-identity.entity';
+import { tourCodeCandidates } from './tour-code';
 function denied(message = '没有权限管理该账号'): never {
   throw new BusinessException({
     code: 'AUTH_FORBIDDEN',
@@ -82,6 +84,65 @@ export class UserManagementService {
       pageSize: query.pageSize,
     };
   }
+  async suggestTourCode(input: TourCodeSuggestionQueryDto) {
+    const candidates = tourCodeCandidates(input.englishName, input.nickname);
+    if (!candidates.length) return { tourCode: null };
+    // Only candidate occupancy is read across scopes; no account data is returned.
+    const rows = await this.dataSource.manager.query<{ code: string }[]>(
+      `SELECT DISTINCT upper(btrim(tour_code)) AS code FROM users
+       WHERE deleted_at IS NULL AND upper(btrim(tour_code)) = ANY($1::text[])`,
+      [candidates],
+    );
+    const used = new Set(rows.map((row) => row.code));
+    return { tourCode: candidates.find((code) => !used.has(code)) ?? null };
+  }
+
+  private async resolveTourCode(
+    manager: EntityManager,
+    input: CreateUserDto | UpdateUserDto,
+    user?: UserEntity,
+  ) {
+    if (!input.tourCode?.trim()) {
+      if (
+        input.identities.length === 1 &&
+        input.identities[0].scope === 'headquarters'
+      )
+        return user?.tourCode ?? null;
+      throw new BusinessException({
+        code: 'VALIDATION_ERROR',
+        message: '业务账号必须填写团号标识',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    }
+    return this.requireAvailableTourCode(manager, input.tourCode, user?.id);
+  }
+
+  private async requireAvailableTourCode(
+    manager: EntityManager,
+    value: string,
+    excludeId: string | null = null,
+  ) {
+    const code = value.trim().toUpperCase();
+    // Both create and update hold this lock until commit, so simultaneous saves
+    // cannot both pass the check. No account or identity outside scope is exposed.
+    await manager.query(
+      `SELECT pg_advisory_xact_lock(hashtext('user-tour-code'), hashtext($1))`,
+      [code],
+    );
+    const existing = await manager.query<{ exists: boolean }[]>(
+      `SELECT EXISTS(SELECT 1 FROM users WHERE deleted_at IS NULL
+       AND upper(btrim(tour_code))=$1 AND ($2::uuid IS NULL OR id<>$2::uuid)) AS exists`,
+      [code, excludeId],
+    );
+    if (existing[0].exists)
+      throw new BusinessException({
+        code: 'USER_TOUR_CODE_EXISTS',
+        message: '团号标识已被使用，请修改后保存',
+        status: HttpStatus.CONFLICT,
+      });
+    return code;
+  }
+
   private async requireUser(
     id: string,
     actor: AuthenticatedUser,
@@ -222,13 +283,14 @@ export class UserManagementService {
       input.password ?? `${randomBytes(12).toString('base64url')}A1!`;
     return this.dataSource.transaction(async (manager) => {
       const grants = await this.identities(input.identities, actor, manager);
+      const tourCode = await this.resolveTourCode(manager, input);
       const user = await manager.save(
         UserEntity,
         manager.create(UserEntity, {
           username: input.username,
           nickname: input.nickname,
           englishName: input.englishName,
-          tourCode: input.tourCode,
+          tourCode,
           avatar: input.avatar,
           gender: input.gender,
           mobile: input.mobile,
@@ -287,10 +349,11 @@ export class UserManagementService {
       if (input.status === 0) await this.assertNoUnfinished(id, manager);
       else if (removedScopes.length)
         await this.assertNoUnfinished(id, manager, removedScopes);
+      const tourCode = await this.resolveTourCode(manager, input, user);
       Object.assign(user, {
         nickname: input.nickname,
         englishName: input.englishName,
-        tourCode: input.tourCode,
+        tourCode,
         avatar: input.avatar,
         gender: input.gender,
         mobile: input.mobile,
