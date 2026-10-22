@@ -16,6 +16,7 @@ import {
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -42,6 +43,26 @@ import { WebsiteService } from './website.service';
 @Controller('website')
 export class WebsiteController {
   constructor(private readonly service: WebsiteService) {}
+  @Get('guide-languages')
+  @Permissions('website:itinerary:list')
+  @ApiOperation({ summary: '导游资料语言分页选项，可手填其他语言' })
+  guideLanguages(
+    @Query() query: PaginationQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.guideLanguages(query, user);
+  }
+  @Post('itineraries/:id/validate')
+  @HttpCode(200)
+  @Permissions('website:itinerary:update')
+  @ApiOperation({ summary: '校验未保存的行程调整并生成双语预览，不写库' })
+  validateItinerary(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: WebsiteUpdateItineraryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.validateItinerary(id, input, user);
+  }
   @Get('inquiries')
   @Permissions('website:inquiry:list')
   list(

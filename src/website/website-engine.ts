@@ -26,7 +26,7 @@ const TEMPLATE_VARIABLES = new Map<string, readonly string[]>([
   ['arrival-basic', ['city']],
   ['departure-basic', ['city']],
   ['overnight', ['city']],
-  ['guide', ['language', 'service_scope']],
+  ['guide', ['language']],
   ['private-driver', []],
   ['hsr-second-class', ['city']],
   ['hotel-breakfast', ['hotel']],
@@ -116,14 +116,12 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
   for (const route of config.routes) {
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
       invalid('路线的起点和终点必须为已有独立站城市');
-    if (route.fromCityId === route.toCityId)
-      invalid('跨城路线的起点与终点必须不同');
   }
   for (const pattern of config.patterns) {
-    if (!cities.has(pattern.cityId)) invalid('Day Pattern 城市不存在');
+    if (!cities.has(pattern.cityId)) invalid('单日行程模板 城市不存在');
     for (const id of pattern.attractionIds) {
       if (attractions.get(id)?.cityId !== pattern.cityId)
-        invalid('Day Pattern 必须引用该城市的景点或组件');
+        invalid('单日行程模板 必须引用该城市的景点或组件');
     }
   }
   for (const skeleton of config.skeletons) {
@@ -131,7 +129,7 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
     for (const day of skeleton.days) {
       if (!cities.has(day.cityId)) invalid('城市骨架的城市不存在');
       if (day.patternId && patterns.get(day.patternId)?.cityId !== day.cityId)
-        invalid('城市骨架的 Day Pattern 与城市不一致');
+        invalid('城市骨架的 单日行程模板 与城市不一致');
     }
   }
 }
@@ -157,16 +155,13 @@ export function generateWebsiteDraft(
       invalid('城市骨架引用的城市已停用');
     const first = index === 0;
     const last = index === skeleton.days.length - 1;
-    const transferOnly =
-      (first && !input.arrivalTime.trim()) ||
-      (last && !input.departureTime.trim());
     const pattern = definition.patternId
       ? config.patterns.find(
           (item) =>
             item.id === definition.patternId && item.status === 'enabled',
         )
       : undefined;
-    if (definition.patternId && !pattern) invalid('Day Pattern 已停用');
+    if (definition.patternId && !pattern) invalid('单日行程模板已停用');
     const departCityId = first
       ? definition.cityId
       : skeleton.days[index - 1].cityId;
@@ -178,12 +173,12 @@ export function generateWebsiteDraft(
     );
     const route = matchingRoutes.length === 1 ? matchingRoutes[0] : undefined;
     const items: WebsiteDay['items'] = [];
-    if (!transferOnly && pattern) {
+    if (pattern) {
       for (const attractionId of pattern.attractionIds) {
         const attraction = config.attractions.find(
           (item) => item.id === attractionId && item.status === 'enabled',
         );
-        if (!attraction) invalid('Day Pattern 引用的景点或组件已停用');
+        if (!attraction) invalid('单日行程模板引用的景点或组件已停用');
         const copy = config.templates.find(
           (item) =>
             item.code === attraction.copyKey && item.status === 'enabled',
@@ -246,7 +241,6 @@ export function generateWebsiteDraft(
         feeState: slot === 'breakfast' && !first ? 'INCLUDED' : 'SELF_PAY',
       })),
       guideLanguage: '',
-      guideScope: '',
       services: [],
     });
   }
@@ -298,6 +292,8 @@ export function buildWebsitePreview(
     config.attractions.map((item) => [item.id, item]),
   );
   const hotels = new Map(config.hotels.map((item) => [item.id, item]));
+  if (!itinerary.title.trim())
+    issue('ITINERARY_INVALID', 'ERROR', '请填写行程名称');
   const seenAttractions = new Set<string>();
   const visited: string[] = [];
   for (const day of itinerary.days) {
@@ -354,6 +350,21 @@ export function buildWebsitePreview(
         '填写住宿酒店时必须明确住宿城市',
         day.dayNumber,
       );
+    }
+    const allowedCities = new Set([
+      day.departCityId,
+      day.endCityId,
+      ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
+    ]);
+    for (const item of day.items) {
+      const attraction = attractions.get(item.attractionId ?? '');
+      if (attraction && !allowedCities.has(attraction.cityId))
+        issue(
+          'VAL-E03',
+          'ERROR',
+          `景点或组件不在当天行程城市：${item.nameZh}`,
+          day.dayNumber,
+        );
     }
     let legCity = day.departCityId;
     for (const leg of day.legs) {
@@ -455,18 +466,6 @@ export function buildWebsitePreview(
           );
       }
     }
-    if (
-      day.items.some((item) => item.appears) &&
-      ((day.dayNumber === 1 && !itinerary.arrivalTime.trim()) ||
-        (day.dayNumber === itinerary.duration &&
-          !itinerary.departureTime.trim()))
-    )
-      issue(
-        'VAL-W03',
-        'WARNING',
-        '未确认抵达或离开时间时安排了景点',
-        day.dayNumber,
-      );
   }
   let destinationPosition = -1;
   for (const cityId of inquiry.destinations) {
@@ -540,14 +539,12 @@ export function buildWebsitePreview(
             EXCLUDED: 'not included',
             OPTIONAL: 'optional, not included',
             RECOMMENDED: 'recommended, not included',
-            ARRANGED: 'arranged, fees not included',
             SELF_PAY: 'self-pay',
           }
         : {
             EXCLUDED: '不含费用',
             OPTIONAL: '可选，不含费用',
             RECOMMENDED: '推荐，不含费用',
-            ARRANGED: '已安排，不含费用',
             SELF_PAY: '费用自理',
           };
       return `${name} (${labels[state]})`;
@@ -556,11 +553,25 @@ export function buildWebsitePreview(
     const itineraryRows: WebsiteOutput['itinerary'] = [];
     for (const day of itinerary.days) {
       const sightseeing: string[] = [];
+      const events = new Map<string, string>();
+      const intro =
+        day.dayNumber === 1
+          ? template('arrival-basic', { city: city(day.endCityId) })
+          : '';
+      const outro = [
+        day.overnightCityId
+          ? template('overnight', { city: city(day.overnightCityId) })
+          : '',
+        day.dayNumber === itinerary.duration
+          ? template('departure-basic', { city: city(day.endCityId) })
+          : '',
+      ];
       if (day.dayNumber === 1)
         sightseeing.push(
           template('arrival-basic', { city: city(day.endCityId) }),
         );
       for (const item of day.items) {
+        const offset = sightseeing.length;
         const name = language === 'en' ? item.nameEn : item.nameZh;
         if (item.appears) {
           const attraction = item.attractionId
@@ -580,6 +591,7 @@ export function buildWebsitePreview(
           if (item.feeState !== 'INCLUDED')
             sightseeing.push(serviceLine(name, item.feeState));
         }
+        events.set(item.id, sightseeing.slice(offset).join('\n'));
         if (item.feeState === 'INCLUDED') {
           const attraction = item.attractionId
             ? attractions.get(item.attractionId)
@@ -595,7 +607,6 @@ export function buildWebsitePreview(
       if (day.guideLanguage.trim()) {
         const line = template('guide', {
           language: day.guideLanguage,
-          service_scope: day.guideScope,
         });
         if (!line)
           issue(
@@ -607,6 +618,7 @@ export function buildWebsitePreview(
         else {
           inclusions.add(line);
           sightseeing.push(line);
+          events.set(`${day.id}-guide`, line);
         }
       }
       for (const service of day.services) {
@@ -614,7 +626,10 @@ export function buildWebsitePreview(
           language === 'en' ? service.nameEn : service.nameZh,
           service.feeState,
         );
-        if (service.appears) sightseeing.push(line);
+        if (service.appears) {
+          sightseeing.push(line);
+          events.set(service.id, line);
+        }
       }
       if (day.overnightCityId)
         sightseeing.push(
@@ -638,12 +653,15 @@ export function buildWebsitePreview(
           if (included) inclusions.add(included);
         }
         if (leg.feeState === 'INCLUDED') line = name;
-        return `${city(leg.fromCityId)} → ${city(leg.toCityId)}: ${line}`;
+        const text = `${city(leg.fromCityId)} → ${city(leg.toCityId)}: ${line}`;
+        events.set(leg.id, text);
+        return text;
       });
       const hotels: string[] = [];
       for (const hotel of day.hotels) {
         const name = language === 'en' ? hotel.nameEn : hotel.nameZh;
         hotels.push(`${hotel.tier}: ${name}`);
+        events.set(hotel.id, `${hotel.tier}: ${name}`);
         const hotelOption = {
           tier: hotel.tier,
           city: city(hotel.cityId),
@@ -673,16 +691,19 @@ export function buildWebsitePreview(
         const restaurant =
           language === 'en' ? meal.restaurantEn : meal.restaurantZh;
         const label = mealLabels[meal.slot];
+        let recommendation = '';
         if (restaurant) {
-          const recommendation = template('restaurant-recommendation', {
+          recommendation = template('restaurant-recommendation', {
             restaurant_or_meal: restaurant,
           });
           if (recommendation) sightseeing.push(recommendation);
         }
-        return serviceLine(
+        const line = serviceLine(
           restaurant ? `${label}: ${restaurant}` : label,
           meal.feeState,
         );
+        events.set(meal.id, [line, recommendation].filter(Boolean).join('\n'));
+        return line;
       });
       const date = itinerary.startDate
         ? new Date(
@@ -692,11 +713,21 @@ export function buildWebsitePreview(
             .toISOString()
             .substring(0, 10)
         : `D${day.dayNumber}`;
+      const orderedNarration = (day.eventOrder ?? []).flatMap((id) => {
+        const text = events.get(id);
+        events.delete(id);
+        return text ? [text] : [];
+      });
       itineraryRows.push({
         day: date,
         depart: city(day.departCityId),
         transportation: transportation.filter(Boolean).join('\n'),
-        sightseeing: sightseeing.filter(Boolean).join('\n'),
+        sightseeing: (day.eventOrder?.length
+          ? [intro, ...orderedNarration, ...events.values(), ...outro]
+          : sightseeing
+        )
+          .filter(Boolean)
+          .join('\n'),
         hotel: hotels.join('\n'),
         meal: meals.filter(Boolean).join('\n'),
       });

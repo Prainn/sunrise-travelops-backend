@@ -117,6 +117,49 @@ async function expectConflict(work: Promise<unknown>, code: string) {
 }
 
 describe('ledger conflict API codes', () => {
+  it.each([false, true])(
+    'creates Shengxu ledgers without a duty restriction (ROOT delegation=%s)',
+    async (delegate) => {
+      const f = fixture('shengxu');
+      if (delegate) {
+        f.actor.scope = 'headquarters';
+        f.actor.roles = ['ROOT'];
+      }
+      f.query
+        .mockResolvedValueOnce([{ ...f.row, coordinatorId: 'owner' }])
+        .mockResolvedValueOnce([{ name: 'Contact' }])
+        .mockResolvedValueOnce([{ id: 'owner', name: 'Test' }]);
+      await f.shengxu.create(f.shengxuInput, f.actor);
+      expect(f.query).toHaveBeenNthCalledWith(
+        3,
+        expect.not.stringContaining('coordinator_duty'),
+        ['shengxu', 'owner'],
+      );
+      expect(f.query).toHaveBeenNthCalledWith(
+        4,
+        expect.stringContaining('INSERT INTO shengxu_ledgers'),
+        expect.arrayContaining(['owner', 'Test']),
+      );
+    },
+  );
+
+  it('offers ROOT agencies linked to any enabled Shengxu coordinator', async () => {
+    const f = fixture('shengxu');
+    f.actor.scope = 'headquarters';
+    f.actor.roles = ['ROOT'];
+    f.actor.permissions.push('ledger:shengxu:list');
+    const db = { query: f.query } as unknown as DataSource;
+    f.query.mockResolvedValueOnce([{ total: '0' }]).mockResolvedValueOnce([]);
+    await new ShengxuLedgersService(db).agencies(
+      { page: 1, pageSize: 20 },
+      f.actor,
+    );
+    const [sql] = f.query.mock.calls[0] as [string];
+    expect(sql).not.toContain('coordinator_duty');
+    expect(sql).toContain("r.code='COORDINATOR' AND r.is_enabled");
+    expect(sql).toContain('u.id=resource_agencies.coordinator_id');
+  });
+
   it.each(['create', 'update'] as const)(
     'maps Shengxu %s unique violation precisely',
     async (action) => {

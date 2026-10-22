@@ -262,11 +262,16 @@ export class UserManagementService {
     existing?: UserIdentityEntity,
   ) {
     const coordinator = roles.some((role) => role.code === 'COORDINATOR');
+    if (input.scope === 'shengxu' && input.coordinatorDuty != null)
+      assignmentInvalid('盛旭账号不设置计调分工');
     if (!coordinator && input.coordinatorDuty != null)
       assignmentInvalid('只有计调账号可以设置计调分工');
-    const coordinatorDuty: CoordinatorDuty | null = coordinator
-      ? (input.coordinatorDuty ?? existing?.coordinatorDuty ?? 'reception')
-      : null;
+    let coordinatorDuty: CoordinatorDuty | null = null;
+    if (coordinator)
+      coordinatorDuty =
+        input.scope === 'shengxu'
+          ? (existing?.coordinatorDuty ?? null)
+          : (input.coordinatorDuty ?? existing?.coordinatorDuty ?? 'reception');
     const businessGroupId = input.businessGroupId ?? null;
     if (input.scope === 'linxi') {
       if (!businessGroupId) assignmentInvalid('请选择霖熹账号所属业务组');
@@ -299,6 +304,8 @@ export class UserManagementService {
       if (user.identities.length !== 1)
         assignmentInvalid('请先明确账号的唯一登录范围');
       const identity = user.identities[0];
+      if (identity.scope === 'shengxu')
+        assignmentInvalid('盛旭账号不设置计调分工');
       if (
         !identity.roles.some(
           (role) => role.code === 'COORDINATOR' && role.isEnabled,

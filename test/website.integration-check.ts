@@ -845,11 +845,7 @@ async function main() {
             '包含{attraction}首次入园门票。',
             'First-entry ticket for {attraction} included.',
           ),
-          templateFixture(
-            'guide',
-            '{language}导游：{service_scope}。',
-            '{language} guide: {service_scope}.',
-          ),
+          templateFixture('guide', '{language}导游。', '{language} guide.'),
           templateFixture(
             'hotel-breakfast',
             '{hotel}住宿及早餐。',
@@ -1091,7 +1087,7 @@ async function main() {
               slot === 'breakfast' && dayNumber === 2 ? 'INCLUDED' : 'SELF_PAY',
           })),
           guideLanguage: dayNumber === 1 ? 'English' : '',
-          guideScope: dayNumber === 1 ? 'City touring' : '',
+
           services:
             dayNumber === 1
               ? [
@@ -1100,7 +1096,7 @@ async function main() {
                     nameZh: '已安排接驳',
                     nameEn: 'Arranged transfer',
                     appears: true,
-                    feeState: 'ARRANGED',
+                    feeState: 'INCLUDED',
                   },
                 ]
               : [],
@@ -1289,7 +1285,7 @@ async function main() {
         appears: true,
         feeState: 'INCLUDED' as const,
       });
-      for (const warningCode of ['VAL-W01', 'VAL-W02', 'VAL-W03']) {
+      for (const warningCode of ['VAL-W01', 'VAL-W02']) {
         const input = planFixture();
         input.days[0].items = [attractionFixture()];
         if (warningCode === 'VAL-W01')

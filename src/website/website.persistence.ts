@@ -25,7 +25,7 @@ export async function loadWebsiteDetails(
   const days = await manager.query<DayRow[]>(
     `SELECT id,day_number AS "dayNumber",
     COALESCE(depart_city_id::text,'') AS "departCityId",COALESCE(end_city_id::text,'') AS "endCityId",overnight_city_id AS "overnightCityId",
-    guide_language AS "guideLanguage",guide_scope AS "guideScope",is_deleted AS "isDeleted",original_date AS "originalDate" FROM website_days
+    guide_language AS "guideLanguage",event_order AS "eventOrder",is_deleted AS "isDeleted",original_date AS "originalDate" FROM website_days
     WHERE itinerary_id=$1 ORDER BY day_number`,
     [itineraryId],
   );
@@ -79,7 +79,7 @@ export async function loadWebsiteDetails(
     endCityId: day.endCityId,
     overnightCityId: day.overnightCityId,
     guideLanguage: day.guideLanguage,
-    guideScope: day.guideScope,
+    eventOrder: day.eventOrder ?? [],
     items: forDay(items, day.id),
     legs: forDay(legs, day.id),
     hotels: forDay(hotels, day.id),
@@ -148,7 +148,7 @@ export async function saveWebsiteDetails(
       'end_city_id',
       'overnight_city_id',
       'guide_language',
-      'guide_scope',
+      'event_order',
       'is_deleted',
       'original_date',
     ],
@@ -160,7 +160,7 @@ export async function saveWebsiteDetails(
       d.endCityId || null,
       d.overnightCityId,
       d.guideLanguage,
-      d.guideScope,
+      d.eventOrder ?? [],
       !activeIds.has(d.id),
       originalDates.get(d.id) ?? null,
     ]),

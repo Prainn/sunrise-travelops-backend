@@ -29,6 +29,10 @@ export class AccountLinkQueryDto extends PaginationQueryDto {
   declare keyword?: string;
 }
 export class AccountLinkCandidateQueryDto extends AccountLinkQueryDto {
+  @ApiPropertyOptional({ enum: ['shengxu', 'linxi', 'website'] })
+  @IsOptional()
+  @IsIn(['shengxu', 'linxi', 'website'])
+  scope?: 'shengxu' | 'linxi' | 'website';
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()
   @IsUUID()
