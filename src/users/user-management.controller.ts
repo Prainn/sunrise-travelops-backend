@@ -1,4 +1,8 @@
 import {
+  UpdateCoordinatorDutyDto,
+  UpdateUserBusinessGroupDto,
+} from './dto/business-group.dto';
+import {
   Body,
   Controller,
   Delete,
@@ -126,6 +130,32 @@ export class UserManagementController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.userManagement.update(id, input, user);
+  }
+
+  @Put(':id/coordinator-duty')
+  @Permissions('sys:user:update')
+  @ApiOperation({
+    summary: 'Set coordinator duty without changing account roles',
+  })
+  @ApiSuccessResponse({ type: UserItemResponse })
+  updateCoordinatorDuty(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateCoordinatorDutyDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.updateCoordinatorDuty(id, input, user);
+  }
+
+  @Put(':id/business-group')
+  @Permissions('sys:business-group:update')
+  @ApiOperation({ summary: 'Assign a Linxi account to a business group' })
+  @ApiSuccessResponse({ type: UserItemResponse })
+  updateBusinessGroup(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: UpdateUserBusinessGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.updateBusinessGroup(id, input, user);
   }
 
   @Delete()

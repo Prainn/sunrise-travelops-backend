@@ -146,10 +146,13 @@ export class DirectLedgerInputDto {
   @Matches(/\S/)
   @MaxLength(200)
   source!: string;
-  @ApiPropertyOptional({ nullable: true })
+  @ApiPropertyOptional({
+    nullable: true,
+    description: '霖熹接单业务组ID；独立站必须为空',
+  })
   @IsOptional()
   @IsUUID()
-  receivingAccountId?: string | null;
+  receivingGroupId?: string | null;
   @ApiProperty() @IsUUID() operatorId!: string;
   @ApiPropertyOptional({
     enum: ['unconverted', 'converted'],
@@ -206,7 +209,8 @@ export class CreateDirectLedgerDto extends DirectLedgerInputDto {
   @IsIn(['linxi', 'website'])
   businessUnit?: 'linxi' | 'website';
   @ApiPropertyOptional({
-    description: '仅 ROOT 代建可传且必填，所选业务的启用计调',
+    description:
+      '仅 ROOT 代建可传且必填，所选业务的启用收客计调（reception/both）',
   })
   @IsOptional()
   @IsUUID()

@@ -30,6 +30,13 @@ export const MENU_DEFINITIONS = [
     permissions: ['sys:business-dictionary:list'],
   },
   {
+    key: 'business-groups',
+    title: 'businessGroups',
+    group: 'systemManagement',
+    permissions: ['sys:business-group:list'],
+    scopes: ['headquarters', 'linxi'],
+  },
+  {
     key: 'users',
     title: 'userList',
     group: 'systemManagement',
@@ -210,6 +217,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
       menuItem('dict', 'Dict'),
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),
+      menuItem('business-groups', 'BusinessGroups'),
       menuItem('operations', 'OperationLogs'),
     ],
   },

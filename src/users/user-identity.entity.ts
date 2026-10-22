@@ -1,3 +1,5 @@
+import { BusinessGroupEntity } from './business-group.entity';
+import { CoordinatorDuty } from './coordinator-assignment';
 import {
   Column,
   Entity,
@@ -34,6 +36,13 @@ export class UserIdentityEntity {
   @Column({ type: 'text' }) scope: LoginScope;
   @Column({ name: 'dept_id', type: 'integer', nullable: true }) deptId:
     number | null;
+  @Column({ name: 'coordinator_duty', type: 'text', nullable: true })
+  coordinatorDuty: CoordinatorDuty | null;
+  @Column({ name: 'business_group_id', type: 'uuid', nullable: true })
+  businessGroupId: string | null;
+  @ManyToOne(() => BusinessGroupEntity)
+  @JoinColumn({ name: 'business_group_id' })
+  businessGroup: BusinessGroupEntity | null;
   @Column({ name: 'refresh_token_hash', type: 'text', nullable: true })
   refreshTokenHash: string | null;
   @ManyToOne(() => UserEntity, (u) => u.identities)

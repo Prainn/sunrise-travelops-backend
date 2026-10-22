@@ -145,9 +145,19 @@ function actionFor(
       update: '编辑用户',
       delete: '删除用户',
       resetPassword: '重置用户密码',
+      updateCoordinatorDuty: '设置计调分工',
+      updateBusinessGroup: '调整业务组成员',
     };
     if (labels[handler]) return { category: 'user', label: labels[handler] };
   }
+  if (
+    controller === 'BusinessGroupsController' &&
+    ['create', 'update'].includes(handler)
+  )
+    return {
+      category: 'user',
+      label: handler === 'create' ? '新增业务组' : '维护业务组',
+    };
   const dictionary =
     controller === 'SystemDictionariesController'
       ? '系统'

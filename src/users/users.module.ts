@@ -1,3 +1,6 @@
+import { BusinessGroupEntity } from './business-group.entity';
+import { BusinessGroupsController } from './business-groups.controller';
+import { BusinessGroupsService } from './business-groups.service';
 import { UserIdentityEntity } from './user-identity.entity';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -8,10 +11,15 @@ import { UserManagementService } from './user-management.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserIdentityEntity, UserEntity, RoleEntity]),
+    TypeOrmModule.forFeature([
+      UserIdentityEntity,
+      UserEntity,
+      RoleEntity,
+      BusinessGroupEntity,
+    ]),
   ],
-  controllers: [UserManagementController],
-  providers: [UserManagementService],
+  controllers: [UserManagementController, BusinessGroupsController],
+  providers: [UserManagementService, BusinessGroupsService],
   exports: [TypeOrmModule],
 })
 export class UsersModule {}

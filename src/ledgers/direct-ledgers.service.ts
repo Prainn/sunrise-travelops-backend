@@ -1,3 +1,4 @@
+import { requireBusinessGroup } from '../users/coordinator-assignment';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { ErrorCode } from '../common/constants/error-code';
@@ -30,7 +31,7 @@ interface DirectRow {
   creatorId: string;
   operatorId: string;
   operatorName: string;
-  receivingAccountId: string | null;
+  receivingGroupId: string | null;
   receivingAccountName: string;
   orderStatus: 'unconverted' | 'converted';
   loss: boolean;
@@ -42,7 +43,7 @@ interface DirectRow {
 const WORKFLOW_STATUS = `CASE WHEN operated THEN 'operated' WHEN loss AND reviewed_at IS NULL THEN 'pending_confirmation' ELSE 'pending_operation' END`;
 const SELECT = `id,business_unit AS "businessUnit",order_no AS "orderNo",received_date::text AS "receivedDate",
  to_char(received_date,'YYYY-MM') AS "receivedMonth",source,creator_id AS "creatorId",creator_name AS "creatorName",
- receiving_account_id AS "receivingAccountId",receiving_account_name AS "receivingAccountName",operator_id AS "operatorId",operator_name AS "operatorName",
+ receiving_group_id AS "receivingGroupId",receiving_account_name AS "receivingAccountName",operator_id AS "operatorId",operator_name AS "operatorName",
  order_status AS "orderStatus",effective_contact AS "effectiveContact",proposal_sent AS "proposalSent",loss,priority,itinerary,
  not_converted_reason AS "notConvertedReason",loss_note AS "lossNote",remark,feedback_reason AS "feedbackReason",solution,
  deal_date::text AS "dealDate",departure_date::text AS "departureDate",complaint,satisfied,
@@ -196,10 +197,42 @@ export class DirectLedgersService {
     return this.present(await this.row(this.db.manager, id, actor), actor);
   }
   async operators(query: DirectLedgerQueryDto, actor: AuthenticatedUser) {
+    return this.personnel(query, actor, 'operation');
+  }
+  async collectors(query: DirectLedgerQueryDto, actor: AuthenticatedUser) {
+    return this.personnel(query, actor, 'reception');
+  }
+  async receivingGroups(query: DirectLedgerQueryDto, actor: AuthenticatedUser) {
+    this.access(actor);
+    if (directUnit(actor, query.businessUnit) !== 'linxi') forbidden();
+    const params: unknown[] = [];
+    let where = "WHERE status='enabled'";
+    if (query.keyword?.trim())
+      where += ` AND name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
+    const [count] = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total FROM business_groups ${where}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT id,name FROM business_groups ${where} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+  private async personnel(
+    query: DirectLedgerQueryDto,
+    actor: AuthenticatedUser,
+    duty: 'reception' | 'operation',
+  ) {
     this.access(actor);
     const unit = directUnit(actor, query.businessUnit);
-    const params: unknown[] = [unit];
-    let from = COORDINATOR_FROM;
+    const params: unknown[] = [unit, duty];
+    let from = COORDINATOR_FROM + " AND i.coordinator_duty IN ($2,'both')";
     if (query.keyword?.trim())
       from += ` AND u.nickname ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
     const [count] = await this.db.query<{ total: string }[]>(
@@ -226,23 +259,22 @@ export class DirectLedgersService {
     const operator =
       existing?.operatorId === input.operatorId
         ? { name: existing.operatorName }
-        : await coordinator(manager, input.operatorId, unit);
+        : await coordinator(manager, input.operatorId, unit, 'operation');
     let account: { name: string };
     if (unit === 'website') {
-      if (input.receivingAccountId != null)
-        invalid('独立站接单账号固定为独立站');
+      if (input.receivingGroupId != null) invalid('独立站接单账号固定为独立站');
       account = { name: '独立站' };
     } else {
-      if (!input.receivingAccountId) invalid('霖熹接单账号必填');
+      if (!input.receivingGroupId) invalid('请选择霖熹接单业务组');
       account =
-        existing?.receivingAccountId === input.receivingAccountId
+        existing?.receivingGroupId === input.receivingGroupId
           ? { name: existing.receivingAccountName }
-          : await coordinator(manager, input.receivingAccountId, unit);
+          : await requireBusinessGroup(manager, input.receivingGroupId);
     }
     return {
       received_date: input.receivedDate,
       source: input.source,
-      receiving_account_id: input.receivingAccountId ?? null,
+      receiving_group_id: input.receivingGroupId ?? null,
       receiving_account_name: account.name,
       operator_id: input.operatorId,
       operator_name: operator.name,
@@ -269,11 +301,11 @@ export class DirectLedgersService {
     const delegate = isLedgerRoot(actor);
     if (!delegate && input.creatorId !== undefined) forbidden();
     if (delegate && !input.creatorId)
-      invalid('请选择本业务的启用计调作为定制师');
+      invalid('请选择本业务的启用计调作为收客计调');
     return this.db.transaction(async (manager) => {
       const creator = delegate
         ? await coordinator(manager, input.creatorId!, unit)
-        : { id: actor.id, name: actor.nickname };
+        : await coordinator(manager, actor.id, unit, 'reception');
       const data = {
         ...(await this.values(manager, input, unit)),
         business_unit: unit,

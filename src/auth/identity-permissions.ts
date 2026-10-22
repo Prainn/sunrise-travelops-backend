@@ -1,5 +1,6 @@
 import {
   ADMIN_PERMISSIONS,
+  BUSINESS_GROUP_PERMISSIONS,
   LEDGER_PERMISSIONS,
   INQUIRY_PERMISSIONS,
   RESOURCE_PERMISSIONS,
@@ -135,6 +136,9 @@ export function effectivePermissions(
   return [
     ...ledgerPermissions,
     ...visitPermissions,
+    ...(scope === 'linxi' && selected.includes('BUSINESS_MANAGER')
+      ? BUSINESS_GROUP_PERMISSIONS
+      : []),
     ...new Set(
       selected.flatMap((role) => [
         ...(ROLE_PERMISSIONS[role] ?? []),

@@ -57,6 +57,22 @@ export class DirectLedgersController {
   ) {
     return this.service.operators(query, actor);
   }
+  @Get('collectors')
+  @Permissions('ledger:direct:list')
+  collectors(
+    @Query() query: DirectLedgerQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.collectors(query, actor);
+  }
+  @Get('receiving-groups')
+  @Permissions('ledger:direct:list')
+  receivingGroups(
+    @Query() query: DirectLedgerQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.receivingGroups(query, actor);
+  }
   @Post(':id/review')
   @HttpCode(200)
   @Permissions('ledger:direct:review')
