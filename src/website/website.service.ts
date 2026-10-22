@@ -18,6 +18,9 @@ import type {
   WebsiteItinerary,
   WebsiteItineraryInput,
   WebsiteLog,
+  WebsiteInquiryLog,
+  WebsiteLogAction,
+  WebsiteLogMetadata,
   WebsiteQuotation,
   WebsiteValidation,
 } from './website.types';
@@ -25,6 +28,7 @@ import type {
   WebsiteConfirmDto,
   WebsiteCreateItineraryDto,
   WebsiteInquiryQuery,
+  WebsiteLogQuery,
   WebsiteResourceQuery,
   WebsiteTransferDto,
   WebsiteUpdateInquiryDto,
@@ -36,6 +40,8 @@ import {
   validateWebsiteConfig,
 } from './website-engine';
 import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
+import { WEBSITE_LOG_ACTIONS } from './website.types';
+import { websiteLogChanges } from './website-log-changes';
 
 type ResourceKind =
   'city' | 'attraction' | 'hotel' | 'restaurant' | 'transport';
@@ -547,23 +553,35 @@ export class WebsiteService {
   }
   private async log(
     manager: EntityManager,
-    inquiryId: string,
-    action: string,
-    targetId: string,
+    inquiry: WebsiteInquiry,
+    action: WebsiteLogAction,
     user: AuthenticatedUser,
-    detail = '',
+    before: WebsiteInquiry | WebsiteItinerary | undefined,
+    after: WebsiteInquiry | WebsiteItinerary,
+    options: { detail?: string; metadata?: WebsiteLogMetadata } = {},
   ) {
+    const changes = websiteLogChanges(before, after);
+    if (before && changes.length === 0) return;
+    const isItinerary = 'inquiryId' in after;
     await manager.query(
-      `INSERT INTO website_logs(id,inquiry_id,action,target_id,actor_id,actor_name,detail)
-      VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO website_logs(id,inquiry_id,action,target_id,actor_id,actor_name,detail,
+        inquiry_code,operator_username,target_type,target_code,summary,changes,metadata)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)`,
       [
         randomUUID(),
-        inquiryId,
+        inquiry.id,
         action,
-        targetId,
+        after.id,
         user.id,
         user.nickname,
-        detail,
+        options.detail ?? '',
+        inquiry.code,
+        user.username,
+        isItinerary ? 'itinerary' : 'inquiry',
+        after.code,
+        isItinerary ? after.title : null,
+        JSON.stringify(changes),
+        JSON.stringify(options.metadata ?? {}),
       ],
     );
   }
@@ -676,8 +694,16 @@ export class WebsiteService {
           input.acquisitionSource,
         ],
       );
-      await this.log(manager, id, 'inquiry_created', id, user);
-      return this.inquiry(id, user, manager);
+      const created = await this.inquiry(id, user, manager);
+      await this.log(
+        manager,
+        created,
+        'inquiry_created',
+        user,
+        undefined,
+        created,
+      );
+      return created;
     };
     return transactionManager
       ? create(transactionManager)
@@ -741,15 +767,22 @@ export class WebsiteService {
           input.acquisitionSource,
         ],
       );
+      const updated = await this.inquiry(id, user, manager);
       await this.log(
         manager,
-        id,
+        updated,
         status === 'lost' ? 'inquiry_lost' : 'inquiry_updated',
-        id,
         user,
-        status === 'lost' ? input.lostReason : '',
+        old,
+        updated,
+        status === 'lost'
+          ? {
+              detail: input.lostReason,
+              metadata: { lostReason: input.lostReason },
+            }
+          : {},
       );
-      return this.inquiry(id, user, manager);
+      return updated;
     });
   }
   async transfer(
@@ -774,15 +807,20 @@ export class WebsiteService {
         'UPDATE website_inquiries SET owner_id=$2,owner=$3,version=version+1,updated_at=now() WHERE id=$1',
         [id, owner.id, owner.name],
       );
+      const updated = await this.inquiry(id, user, manager);
       await this.log(
         manager,
-        id,
+        updated,
         'inquiry_transferred',
-        id,
         user,
-        `${old.owner} → ${owner.name}：${input.reason}`,
+        old,
+        updated,
+        {
+          detail: `${old.owner} → ${owner.name}：${input.reason}`,
+          metadata: { transferReason: input.reason },
+        },
       );
-      return this.inquiry(id, user, manager);
+      return updated;
     });
   }
   async archive(id: string, version: number, user: AuthenticatedUser) {
@@ -796,8 +834,16 @@ export class WebsiteService {
         "UPDATE website_inquiries SET status='archived',version=version+1,updated_at=now() WHERE id=$1",
         [id],
       );
-      await this.log(manager, id, 'inquiry_archived', id, user);
-      return this.inquiry(id, user, manager);
+      const updated = await this.inquiry(id, user, manager);
+      await this.log(
+        manager,
+        updated,
+        'inquiry_archived',
+        user,
+        inquiry,
+        updated,
+      );
+      return updated;
     });
   }
   async logs(
@@ -823,6 +869,124 @@ export class WebsiteService {
       pageSize: query.pageSize,
     };
   }
+  private async logFilter(query: WebsiteLogQuery, user: AuthenticatedUser) {
+    const params: unknown[] = [];
+    const clauses = this.inquiryScope(user, params, query.businessUnit);
+    if (query.from && query.to && query.from > query.to)
+      fail(
+        'VALIDATION_ERROR',
+        '开始日期不能晚于结束日期',
+        HttpStatus.BAD_REQUEST,
+      );
+    const bind = (value: unknown) => `$${params.push(value)}`;
+    if (query.inquiryId) {
+      await this.inquiry(query.inquiryId, user);
+      clauses.push(`i.id=${bind(query.inquiryId)}`);
+    }
+    if (query.inquiryCode?.trim()) {
+      const pattern = query.inquiryCode.trim().replace(/[\\%_]/g, '\\$&');
+      clauses.push(`i.code ILIKE ${bind(`%${pattern}%`)} ESCAPE E'\\\\'`);
+    }
+    if (query.operatorId) clauses.push(`l.actor_id=${bind(query.operatorId)}`);
+    if (query.action) clauses.push(`l.action=${bind(query.action)}`);
+    if (query.from)
+      clauses.push(
+        `l.occurred_at>=${bind(`${query.from}T00:00:00+08:00`)}::timestamptz`,
+      );
+    if (query.to)
+      clauses.push(
+        `l.occurred_at<(${bind(query.to)}::date + 1)::timestamp AT TIME ZONE 'Asia/Shanghai'`,
+      );
+    return {
+      params,
+      where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '',
+    };
+  }
+
+  async inquiryLogs(query: WebsiteLogQuery, user: AuthenticatedUser) {
+    const { where, params } = await this.logFilter(query, user);
+    const [count] = await this.db.manager.query<{ total: string }[]>(
+      `SELECT count(*)::text AS total FROM website_logs l
+       JOIN website_inquiries i ON i.id=l.inquiry_id ${where}`,
+      params,
+    );
+    const list = await this.db.manager.query<WebsiteInquiryLog[]>(
+      `SELECT l.id,l.inquiry_id AS "inquiryId",COALESCE(l.inquiry_code,i.code) AS "inquiryCode",
+        i.business_unit AS "businessUnit",l.action,
+        to_char(l.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
+        l.actor_id AS "operatorId",l.actor_name AS "operatorName",l.operator_username AS "operatorUsername",
+        COALESCE(l.target_type,CASE WHEN l.target_id=i.id THEN 'inquiry' ELSE 'itinerary' END) AS "targetType",
+        l.target_id AS "targetId",COALESCE(l.target_code,CASE WHEN l.target_id=i.id THEN i.code ELSE t.code END) AS "targetCode",
+        CASE WHEN l.changes IS NULL THEN t.title ELSE l.summary END AS summary,l.detail,l.metadata,l.changes
+       FROM website_logs l JOIN website_inquiries i ON i.id=l.inquiry_id
+       LEFT JOIN website_itineraries t ON t.id=l.target_id AND t.inquiry_id=i.id
+       ${where} ORDER BY l.occurred_at DESC,l.id DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count.total),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  async inquiryLogReport(query: WebsiteLogQuery, user: AuthenticatedUser) {
+    const { where, params } = await this.logFilter(query, user);
+    // One statement keeps aggregate totals and per-action counts on the same snapshot.
+    const [totals] = await this.db.manager.query<
+      {
+        totalOperations: string;
+        inquiryCount: string;
+        operatorCount: string;
+        changedFields: string;
+        logsWithoutChanges: string;
+        byAction: { action: string; count: number }[];
+      }[]
+    >(
+      `WITH filtered AS (
+        SELECT l.* FROM website_logs l JOIN website_inquiries i ON i.id=l.inquiry_id ${where}
+      ) SELECT count(*)::text AS "totalOperations",count(DISTINCT inquiry_id)::text AS "inquiryCount",
+        count(DISTINCT actor_id)::text AS "operatorCount",
+        COALESCE(sum(jsonb_array_length(changes)),0)::text AS "changedFields",
+        count(*) FILTER(WHERE changes IS NULL)::text AS "logsWithoutChanges",
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('action',action,'count',count) ORDER BY action)
+          FROM (SELECT action,count(*) AS count FROM filtered GROUP BY action) counts),'[]'::jsonb) AS "byAction"
+        FROM filtered`,
+      params,
+    );
+    const counts = new Map(
+      totals.byAction.map((item) => [item.action, item.count]),
+    );
+    const actions: string[] = [...WEBSITE_LOG_ACTIONS];
+    for (const action of counts.keys())
+      if (!actions.includes(action)) actions.push(action);
+    return {
+      totalOperations: Number(totals.totalOperations),
+      inquiryCount: Number(totals.inquiryCount),
+      operatorCount: Number(totals.operatorCount),
+      changedFields: Number(totals.changedFields),
+      logsWithoutChanges: Number(totals.logsWithoutChanges),
+      byAction: actions.map((action) => ({
+        action,
+        count: Number(counts.get(action) ?? 0),
+      })),
+    };
+  }
+
+  async inquiryLogOperators(query: WebsiteLogQuery, user: AuthenticatedUser) {
+    const { where, params } = await this.logFilter(query, user);
+    return this.db.manager.query<
+      { id: string; name: string; username: string | null }[]
+    >(
+      `SELECT DISTINCT ON(l.actor_id) l.actor_id AS id,l.actor_name AS name,l.operator_username AS username
+       FROM website_logs l JOIN website_inquiries i ON i.id=l.inquiry_id ${where}
+       ORDER BY l.actor_id,l.occurred_at DESC,l.id DESC`,
+      params,
+    );
+  }
+
   async itineraries(inquiryId: string, user: AuthenticatedUser) {
     this.permission(user, 'website:itinerary:list');
     await this.inquiry(inquiryId, user);
@@ -996,7 +1160,8 @@ export class WebsiteService {
     inquiryId: string,
     input: WebsiteItineraryInput,
     user: AuthenticatedUser,
-    action: string,
+    action: WebsiteLogAction,
+    metadata: WebsiteLogMetadata = {},
   ) {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
@@ -1027,8 +1192,17 @@ export class WebsiteService {
       "UPDATE website_inquiries SET status=CASE WHEN status='new' THEN 'planning' ELSE status END,version=version+1,updated_at=now() WHERE id=$1",
       [inquiryId],
     );
-    await this.log(manager, inquiryId, action, id, user);
-    return (await this.itinerary(id, user, manager)).itinerary;
+    const saved = await this.itinerary(id, user, manager);
+    await this.log(
+      manager,
+      saved.inquiry,
+      action,
+      user,
+      undefined,
+      saved.itinerary,
+      { metadata },
+    );
+    return saved.itinerary;
   }
   async createItinerary(
     inquiryId: string,
@@ -1054,7 +1228,7 @@ export class WebsiteService {
     itinerary: WebsiteItinerary,
     input: WebsiteItineraryInput,
     user: AuthenticatedUser,
-    action = 'itinerary_saved',
+    action: WebsiteLogAction = 'itinerary_saved',
   ) {
     await manager.query(
       `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,arrival_time=$6,departure_time=$7,
@@ -1077,8 +1251,16 @@ export class WebsiteService {
       input.vehiclePrices,
       input.deletedDays,
     );
-    await this.log(manager, itinerary.inquiryId, action, itinerary.id, user);
-    return (await this.itinerary(itinerary.id, user, manager)).itinerary;
+    const saved = await this.itinerary(itinerary.id, user, manager);
+    await this.log(
+      manager,
+      saved.inquiry,
+      action,
+      user,
+      itinerary,
+      saved.itinerary,
+    );
+    return saved.itinerary;
   }
   async saveItinerary(
     id: string,
@@ -1143,6 +1325,11 @@ export class WebsiteService {
         clone,
         user,
         'itinerary_copied',
+        {
+          creationMode: 'copy',
+          sourceId: itinerary.id,
+          sourceCode: itinerary.code,
+        },
       );
     });
   }
@@ -1341,11 +1528,12 @@ export class WebsiteService {
       );
       await this.log(
         manager,
-        inquiry.id,
+        inquiry,
         'quotation_confirmed',
-        id,
         user,
-        quotation.code,
+        itinerary,
+        { ...itinerary, status: 'quoted' },
+        { detail: quotation.code, metadata: { quotationCode: quotation.code } },
       );
       return quotation;
     });

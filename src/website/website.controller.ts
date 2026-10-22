@@ -29,6 +29,7 @@ import {
   WebsiteCreateInquiryDto,
   WebsiteBusinessQuery,
   WebsiteInquiryQuery,
+  WebsiteLogQuery,
   WebsiteResourceQuery,
   WebsiteTransferDto,
   WebsiteUpdateInquiryDto,
@@ -117,6 +118,49 @@ export class WebsiteController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.itineraries(id, user);
+  }
+  @Get('inquiry-logs')
+  @Permissions('website:inquiry:list')
+  @ApiOperation({ summary: '独立站询盘日志分页（按当前询盘归属及负责人授权）' })
+  @ApiOkResponse({
+    description:
+      'data: {list: WebsiteInquiryLog[],total,page,pageSize}；历史 changes 为 null。详见统一 API §18.2.1。',
+  })
+  inquiryLogs(
+    @Query() query: WebsiteLogQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.inquiryLogs(query, user);
+  }
+  @Get('inquiry-logs/report')
+  @Permissions('website:inquiry:list')
+  @ApiOperation({
+    summary: '独立站询盘日志汇总（忽略分页，筛选范围与明细一致）',
+  })
+  @ApiOkResponse({
+    description:
+      'data: {totalOperations,inquiryCount,operatorCount,changedFields,logsWithoutChanges,byAction:[{action,count}]}。',
+  })
+  inquiryLogReport(
+    @Query() query: WebsiteLogQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.inquiryLogReport(query, user);
+  }
+  @Get('inquiry-logs/operators')
+  @Permissions('website:inquiry:list')
+  @ApiOperation({
+    summary: '可见独立站日志中的历史操作人选项（每人最近一次匹配日志）',
+  })
+  @ApiOkResponse({
+    description:
+      'data: [{id,name,username:string|null}]；忽略分页，前端获取选项时省略 operatorId。',
+  })
+  inquiryLogOperators(
+    @Query() query: WebsiteLogQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.inquiryLogOperators(query, user);
   }
   @Post('inquiries/:id/itineraries')
   @Permissions('website:itinerary:create')

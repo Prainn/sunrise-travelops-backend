@@ -251,3 +251,57 @@ export interface WebsiteLog {
   occurredAt: string;
   detail: string;
 }
+
+export const WEBSITE_LOG_ACTIONS = [
+  'inquiry_created',
+  'inquiry_updated',
+  'inquiry_transferred',
+  'inquiry_archived',
+  'inquiry_lost',
+  'itinerary_created',
+  'itinerary_saved',
+  'itinerary_copied',
+  'itinerary_generated',
+  'quotation_confirmed',
+] as const;
+export type WebsiteLogAction = (typeof WEBSITE_LOG_ACTIONS)[number];
+export interface WebsiteLogChange {
+  path: string;
+  kind: 'added' | 'removed' | 'changed';
+  before: unknown;
+  after: unknown;
+  context?: {
+    dayNumber?: number;
+    nameZh?: string;
+    nameEn?: string;
+    hotelTier?: 'A' | 'B';
+    mealSlot?: string;
+    vehicleType?: string;
+  };
+}
+export interface WebsiteLogMetadata {
+  creationMode?: 'copy';
+  sourceId?: string;
+  sourceCode?: string;
+  transferReason?: string;
+  lostReason?: string;
+  quotationCode?: string;
+}
+export interface WebsiteInquiryLog {
+  id: string;
+  inquiryId: string;
+  inquiryCode: string;
+  businessUnit: WebsiteBusinessUnit;
+  action: string;
+  occurredAt: string;
+  operatorId: string;
+  operatorName: string;
+  operatorUsername: string | null;
+  targetType: 'inquiry' | 'itinerary';
+  targetId: string;
+  targetCode: string | null;
+  summary: string | null;
+  detail: string;
+  metadata: WebsiteLogMetadata;
+  changes: WebsiteLogChange[] | null;
+}

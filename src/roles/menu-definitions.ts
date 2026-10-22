@@ -55,6 +55,13 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters', 'shengxu'],
   },
   {
+    key: 'website-inquiry-summary',
+    title: 'inquiryLogReport',
+    group: 'websiteInquiries',
+    permissions: ['website:inquiry:list'],
+    scopes: ['headquarters', 'linxi', 'website'],
+  },
+  {
     key: 'website-config',
     title: 'websiteResources',
     group: 'tourismResources',
@@ -227,6 +234,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
         scopes: ['headquarters', 'linxi', 'website'],
         permissions: ['website:inquiry:list'],
       }),
+      menuItem('website-inquiry-summary', 'WebsiteInquiryLogReport'),
     ],
   },
   {

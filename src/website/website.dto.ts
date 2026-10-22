@@ -21,6 +21,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { WEBSITE_LOG_ACTIONS, type WebsiteLogAction } from './website.types';
 import type {
   WebsiteBusinessUnit,
   FeeState,
@@ -180,6 +181,51 @@ export class WebsiteInquiryQuery extends PaginationQueryDto {
     undefined;
   @IsOptional() @IsIn(statuses) status?: WebsiteInquiryInput['status'];
   @IsOptional() @IsUUID() ownerId?: string;
+}
+export class WebsiteLogQuery extends OmitType(PaginationQueryDto, [
+  'keyword',
+] as const) {
+  @ApiPropertyOptional({ enum: ['linxi', 'website'] })
+  @IsOptional()
+  @IsIn(['linxi', 'website'])
+  businessUnit?: WebsiteBusinessUnit;
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  inquiryId?: string;
+  @ApiPropertyOptional({
+    maxLength: 100,
+    description: '系统询盘编号，忽略大小写的包含匹配',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  inquiryCode?: string;
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  operatorId?: string;
+  @ApiPropertyOptional({ enum: WEBSITE_LOG_ACTIONS })
+  @IsOptional()
+  @IsIn(WEBSITE_LOG_ACTIONS)
+  action?: WebsiteLogAction;
+  @ApiPropertyOptional({
+    format: 'date',
+    description: '北京时间起始日（包含）',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2}$/)
+  from?: string;
+  @ApiPropertyOptional({
+    format: 'date',
+    description: '北京时间结束日（包含）',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2}$/)
+  to?: string;
 }
 export class WebsiteResourceQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(100) keyword: string | undefined =
