@@ -9,7 +9,7 @@ import { ShengxuLedgersService } from './shengxu-ledgers.service';
 import { UpdateDirectLedgerDto, UpdateShengxuLedgerDto } from './ledger.dto';
 
 // Local mocks only: no DataSource initialization, sockets or environment settings.
-function fixture(unit: 'shengxu' | 'linxi') {
+function fixture(unit: 'shengxu' | 'linxi' | 'website') {
   const actor: AuthenticatedUser = {
     id: 'owner',
     identityId: 'identity',
@@ -22,7 +22,7 @@ function fixture(unit: 'shengxu' | 'linxi') {
     menuKeys: [],
     roles: ['BUSINESS_MANAGER', 'COORDINATOR'],
     permissions: [
-      ...['create', 'update', 'delete', 'review', 'operate'].map(
+      ...['list', 'create', 'update', 'delete', 'review', 'operate'].map(
         (action) =>
           `ledger:${unit === 'shengxu' ? 'shengxu' : 'direct'}:${action}`,
       ),
@@ -46,6 +46,7 @@ function fixture(unit: 'shengxu' | 'linxi') {
     convertedGroups: 0,
     version: 2,
     orderStatus: 'unconverted',
+    proposalSent: false,
     reviewedAt: null as Date | null,
     operatedAt: null as Date | null,
     operated: false,
@@ -54,6 +55,7 @@ function fixture(unit: 'shengxu' | 'linxi') {
   const query = jest.fn().mockResolvedValue([row]);
   const manager = { query } as unknown as EntityManager;
   const db = {
+    manager,
     transaction: (work: (manager: EntityManager) => Promise<unknown>) =>
       work(manager),
   } as unknown as DataSource;
@@ -285,6 +287,117 @@ describe('ledger conflict API codes', () => {
         ErrorCode.DIRECT_LEDGER_NOT_PENDING_OPERATION,
       );
       expect(f.query).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  describe.each(['linxi', 'website'] as const)(
+    '%s operation prerequisites',
+    (unit) => {
+      it.each([
+        [false, 'unconverted'],
+        [true, 'unconverted'],
+        [false, 'converted'],
+      ] as const)(
+        'rejects incomplete entries (proposalSent=%s, orderStatus=%s)',
+        async (proposalSent, orderStatus) => {
+          const f = fixture(unit);
+          f.row.loss = false;
+          f.row.proposalSent = proposalSent;
+          f.row.orderStatus = orderStatus;
+          const detail = await f.direct.get(f.row.id, f.actor);
+          expect(detail.capabilities.canOperate).toBe(false);
+          f.query.mockClear();
+          await expectConflict(
+            f.direct.operate(f.row.id, { version: 2 }, f.actor),
+            ErrorCode.DIRECT_LEDGER_OPERATION_PREREQUISITES_NOT_MET,
+          );
+          expect(f.query).toHaveBeenCalledTimes(1);
+          expect(f.query).toHaveBeenCalledWith(
+            expect.stringContaining('FOR UPDATE'),
+            [f.row.id, unit],
+          );
+        },
+      );
+
+      it.each([
+        ['operator', false],
+        ['manager-as-operator', false],
+        ['operator', true],
+        ['manager-as-operator', true],
+      ] as const)(
+        'allows %s to operate a ready entry (confirmed loss=%s)',
+        async (role, loss) => {
+          const f = fixture(unit);
+          f.actor.roles = [
+            role === 'manager-as-operator' ? 'BUSINESS_MANAGER' : 'COORDINATOR',
+          ];
+          f.row.loss = loss;
+          f.row.reviewedAt = loss ? new Date() : null;
+          f.row.proposalSent = true;
+          f.row.orderStatus = 'converted';
+          const detail = await f.direct.get(f.row.id, f.actor);
+          expect(detail.capabilities.canOperate).toBe(true);
+          f.query.mockClear();
+          const saved = {
+            ...f.row,
+            operated: true,
+            operatedAt: new Date(),
+            version: 3,
+          };
+          f.query
+            .mockResolvedValueOnce([f.row])
+            .mockResolvedValueOnce([[saved], 1]);
+          const result = await f.direct.operate(
+            f.row.id,
+            { version: 2 },
+            f.actor,
+          );
+          expect(result).toMatchObject({
+            operated: true,
+            operatorId: f.row.operatorId,
+            proposalSent: true,
+            orderStatus: 'converted',
+            version: 3,
+            capabilities: { canOperate: false, canEdit: false },
+          });
+          expect(f.query).toHaveBeenLastCalledWith(
+            expect.stringContaining('SET operated=true'),
+            [f.row.id, f.actor.id],
+          );
+        },
+      );
+
+      it.each(['COORDINATOR', 'BUSINESS_MANAGER'])(
+        'rejects an unassigned %s even when the creator',
+        async (role) => {
+          const f = fixture(unit);
+          f.actor.roles = [role];
+          f.row.operatorId = 'assigned-operator';
+          f.row.loss = false;
+          f.row.proposalSent = true;
+          f.row.orderStatus = 'converted';
+          expect(
+            (await f.direct.get(f.row.id, f.actor)).capabilities.canOperate,
+          ).toBe(false);
+          f.query.mockClear();
+          await expect(
+            f.direct.operate(f.row.id, { version: 2 }, f.actor),
+          ).rejects.toMatchObject({ code: ErrorCode.AUTH_FORBIDDEN });
+          expect(f.query).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      it('keeps manager access limited to the current business', async () => {
+        const f = fixture(unit);
+        f.query.mockResolvedValueOnce([]);
+        await expect(
+          f.direct.operate('outside-ledger', { version: 2 }, f.actor),
+        ).rejects.toMatchObject({ code: ErrorCode.NOT_FOUND });
+        expect(f.query).toHaveBeenCalledWith(
+          expect.stringContaining('AND business_unit=$2 FOR UPDATE'),
+          ['outside-ledger', unit],
+        );
+      });
     },
   );
 

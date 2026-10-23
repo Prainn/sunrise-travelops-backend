@@ -162,7 +162,6 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'itinerary:download': '下载已有冻结报价',
   'tour:list': '查看成团表',
   'ledger:summary:list': '查看台账汇总',
-  'ledger:summary:update': '修改台账汇总补充资料',
   'ledger:shengxu:list': '查看盛旭台账',
   'ledger:shengxu:create': '新增盛旭台账',
   'ledger:shengxu:update': '修改盛旭台账',

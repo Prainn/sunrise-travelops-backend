@@ -5,7 +5,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -26,9 +25,6 @@ export class SummaryReportParamsDto {
   @ApiProperty({ enum: SUMMARY_REPORTS })
   @IsIn(SUMMARY_REPORTS)
   report!: SummaryReport;
-}
-export class SummaryRowParamsDto extends SummaryReportParamsDto {
-  @ApiProperty() @IsUUID() id!: string;
 }
 export class SummaryQueryDto {
   @ApiPropertyOptional({ default: 1 })
@@ -57,16 +53,4 @@ export class SummaryQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   @IsDateString({ strict: true })
   to?: string;
-}
-export class SummaryNotesDto {
-  @ApiProperty({ minimum: 0 }) @IsInt() @Min(0) version!: number;
-  @ApiPropertyOptional({ maxLength: 2000 })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  firstFollowUp?: string;
-  @ApiProperty({ maxLength: 5000 })
-  @IsString()
-  @MaxLength(5000)
-  tourNumbers!: string;
 }

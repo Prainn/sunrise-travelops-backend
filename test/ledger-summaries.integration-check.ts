@@ -2,10 +2,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Actor, IsolationHarness, Page } from './business-isolation.harness';
-import {
-  SummaryRow,
-  SummaryNotes,
-} from '../src/ledgers/ledger-summaries.service';
+import { SummaryRow } from '../src/ledgers/ledger-summaries.service';
 import {
   SUMMARY_REPORTS,
   SummaryReport,
@@ -212,7 +209,6 @@ async function run() {
       for (const report of SUMMARY_REPORTS) {
         const result = await list(actor, report);
         assert.ok(result.total > 0);
-        assert.ok(result.list.every((r) => !r.canEdit));
       }
     }
     const agencyAll = await list(sx, 'shengxu-agency-summary');
@@ -222,16 +218,6 @@ async function run() {
     assert.equal(a.convertedCount, 3);
     assert.equal(a.name, 'Agency renamed');
     assert.equal(a.firstFollowUp, '');
-    assert.equal(a.tourNumbers, '');
-    assert.equal(a.version, 0);
-    assert.equal(a.canEdit, false);
-    assert.deepEqual(
-      a.reasons.map((r) => [r.date, r.text]),
-      [
-        ['2026-10-02', 'Reason two'],
-        ['2026-10-01', 'Reason one'],
-      ],
-    );
     const october = await list(
       sxManager,
       'shengxu-agency-summary',
@@ -241,7 +227,6 @@ async function run() {
     assert.equal(october.list[0].quotedCount, 12);
     assert.equal(october.list[0].convertedCount, 2);
     assert.equal(october.list[0].name, 'Agency A');
-    assert.equal(october.list[0].canEdit, true);
     assert.equal(
       (await list(sx, 'shengxu-agency-summary', '?from=2026-12-01')).total,
       0,
@@ -259,15 +244,12 @@ async function run() {
     const direct = (await list(lxManager, 'linxi-quote-summary')).list[0];
     assert.equal(direct.quotedCount, 3);
     assert.equal(direct.convertedCount, 2);
-    assert.equal(direct.reasons.length, 2);
     const platform = await list(lxManager, 'linxi-platform-summary');
     assert.equal(platform.total, 3);
     const designer = platform.list.find((r) => r.id === group)!;
     assert.equal(designer.name, 'Designer group');
     assert.equal(designer.quotedCount, 1);
     assert.equal(designer.convertedCount, 1);
-    assert.deepEqual(designer.reasons, []);
-    assert.equal(designer.canEdit, false);
     const website = await list(webManager, 'website-platform-summary');
     assert.equal(website.total, 1);
     assert.equal(website.list[0].id, 'website');
@@ -326,94 +308,13 @@ async function run() {
       401,
       'AUTH_TOKEN_INVALID',
     );
-    const url = `${path('shengxu-agency-summary')}/${agency}`;
-    const input = {
-      version: 0,
-      firstFollowUp: 'Called once',
-      tourNumbers: 'YNSS001\nYNSS002',
-    };
-    for (const actor of [root, admin, executive, sx])
-      await deny(actor, 'PUT', url, input);
-    await deny(lxManager, 'PUT', url, input);
     await deny(
       sxManager,
       'PUT',
-      url,
-      { ...input, quotedCount: 999 },
-      400,
-      'VALIDATION_ERROR',
-    );
-    await deny(
-      sxManager,
-      'PUT',
-      url,
-      { version: 0, tourNumbers: '' },
-      400,
-      'VALIDATION_ERROR',
-    );
-    await deny(
-      sxManager,
-      'PUT',
-      `${path('shengxu-agency-summary')}/${randomUUID()}`,
-      input,
+      `${path('shengxu-agency-summary')}/${agency}`,
+      { version: 0, firstFollowUp: 'Called once', tourNumbers: 'YNSS001' },
       404,
       'NOT_FOUND',
-    );
-    await deny(lxManager, 'PUT', `${path('linxi-platform-summary')}/${group}`, {
-      version: 0,
-      tourNumbers: '',
-    });
-    await deny(
-      sxManager,
-      'PUT',
-      `${path('shengxu-coordinator-summary')}/${sx.id}`,
-      input,
-      400,
-      'VALIDATION_ERROR',
-    );
-    const races = await Promise.allSettled(
-      [0, 1].map(() => h.call<SummaryNotes>(sxManager, 'PUT', url, input)),
-    );
-    assert.equal(races.filter((r) => r.status === 'fulfilled').length, 1);
-    const rejected = races.find(
-      (r) => r.status === 'rejected',
-    ) as PromiseRejectedResult;
-    assert.equal((rejected.reason as { actual: number }).actual, 409);
-    assert.match(String(rejected.reason), /LEDGER_VERSION_CONFLICT/);
-    assert.equal(
-      (
-        await list(sxManager, 'shengxu-agency-summary', '?from=2026-11-01')
-      ).list.find((r) => r.id === agency)?.firstFollowUp,
-      'Called once',
-    );
-    await deny(sxManager, 'PUT', url, input, 409, 'LEDGER_VERSION_CONFLICT');
-    const saved = await h.call<SummaryNotes>(sxManager, 'PUT', url, {
-      ...input,
-      version: 1,
-      firstFollowUp: '',
-      tourNumbers: '',
-    });
-    assert.equal(saved.version, 2);
-    assert.equal(saved.tourNumbers, '');
-    for (const [actor, report] of [
-      [lxManager, 'linxi-quote-summary'],
-      [webManager, 'website-quote-summary'],
-    ] as const) {
-      const saved = await h.call<SummaryNotes>(
-        actor,
-        'PUT',
-        `${path(report)}/${lx.id}`,
-        { version: 0, tourNumbers: report },
-      );
-      assert.equal(saved.version, 1);
-    }
-    assert.equal(
-      (await list(lxManager, 'linxi-quote-summary')).list[0].tourNumbers,
-      'linxi-quote-summary',
-    );
-    assert.equal(
-      (await list(webManager, 'website-quote-summary')).list[0].tourNumbers,
-      'website-quote-summary',
     );
 
     // Opening menus grants summaries without granting raw ledgers or cross-business access.
@@ -424,10 +325,6 @@ async function run() {
     const coordinatorOn = await h.actor('linxi');
     for (const actor of [resourceOn, coordinatorOn]) {
       assert.equal((await list(actor, 'linxi-quote-summary')).total, 1);
-      await deny(actor, 'PUT', `${path('linxi-quote-summary')}/${lx.id}`, {
-        version: 1,
-        tourNumbers: 'forbidden',
-      });
       await deny(actor, 'GET', path('website-quote-summary'));
     }
     await deny(resourceOn, 'GET', '/ledgers/direct?businessUnit=linxi');

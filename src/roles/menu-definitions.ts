@@ -130,6 +130,7 @@ export const MENU_DEFINITIONS = [
     title: 'travelAgencies',
     group: 'tourismResources',
     permissions: ['resource:agency:list'],
+    scopes: ['headquarters', 'shengxu'],
   },
   {
     key: 'city',

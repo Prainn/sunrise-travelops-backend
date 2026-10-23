@@ -102,12 +102,7 @@ export function effectivePermissions(
           ),
         )
   )
-    ? [
-        'ledger:summary:list',
-        ...(scope !== 'headquarters' && roles.includes('BUSINESS_MANAGER')
-          ? ['ledger:summary:update']
-          : []),
-      ]
+    ? ['ledger:summary:list']
     : [];
   const visitPermissions =
     (scope === 'website' &&
@@ -174,6 +169,11 @@ export function effectivePermissions(
     ),
   ]
     .filter((permission) => {
+      if (
+        ['linxi', 'website'].includes(scope) &&
+        permission.startsWith('resource:agency:')
+      )
+        return false;
       if (
         !['linxi', 'website'].includes(scope) ||
         selected.includes('BUSINESS_MANAGER') ||
