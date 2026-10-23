@@ -42,3 +42,8 @@ jobs:
         run: |
           node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
           node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
+      - name: Business data isolation (disposable database)
+        env:
+          ISOLATION_PG_PORT: '5432'
+          ISOLATION_PG_PASSWORD: ci-only
+        run: pnpm test:isolation

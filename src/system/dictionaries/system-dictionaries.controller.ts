@@ -137,6 +137,7 @@ export class SystemDictionariesController {
     return this.dictionaries.getDictionaryItemPage(params.dictCode, query);
   }
 
+  // Authenticated shared dropdown: only value/label/tagType, no management or audit data.
   @Get(':dictCode/items/options')
   @ApiOperation({ summary: 'List enabled dictionary items as options' })
   @ApiSuccessResponse({

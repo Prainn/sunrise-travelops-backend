@@ -233,3 +233,36 @@ describe('tour duty permissions', () => {
     },
   );
 });
+
+describe('retired grants', () => {
+  it('does not expose unused role CRUD or user import/export to any identity', () => {
+    const retired = [
+      'sys:role:list',
+      'sys:role:create',
+      'sys:role:update',
+      'sys:role:delete',
+      'sys:user:import',
+      'sys:user:export',
+    ];
+    for (const scope of [
+      'headquarters',
+      'shengxu',
+      'linxi',
+      'website',
+    ] as const) {
+      for (const role of [
+        'ROOT',
+        'ADMIN',
+        'EXECUTIVE',
+        'BUSINESS_MANAGER',
+        'COORDINATOR',
+        'RESOURCE_MANAGER',
+      ]) {
+        for (const code of retired) {
+          expect(PERMISSION_DEFINITIONS).not.toHaveProperty(code);
+          expect(effectivePermissions(scope, [role])).not.toContain(code);
+        }
+      }
+    }
+  });
+});

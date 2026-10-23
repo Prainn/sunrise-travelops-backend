@@ -23,6 +23,7 @@ describe('live tour duty and navigation', () => {
       {},
       {},
       {},
+      {},
     ] as unknown as ConstructorParameters<typeof AuthService>;
     const auth = new AuthService(...args);
     const menus = new MenuPermissionsService(

@@ -30,3 +30,11 @@ export class CityResponse implements ResourceAuditResponse {
   updatedAt: string;
   updatedBy: string | null;
 }
+
+/** Shared dropdown data; no audit identities or management metadata. */
+export class CityOptionResponse {
+  id: string;
+  name: string;
+  province: string;
+  status: string;
+}

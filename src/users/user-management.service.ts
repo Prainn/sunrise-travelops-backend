@@ -572,19 +572,24 @@ export class UserManagementService {
       email: user.email,
       status: user.status === UserStatus.Enabled ? 1 : 0,
       createTime: user.createdAt.toISOString(),
-      identities: user.identities.map((i) => ({
-        id: i.id,
-        scope: i.scope,
-        deptId: i.deptId,
-        coordinatorDuty: i.coordinatorDuty,
-        businessGroupId: i.businessGroupId,
-        businessGroupName: i.businessGroup?.name ?? null,
-        businessGroupStatus: i.businessGroup?.status ?? null,
-        deptName:
-          DEPARTMENT_OPTIONS.find((d) => d.value === i.deptId)?.label ?? '',
-        roleIds: i.roles.map((r) => r.id),
-        roleNames: i.roles.map((r) => r.name).join(','),
-      })),
+      identities: user.identities.map((i) => {
+        const roles = [...i.roles].sort(
+          (a, b) => a.code.localeCompare(b.code) || a.id.localeCompare(b.id),
+        );
+        return {
+          id: i.id,
+          scope: i.scope,
+          deptId: i.deptId,
+          coordinatorDuty: i.coordinatorDuty,
+          businessGroupId: i.businessGroupId,
+          businessGroupName: i.businessGroup?.name ?? null,
+          businessGroupStatus: i.businessGroup?.status ?? null,
+          deptName:
+            DEPARTMENT_OPTIONS.find((d) => d.value === i.deptId)?.label ?? '',
+          roleIds: roles.map((r) => r.id),
+          roleNames: roles.map((r) => r.name).join(','),
+        };
+      }),
     };
   }
 }

@@ -207,7 +207,8 @@ export class ItinerariesController {
     return moneyResponse(await this.service.itinerary(id, actor));
   }
   @Put(':id')
-  @Permissions('itinerary:update')
+  // Full-draft payload includes both content and pricing.
+  @Permissions('itinerary:update', 'itinerary:price')
   async save(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: UpdateItineraryDto,
@@ -228,7 +229,8 @@ export class ItinerariesController {
     return moneyResponse(await this.service.quoteCalculation(id, actor));
   }
   @Post(':id/quote-calculation')
-  @Permissions('itinerary:update')
+  // Full-draft payload includes both content and pricing.
+  @Permissions('itinerary:update', 'itinerary:price')
   async previewQuote(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: ItineraryInput,

@@ -9,6 +9,50 @@ import { CreateUserDto, UpdateUserDto } from './dto/user-management.dto';
 
 jest.mock('argon2', () => ({ hash: jest.fn().mockResolvedValue('test-hash') }));
 
+describe('UserManagementService.response', () => {
+  it.each([
+    {
+      label: 'sorts by role code',
+      roles: [
+        { id: 'a', code: 'RESOURCE_MANAGER', name: '资源管理员' },
+        { id: 'z', code: 'COORDINATOR', name: '计调' },
+      ],
+      roleIds: ['z', 'a'],
+      roleNames: '计调,资源管理员',
+    },
+    {
+      label: 'breaks equal role code ties by role id',
+      roles: [
+        { id: 'b', code: 'COORDINATOR', name: '计调乙' },
+        { id: 'a', code: 'COORDINATOR', name: '计调甲' },
+      ],
+      roleIds: ['a', 'b'],
+      roleNames: '计调甲,计调乙',
+    },
+  ])('$label regardless of input order', ({ roles, roleIds, roleNames }) => {
+    const service = new UserManagementService(
+      {} as Repository<UserEntity>,
+      {} as Repository<RoleEntity>,
+      {} as DataSource,
+    );
+    const user = {
+      id: 'user',
+      createdAt: new Date('2026-10-23T00:00:00Z'),
+      identities: [{ id: 'identity', roles }],
+    } as UserEntity;
+
+    const inputRoleIds = roles.map((role) => role.id);
+    const first = service['response'](user);
+    expect(first.identities[0]).toMatchObject({ roleIds, roleNames });
+    expect(user.identities[0].roles.map((role) => role.id)).toEqual(
+      inputRoleIds,
+    );
+
+    user.identities[0].roles = [...user.identities[0].roles].reverse();
+    expect(service['response'](user)).toEqual(first);
+  });
+});
+
 describe('UserManagementService.delete', () => {
   const actor = {
     id: 'actor-id',
