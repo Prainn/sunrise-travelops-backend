@@ -11,6 +11,49 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'shengxu-agency-summary',
+    title: 'shengxuAgencySummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'shengxu'],
+  },
+  {
+    key: 'shengxu-coordinator-summary',
+    title: 'shengxuCoordinatorSummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'shengxu'],
+  },
+  {
+    key: 'linxi-quote-summary',
+    title: 'linxiQuoteSummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'linxi'],
+  },
+  {
+    key: 'linxi-platform-summary',
+    title: 'linxiPlatformSummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'linxi'],
+  },
+  {
+    key: 'website-quote-summary',
+    title: 'websiteQuoteSummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
+    key: 'website-platform-summary',
+    title: 'websitePlatformSummary',
+    group: 'dataLedgers',
+    permissions: ['ledger:summary:list'],
+    scopes: ['headquarters', 'website'],
+  },
+
+  {
     key: 'account-links',
     title: 'accountLinks',
     group: 'systemManagement',
@@ -292,9 +335,15 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     children: [
       menuItem('tours', 'TourList'),
       menuItem('shengxu-ledger', 'ShengxuLedger'),
-      menuItem('website-visits', 'WebsiteVisits'),
       menuItem('direct-ledger', 'DirectLedger'),
       menuItem('website-ledger', 'WebsiteLedger'),
+      menuItem('shengxu-agency-summary', 'ShengxuAgencySummary'),
+      menuItem('shengxu-coordinator-summary', 'ShengxuCoordinatorSummary'),
+      menuItem('linxi-quote-summary', 'LinxiQuoteSummary'),
+      menuItem('linxi-platform-summary', 'LinxiPlatformSummary'),
+      menuItem('website-quote-summary', 'WebsiteQuoteSummary'),
+      menuItem('website-platform-summary', 'WebsitePlatformSummary'),
+      menuItem('website-visits', 'WebsiteVisits'),
     ],
   },
 ];

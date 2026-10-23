@@ -93,6 +93,22 @@ export function effectivePermissions(
   roles: string[],
   coordinatorDuty: CoordinatorDuty | null = null,
 ): string[] {
+  const summaryPermissions = (
+    scope === 'headquarters'
+      ? roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role))
+      : roles.some((role) =>
+          ['BUSINESS_MANAGER', 'COORDINATOR', 'RESOURCE_MANAGER'].includes(
+            role,
+          ),
+        )
+  )
+    ? [
+        'ledger:summary:list',
+        ...(scope !== 'headquarters' && roles.includes('BUSINESS_MANAGER')
+          ? ['ledger:summary:update']
+          : []),
+      ]
+    : [];
   const visitPermissions =
     (scope === 'website' &&
       roles.some((role) =>
@@ -129,6 +145,7 @@ export function effectivePermissions(
     return [
       ...ROLE_PERMISSIONS.ROOT,
       ...WEBSITE_ROLE_PERMISSIONS.ROOT,
+      ...summaryPermissions,
       ...ledgerPermissions,
       ...visitPermissions,
     ];
@@ -136,10 +153,12 @@ export function effectivePermissions(
     return [
       ...reads,
       ...websiteReads,
+      ...summaryPermissions,
       ...ledgerPermissions,
       ...visitPermissions,
     ];
   return [
+    ...summaryPermissions,
     ...ledgerPermissions,
     ...visitPermissions,
     ...(scope === 'linxi' && selected.includes('BUSINESS_MANAGER')
