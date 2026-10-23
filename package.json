@@ -21,6 +21,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage --passWithNoTests",
     "test:e2e": "jest --config test/jest-e2e.json",
+    "test:isolation": "ts-node test/business-isolation.integration-check.ts",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/database/data-source.ts",
     "migration:run": "pnpm check:migrations && typeorm-ts-node-commonjs migration:run -d src/database/data-source.ts",

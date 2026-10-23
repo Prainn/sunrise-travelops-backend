@@ -45,6 +45,7 @@ function itineraryContent(value: WebsiteItinerary) {
     configVersion: value.configVersion,
     status: value.status,
     days: value.days,
+    reorderDraft: value.reorderDraft ?? null,
     deletedDays: [...(value.deletedDays ?? [])]
       .sort((a, b) => a.day.id.localeCompare(b.day.id))
       .map((entry) => ({

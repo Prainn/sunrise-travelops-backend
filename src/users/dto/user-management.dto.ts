@@ -106,7 +106,8 @@ export class IdentityInput {
   @ApiPropertyOptional({
     enum: COORDINATOR_DUTIES,
     nullable: true,
-    description: '仅计调可设置，默认 reception；移除计调角色时传 null 或省略',
+    description:
+      '仅霖熹、独立站计调可设置，默认 reception；盛旭及非计调传 null 或省略',
   })
   @IsOptional()
   @IsIn(COORDINATOR_DUTIES)

@@ -1165,7 +1165,12 @@ async function main() {
     );
     const publicCities = await cities.options();
     assert(publicCities.some((city) => city.name === '昆明'));
-    assert(publicCities.every((city) => /^CITY-\d+$/.test(city.code)));
+    assert(
+      publicCities.every(
+        (city) =>
+          Object.keys(city).sort().join(',') === 'id,name,province,status',
+      ),
+    );
     await assert.rejects(
       validation.normalize(db.manager, editablePlan, undefined, 3),
     );

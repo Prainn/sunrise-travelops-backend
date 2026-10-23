@@ -30,6 +30,7 @@ import {
   CreateCityDto,
   CityQueryDto,
   CityResponse,
+  CityOptionResponse,
   UpdateCityDto,
 } from './dto/city.dto';
 import { CitiesService } from './cities.service';
@@ -46,9 +47,10 @@ export class CitiesController {
   list(@Query() query: CityQueryDto) {
     return this.service.list(query);
   }
+  // Authenticated shared dropdown: only enabled city id/name/province/status, no audit data.
   @Get('options')
   @ApiOperation({ summary: 'List enabled city options' })
-  @ApiSuccessResponse({ type: CityResponse, isArray: true })
+  @ApiSuccessResponse({ type: CityOptionResponse, isArray: true })
   options() {
     return this.service.options();
   }

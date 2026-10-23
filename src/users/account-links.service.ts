@@ -122,6 +122,7 @@ export class AccountLinksService {
       .addOrderBy('u.id', 'ASC')
       .skip((query.page - 1) * query.pageSize)
       .take(query.pageSize);
+    if (query.scope) qb.andWhere('i.scope = :scope', { scope: query.scope });
     const [users, total] = await qb.getManyAndCount();
     return {
       list: users.map((u) => this.present(u)),

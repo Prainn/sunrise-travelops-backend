@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { buildWebsitePreview, validateWebsiteConfig } from './website-engine';
+import {
+  buildWebsitePreview,
+  generateWebsiteDraft,
+  validateWebsiteConfig,
+} from './website-engine';
 import type {
   WebsiteConfig,
   WebsiteInquiry,
@@ -129,7 +133,6 @@ function fixture() {
       items: [],
       legs: [],
       guideLanguage: '',
-      guideScope: '',
       services: [],
       hotels:
         dayNumber === 1
@@ -275,4 +278,99 @@ describe('website UAT output', () => {
       expect(() => validateWebsiteConfig(invalid)).toThrow();
     }
   });
+});
+
+describe('sequence and relaxed timing', () => {
+  it('renders mixed events in order without arrival/departure warnings', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.items = [
+      {
+        id: randomUUID(),
+        attractionId: null,
+        nameZh: '景点',
+        nameEn: 'Sight',
+        descriptionZh: '参观景点',
+        descriptionEn: 'Visit sight',
+        appears: true,
+        feeState: 'INCLUDED',
+      },
+    ];
+    day.eventOrder = [
+      day.legs[0].id,
+      day.items[0].id,
+      day.meals[0].id,
+      day.legs[1].id,
+      day.hotels[0].id,
+    ];
+    const result = buildWebsitePreview(inquiry, itinerary, config);
+    expect(result.issues.some((issue) => issue.code === 'VAL-W03')).toBe(false);
+    const text = result.english.itinerary[0].sightseeing;
+    expect(text).toContain('Arrival in Kunming.');
+    expect(text).toContain('Overnight in Kunming.');
+    expect(text.indexOf('Kunming → Dali')).toBeLessThan(
+      text.indexOf('Visit sight'),
+    );
+    expect(text.indexOf('Visit sight')).toBeLessThan(text.indexOf('Lunch'));
+    expect(text.indexOf('Lunch')).toBeLessThan(text.indexOf('Dali → Kunming'));
+    expect(text.indexOf('Dali → Kunming')).toBeLessThan(
+      text.indexOf('Manual Hotel'),
+    );
+  });
+  it('accepts same-city transport configuration', () => {
+    const { config } = fixture();
+    config.routes.push({
+      id: randomUUID(),
+      status: 'enabled',
+      fromCityId: config.cities[0].id,
+      toCityId: config.cities[0].id,
+      mode: 'private_vehicle',
+      nameZh: '市内交通',
+      nameEn: 'City transfer',
+      feeState: 'INCLUDED',
+    });
+    expect(() => validateWebsiteConfig(config)).not.toThrow();
+  });
+});
+
+it('generates first and last day attractions without confirmed travel times', () => {
+  const { config, itinerary } = fixture();
+  const cityId = config.cities[0].id;
+  const attractionId = randomUUID();
+  config.attractions.push({
+    id: attractionId,
+    cityId,
+    parentId: null,
+    status: 'enabled',
+    nameZh: '景点',
+    nameEn: 'Sight',
+    resourceId: null,
+    kind: 'attraction',
+    chargeable: false,
+    copyKey: 'sight',
+    recommendedMonths: [],
+  });
+  config.patterns.push({
+    id: randomUUID(),
+    cityId,
+    status: 'enabled',
+    nameZh: '模板',
+    nameEn: 'Pattern',
+    attractionIds: [attractionId],
+  });
+  config.skeletons.push({
+    id: randomUUID(),
+    status: 'enabled',
+    nameZh: '骨架',
+    nameEn: 'Skeleton',
+    days: [1, 2].map(() => ({ cityId, patternId: config.patterns[0].id })),
+  });
+  const generated = generateWebsiteDraft(
+    itinerary,
+    config,
+    config.skeletons[0].id,
+  );
+  expect(
+    generated.days.map((day) => day.items.map((item) => item.attractionId)),
+  ).toEqual([[attractionId], [attractionId]]);
 });

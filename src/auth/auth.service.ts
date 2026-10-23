@@ -20,7 +20,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { EntityManager, In, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import { PermissionEntity } from '../roles/permission.entity';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -283,16 +283,28 @@ export class AuthService {
     actor: AuthenticatedUser,
     input: UpdateProfileDto,
   ): Promise<void> {
-    if (!actor.permissions.includes('sys:user:update'))
-      throw new BusinessException({
-        code: ErrorCode.AUTH_FORBIDDEN,
-        message: '无权修改账号资料',
-        status: HttpStatus.FORBIDDEN,
-      });
-    await this.users.update(
-      { id: actor.id, status: UserStatus.Enabled },
-      { ...input, updatedBy: actor.id },
+    // Reject identifiers (and all other non-profile fields), even for direct callers.
+    // Never spread request data into the persistence update or its target criteria.
+    const unexpected = Object.keys(input).filter(
+      (key) => !['nickname', 'avatar', 'gender'].includes(key),
     );
+    if (unexpected.length)
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '个人资料只允许修改昵称、头像和性别',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    const { nickname, avatar, gender } = input;
+    const result = await this.users.update(
+      { id: actor.id, status: UserStatus.Enabled, deletedAt: IsNull() },
+      { nickname, avatar, gender, updatedBy: actor.id },
+    );
+    if (!result.affected)
+      throw new BusinessException({
+        code: ErrorCode.AUTH_TOKEN_INVALID,
+        message: '账号不可用',
+        status: HttpStatus.UNAUTHORIZED,
+      });
   }
 
   async changePassword(

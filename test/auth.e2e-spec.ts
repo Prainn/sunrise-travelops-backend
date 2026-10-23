@@ -39,7 +39,7 @@ class ProtectedController {
   }
 
   @Get('roles')
-  @Permissions('sys:role:update')
+  @Permissions('sys:menu-permission:update')
   roles(): { ok: true } {
     return { ok: true };
   }

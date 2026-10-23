@@ -91,3 +91,20 @@ pnpm migration:run
 pnpm migration:revert
 pnpm migration:generate src/migrations/DescribeChange
 ```
+
+## 业务隔离自测
+
+`pnpm test:isolation` 使用真实 HTTP/JWT/权限守卫和一次性 PostgreSQL 数据库，覆盖直客台账、三业务成团及询盘、转交和相关配置边界。只接入后端 `ci.yml`，不加入 `verify:release` 或部署测试步骤。
+
+先启动专用临时数据库，等待就绪后执行，测试结束后停止容器（失败时也须停止）：
+
+```bash
+docker run --detach --rm --name travelops-isolation-local \
+  -e POSTGRES_PASSWORD=isolation-ci-only \
+  -p 127.0.0.1:55457:5432 postgres:16-alpine
+docker exec travelops-isolation-local pg_isready -U postgres
+pnpm test:isolation
+docker stop travelops-isolation-local
+```
+
+脚本忽略 `.env` 和 `DATABASE_*`，固定连接 localhost，只创建、迁移和删除随机命名的测试库。专用连接参数为 `ISOLATION_PG_PORT`（默认55457）、`ISOLATION_PG_PASSWORD`（默认临时口令）；勿转发业务数据库到测试端口。完整范围、CI 触发条件和部署影响见 workspace [业务隔离自测](../docs/deployment/业务隔离自测.md)；共享文档不随本仓库提交自动交付。

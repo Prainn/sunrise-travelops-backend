@@ -262,11 +262,16 @@ export class UserManagementService {
     existing?: UserIdentityEntity,
   ) {
     const coordinator = roles.some((role) => role.code === 'COORDINATOR');
+    if (input.scope === 'shengxu' && input.coordinatorDuty != null)
+      assignmentInvalid('盛旭账号不设置计调分工');
     if (!coordinator && input.coordinatorDuty != null)
       assignmentInvalid('只有计调账号可以设置计调分工');
-    const coordinatorDuty: CoordinatorDuty | null = coordinator
-      ? (input.coordinatorDuty ?? existing?.coordinatorDuty ?? 'reception')
-      : null;
+    let coordinatorDuty: CoordinatorDuty | null = null;
+    if (coordinator)
+      coordinatorDuty =
+        input.scope === 'shengxu'
+          ? (existing?.coordinatorDuty ?? null)
+          : (input.coordinatorDuty ?? existing?.coordinatorDuty ?? 'reception');
     const businessGroupId = input.businessGroupId ?? null;
     if (input.scope === 'linxi') {
       if (!businessGroupId) assignmentInvalid('请选择霖熹账号所属业务组');
@@ -299,6 +304,8 @@ export class UserManagementService {
       if (user.identities.length !== 1)
         assignmentInvalid('请先明确账号的唯一登录范围');
       const identity = user.identities[0];
+      if (identity.scope === 'shengxu')
+        assignmentInvalid('盛旭账号不设置计调分工');
       if (
         !identity.roles.some(
           (role) => role.code === 'COORDINATOR' && role.isEnabled,
@@ -565,19 +572,24 @@ export class UserManagementService {
       email: user.email,
       status: user.status === UserStatus.Enabled ? 1 : 0,
       createTime: user.createdAt.toISOString(),
-      identities: user.identities.map((i) => ({
-        id: i.id,
-        scope: i.scope,
-        deptId: i.deptId,
-        coordinatorDuty: i.coordinatorDuty,
-        businessGroupId: i.businessGroupId,
-        businessGroupName: i.businessGroup?.name ?? null,
-        businessGroupStatus: i.businessGroup?.status ?? null,
-        deptName:
-          DEPARTMENT_OPTIONS.find((d) => d.value === i.deptId)?.label ?? '',
-        roleIds: i.roles.map((r) => r.id),
-        roleNames: i.roles.map((r) => r.name).join(','),
-      })),
+      identities: user.identities.map((i) => {
+        const roles = [...i.roles].sort(
+          (a, b) => a.code.localeCompare(b.code) || a.id.localeCompare(b.id),
+        );
+        return {
+          id: i.id,
+          scope: i.scope,
+          deptId: i.deptId,
+          coordinatorDuty: i.coordinatorDuty,
+          businessGroupId: i.businessGroupId,
+          businessGroupName: i.businessGroup?.name ?? null,
+          businessGroupStatus: i.businessGroup?.status ?? null,
+          deptName:
+            DEPARTMENT_OPTIONS.find((d) => d.value === i.deptId)?.label ?? '',
+          roleIds: roles.map((r) => r.id),
+          roleNames: roles.map((r) => r.name).join(','),
+        };
+      }),
     };
   }
 }

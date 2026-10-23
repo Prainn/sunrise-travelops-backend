@@ -3,7 +3,6 @@ import {
   SwitchAccountDto,
 } from '../users/dto/account-link.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { Permissions } from './decorators/permissions.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import type { Request } from 'express';
 import {
@@ -83,7 +82,10 @@ export class AuthController {
 
   @Patch('me/profile')
   @HttpCode(204)
-  @Permissions('sys:user:update')
+  // Self-service only: the service always targets the authenticated actor.
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update own nickname, avatar and gender' })
+  @ApiNoContentResponse()
   updateProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Body() input: UpdateProfileDto,

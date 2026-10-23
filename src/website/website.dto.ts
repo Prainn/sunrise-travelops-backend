@@ -23,6 +23,7 @@ import {
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { WEBSITE_LOG_ACTIONS, type WebsiteLogAction } from './website.types';
 import type {
+  WebsiteReorderDraft,
   WebsiteBusinessUnit,
   FeeState,
   TransportMode,
@@ -52,7 +53,6 @@ const fees: FeeState[] = [
   'EXCLUDED',
   'OPTIONAL',
   'RECOMMENDED',
-  'ARRANGED',
   'SELF_PAY',
   'UNKNOWN',
 ];
@@ -311,10 +311,22 @@ export class WebsiteServiceDto implements WebsiteService {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteDayDto implements WebsiteDay {
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(1000)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  eventOrder: string[] = [];
   @IsUUID() id: string;
   @IsInt() @Min(1) @Max(365) dayNumber: number;
-  @IsUUID() departCityId: string;
-  @IsUUID() endCityId: string;
+  @ValidateIf((o: WebsiteDayDto) => o.departCityId !== '')
+  @IsString()
+  @IsUUID()
+  departCityId: string;
+  @ValidateIf((o: WebsiteDayDto) => o.endCityId !== '')
+  @IsString()
+  @IsUUID()
+  endCityId: string;
   @IsDefined()
   @ValidateIf((o: WebsiteDayDto) => o.overnightCityId !== null)
   @IsUUID()
@@ -340,7 +352,6 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteMealDto)
   meals: WebsiteMealDto[];
   @IsString() @MaxLength(100) guideLanguage: string;
-  @IsString() @MaxLength(1000) guideScope: string;
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
@@ -377,8 +388,73 @@ class DeletedWebsiteDayDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   originalDate: string | null;
 }
+class WebsiteBoardPlacementDto {
+  @IsUUID() dayId: string;
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(2000)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  itemIds: string[];
+}
+class WebsiteBoardCopyDto {
+  @IsUUID() id: string;
+  @IsString() @MaxLength(50) sourceId: string;
+  @IsString() @MaxLength(50) parentId: string;
+  @IsUUID() dayId: string;
+  @IsBoolean() placed: boolean;
+}
+class WebsiteBoardOvernightDto {
+  @IsUUID() dayId: string;
+  @IsUUID() cityId: string;
+}
+class WebsiteBoardDeletedDto {
+  @IsUUID() id: string;
+  @IsInt() @Min(1) @Max(365) dayNumber: number;
+  @IsDefined()
+  @ValidateIf((o: WebsiteBoardDeletedDto) => o.date !== null)
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date: string | null;
+}
+class WebsiteReorderDraftDto implements WebsiteReorderDraft {
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(365)
+  @IsUUID(undefined, { each: true })
+  dayIds: string[];
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(365)
+  @IsUUID(undefined, { each: true })
+  addedDayIds: string[];
+  @IsArray()
+  @ArrayMaxSize(1000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteBoardDeletedDto)
+  deletedDays: WebsiteBoardDeletedDto[];
+  @IsArray()
+  @ArrayMaxSize(1365)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteBoardPlacementDto)
+  placements: WebsiteBoardPlacementDto[];
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteBoardCopyDto)
+  copies: WebsiteBoardCopyDto[];
+  @IsArray()
+  @ArrayMaxSize(1365)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteBoardOvernightDto)
+  overnight: WebsiteBoardOvernightDto[];
+}
 export class WebsiteItineraryDto implements WebsiteItineraryInput {
-  @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) title: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WebsiteReorderDraftDto)
+  reorderDraft: WebsiteReorderDraftDto | null = null;
+  @Transform(trim) @IsString() @MaxLength(150) title: string;
   @IsInt() @Min(1) @Max(365) duration: number;
   @IsDefined()
   @ValidateIf((o: WebsiteItineraryDto) => o.startDate !== null)

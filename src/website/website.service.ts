@@ -1,3 +1,4 @@
+import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -84,7 +85,7 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
-  arrival_time AS "arrivalTime",departure_time AS "departureTime",config_version AS "configVersion",status,version,
+  arrival_time AS "arrivalTime",departure_time AS "departureTime",config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 function fail(
@@ -985,6 +986,7 @@ export class WebsiteService {
     input: WebsiteItineraryInput,
     businessUnit: WebsiteBusinessUnit,
     old?: WebsiteItinerary,
+    validate = false,
   ): Promise<WebsiteItineraryInput> {
     const config = await this.config(
       manager,
@@ -1036,6 +1038,7 @@ export class WebsiteService {
       old?.days.flatMap((d) => d.legs.map((l) => l.routeId)),
     );
     const city = (id: string) => {
+      if (!validate) return;
       const row = config.cities.find((c) => c.id === id);
       if (!row || (!retainedCities.has(id) && row.status !== 'enabled'))
         invalid('行程引用的配置城市不可用', { cityId: id });
@@ -1064,9 +1067,10 @@ export class WebsiteService {
             ),
           );
         if (
-          !configured ||
-          configured.cityId !== hotel.cityId ||
-          (!retained && configured.status !== 'enabled')
+          validate &&
+          (!configured ||
+            configured.cityId !== hotel.cityId ||
+            (!retained && configured.status !== 'enabled'))
         )
           invalid('所选独立站酒店不可用或与住宿城市不一致', {
             configHotelId: hotel.configHotelId,
@@ -1078,13 +1082,16 @@ export class WebsiteService {
         if (leg.routeId) {
           const route = config.routes.find((r) => r.id === leg.routeId);
           if (
-            !route ||
-            (!retainedRoutes.has(route.id) && route.status !== 'enabled')
+            validate &&
+            (!route ||
+              (!retainedRoutes.has(route.id) && route.status !== 'enabled'))
           )
             invalid('路线配置不可用', { routeId: leg.routeId });
           if (
-            route.fromCityId !== leg.fromCityId ||
-            route.toCityId !== leg.toCityId
+            validate &&
+            route &&
+            (route.fromCityId !== leg.fromCityId ||
+              route.toCityId !== leg.toCityId)
           )
             invalid('交通段城市与所选路线不一致');
         }
@@ -1095,11 +1102,13 @@ export class WebsiteService {
           (a) => a.id === item.attractionId,
         );
         if (
-          !attraction ||
-          (!retainedAttractions.has(attraction.id) &&
-            attraction.status !== 'enabled')
+          validate &&
+          (!attraction ||
+            (!retainedAttractions.has(attraction.id) &&
+              attraction.status !== 'enabled'))
         )
           invalid('景点配置不可用', { attractionId: item.attractionId });
+        if (!attraction) return { ...item };
         const copy = config.templates.find(
           (t) => t.code === attraction.copyKey && t.status === 'enabled',
         );
@@ -1114,12 +1123,15 @@ export class WebsiteService {
       return { ...day, items };
     });
     const refs = this.planReferences({ ...input, days: normalized }, config);
-    const issues = await this.resourceIssues(
-      manager,
-      refs,
-      old ? this.planReferences(old, oldConfig) : [],
-    );
-    if (issues.length) invalid('行程引用的共享资源不可用', { issues });
+    const issues = validate
+      ? await this.resourceIssues(
+          manager,
+          refs,
+          old ? this.planReferences(old, oldConfig) : [],
+        )
+      : [];
+    if (validate && issues.length)
+      invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
     return {
       ...input,
@@ -1142,8 +1154,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version,business_unit)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version,reorder_draft,business_unit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
       [
         id,
         inquiryId,
@@ -1155,6 +1167,7 @@ export class WebsiteService {
         input.arrivalTime,
         input.departureTime,
         input.configVersion,
+        input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
     );
     await saveWebsiteDetails(
@@ -1208,7 +1221,7 @@ export class WebsiteService {
   ) {
     await manager.query(
       `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,arrival_time=$6,departure_time=$7,
-      config_version=$8,version=version+1,updated_at=now() WHERE id=$1`,
+      config_version=$8,reorder_draft=$9,version=version+1,updated_at=now() WHERE id=$1`,
       [
         itinerary.id,
         input.title,
@@ -1218,6 +1231,7 @@ export class WebsiteService {
         input.arrivalTime,
         input.departureTime,
         input.configVersion,
+        input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
     );
     await saveWebsiteDetails(
@@ -1273,25 +1287,63 @@ export class WebsiteService {
       );
       await this.mutable(inquiry, manager);
       this.version(itinerary.version, version, true);
+      const identifiers = new Map<string, string>();
+      const remapId = (id: string) => {
+        const guide = id.endsWith('-guide');
+        const base = guide ? id.slice(0, -6) : id;
+        if (!identifiers.has(base)) identifiers.set(base, randomUUID());
+        return identifiers.get(base)! + (guide ? '-guide' : '');
+      };
       const copyDay = (day: WebsiteDay): WebsiteDay => ({
         ...day,
-        id: randomUUID(),
-        items: day.items.map((item) => ({ ...item, id: randomUUID() })),
-        legs: day.legs.map((leg) => ({ ...leg, id: randomUUID() })),
-        hotels: day.hotels.map((hotel) => ({ ...hotel, id: randomUUID() })),
-        meals: day.meals.map((meal) => ({ ...meal, id: randomUUID() })),
-        services: day.services.map((service) => ({
-          ...service,
-          id: randomUUID(),
+        id: remapId(day.id),
+        eventOrder: (day.eventOrder ?? []).map(remapId),
+        items: day.items.map((item) => ({ ...item, id: remapId(item.id) })),
+        legs: day.legs.map((item) => ({ ...item, id: remapId(item.id) })),
+        hotels: day.hotels.map((item) => ({ ...item, id: remapId(item.id) })),
+        meals: day.meals.map((item) => ({ ...item, id: remapId(item.id) })),
+        services: day.services.map((item) => ({
+          ...item,
+          id: remapId(item.id),
         })),
       });
+      const draft = itinerary.reorderDraft;
       const clone: WebsiteItineraryInput = {
         ...itinerary,
         days: itinerary.days.map(copyDay),
         deletedDays: (itinerary.deletedDays ?? []).map((entry) => ({
-          originalDate: entry.originalDate,
+          ...entry,
           day: copyDay(entry.day),
         })),
+        reorderDraft: draft
+          ? {
+              dayIds: draft.dayIds.map(remapId),
+              addedDayIds: draft.addedDayIds.map(remapId),
+              deletedDays: draft.deletedDays.map((entry) => ({
+                ...entry,
+                id: remapId(entry.id),
+              })),
+              placements: draft.placements.map((entry) => ({
+                dayId: remapId(entry.dayId),
+                itemIds: entry.itemIds.map((id) =>
+                  id.endsWith('-no-stay')
+                    ? `${remapId(id.slice(0, -8))}-no-stay`
+                    : remapId(id),
+                ),
+              })),
+              copies: draft.copies.map((entry) => ({
+                ...entry,
+                id: remapId(entry.id),
+                sourceId: remapId(entry.sourceId),
+                parentId: remapId(entry.parentId),
+                dayId: remapId(entry.dayId),
+              })),
+              overnight: draft.overnight.map((entry) => ({
+                ...entry,
+                dayId: remapId(entry.dayId),
+              })),
+            }
+          : null,
         vehiclePrices: itinerary.vehiclePrices.map((price) => ({ ...price })),
       };
       // Copy preserves the historical content/configuration; it does not reselect resources.
@@ -1346,6 +1398,44 @@ export class WebsiteService {
       );
     });
   }
+  async guideLanguages(query: PaginationQueryDto, user: AuthenticatedUser) {
+    this.permission(user, 'website:itinerary:list');
+    if (!['headquarters', 'linxi', 'website'].includes(user.scope))
+      fail('AUTH_FORBIDDEN', '无独立站访问权限', HttpStatus.FORBIDDEN);
+    const params = [`%${(query.keyword ?? '').trim()}%`];
+    const source = `FROM (SELECT DISTINCT btrim(language) AS name FROM resource_guide_people
+      WHERE status='enabled' AND deleted_at IS NULL AND length(btrim(language)) BETWEEN 1 AND 100) languages
+      WHERE name ILIKE $1`;
+    const count = await this.db.query<{ total: string }[]>(
+      `SELECT count(*) AS total ${source}`,
+      params,
+    );
+    const list = await this.db.query<{ id: string; name: string }[]>(
+      `SELECT name AS id,name ${source} ORDER BY name LIMIT $2 OFFSET $3`,
+      [...params, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: Number(count[0]?.total ?? 0),
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+  async validateItinerary(
+    id: string,
+    input: WebsiteUpdateItineraryDto,
+    user: AuthenticatedUser,
+  ) {
+    this.permission(user, 'website:itinerary:update');
+    const { inquiry, itinerary } = await this.itinerary(id, user);
+    await this.mutable(inquiry, this.db.manager);
+    this.draft(itinerary);
+    this.version(itinerary.version, input.version, true);
+    return this.previewData(this.db.manager, inquiry, {
+      ...itinerary,
+      ...input,
+    });
+  }
   private async previewData(
     manager: EntityManager,
     inquiry: WebsiteInquiry,
@@ -1356,7 +1446,40 @@ export class WebsiteService {
       inquiry.businessUnit,
       itinerary.configVersion,
     );
+    const normalized = await this.preparePlan(
+      manager,
+      { ...itinerary, deletedDays: [] },
+      inquiry.businessUnit,
+      itinerary,
+    );
+    itinerary = { ...itinerary, ...normalized };
     const result = buildWebsitePreview(inquiry, itinerary, config);
+    if (itinerary.reorderDraft)
+      result.issues.push({
+        code: 'REORDER_PENDING',
+        severity: 'ERROR',
+        message: '请先应用已暂存的顺序调整',
+      });
+    try {
+      await this.preparePlan(
+        manager,
+        normalized,
+        inquiry.businessUnit,
+        itinerary,
+        true,
+      );
+    } catch (cause) {
+      if (
+        !(cause instanceof BusinessException) ||
+        cause.code !== 'ITINERARY_INVALID'
+      )
+        throw cause;
+      result.issues.push({
+        code: cause.code,
+        severity: 'ERROR',
+        message: cause.message,
+      });
+    }
     const current = await this.config(manager, inquiry.businessUnit);
     if (current.version !== itinerary.configVersion)
       result.issues.push({
@@ -1395,6 +1518,72 @@ export class WebsiteService {
             severity: 'ERROR',
             message: `引用的配置未启用：${id}`,
           });
+    }
+    const restaurantIds = [
+      ...new Set(
+        itinerary.days.flatMap((day) =>
+          day.meals.flatMap((meal) =>
+            meal.resourceId ? [meal.resourceId] : [],
+          ),
+        ),
+      ),
+    ];
+    if (restaurantIds.length) {
+      const restaurants = await manager.query<
+        { id: string; city: string | null }[]
+      >(
+        'SELECT id,city FROM resource_restaurants WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL',
+        [restaurantIds],
+      );
+      const linkedCities = await manager.query<{ id: string; name: string }[]>(
+        'SELECT id,name FROM resource_cities WHERE id=ANY($1::uuid[]) AND deleted_at IS NULL',
+        [
+          config.cities.flatMap((city) =>
+            city.resourceId ? [city.resourceId] : [],
+          ),
+        ],
+      );
+      for (const day of itinerary.days) {
+        const allowed = new Set([
+          day.departCityId,
+          day.endCityId,
+          ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
+        ]);
+        const names = config.cities
+          .filter((city) => allowed.has(city.id))
+          .map(
+            (city) =>
+              linkedCities.find((link) => link.id === city.resourceId)?.name,
+          );
+        for (const meal of day.meals) {
+          const restaurant = restaurants.find(
+            (record) => record.id === meal.resourceId,
+          );
+          if (
+            restaurant?.city &&
+            names.length &&
+            names.every(Boolean) &&
+            !names.includes(restaurant.city)
+          )
+            result.issues.push({
+              code: 'VAL-E03',
+              severity: 'ERROR',
+              dayNumber: day.dayNumber,
+              message: `餐厅不在当天行程城市：${meal.restaurantZh || meal.restaurantEn}`,
+            });
+          else if (
+            restaurant?.city &&
+            !names.includes(restaurant.city) &&
+            names.some((name) => !name)
+          )
+            result.issues.push({
+              code: 'VAL-W04',
+              severity: 'WARNING',
+              dayNumber: day.dayNumber,
+              message: '城市未关联公共城市，请核对餐厅所在城市',
+            });
+        }
+      }
     }
     result.issues.push(
       ...(await this.resourceIssues(

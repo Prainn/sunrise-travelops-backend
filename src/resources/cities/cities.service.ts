@@ -9,6 +9,7 @@ import {
   CreateCityDto,
   CityQueryDto,
   CityResponse,
+  CityOptionResponse,
   UpdateCityDto,
 } from './dto/city.dto';
 import { BusinessException } from '../../common/exceptions/business.exception';
@@ -58,14 +59,20 @@ export class CitiesService {
       pageSize: query.pageSize,
     };
   }
-  async options(): Promise<CityResponse[]> {
+  async options(): Promise<CityOptionResponse[]> {
     const entities = await this.cities.find({
       where: {
         status: ResourceStatus.Enabled,
       },
+      select: { id: true, name: true, province: true, status: true },
       order: { createdAt: 'ASC', id: 'ASC' },
     });
-    return entities.map((entity) => this.toResponse(entity));
+    return entities.map(({ id, name, province, status }) => ({
+      id,
+      name,
+      province,
+      status,
+    }));
   }
   async get(id: string): Promise<CityResponse> {
     return this.toResponse(

@@ -23,6 +23,8 @@ ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
 BREAKING_MIGRATIONS = {
+    'RetireUnusedPermissions1793577600000',
+    'WebsiteSequenceAndDraft1793491200000',
     'AddBusinessGroupsAndCoordinatorDuty1793145600000',
     'ReviseTravelPlanning1788912000000',
     'StructureBusinessAndIdentity1789459200000',
@@ -138,6 +140,27 @@ def read_state():
     if not path.exists() and ENVIRONMENT == 'prod':
         return {'current': None, 'previous': None, 'migration_history': {}, 'compatible_migrations': []}
     return json.loads(path.read_text())
+
+
+def preflight():
+    """Fail before a costly build if maintenance left private files inaccessible."""
+    if os.geteuid() == 0:
+        raise PermissionError('Run release operations as sunrise-runner, not root')
+    for path in (BASE, STATE, STATE / 'releases'):
+        if not os.access(path, os.R_OK | os.W_OK | os.X_OK):
+            raise PermissionError(f'Release directory is not accessible/writable: {path}')
+    paths = [BASE / 'server.env', STATE / 'state.json']
+    log = STATE / 'operations.log'
+    if log.exists():
+        paths.append(log)
+    for path in paths:
+        if not os.access(path, os.R_OK | os.W_OK):
+            raise PermissionError(f'Release file is not readable/writable: {path}')
+    state = read_state()
+    for key in ('current', 'previous'):
+        if state.get(key):
+            release(state[key])
+    return {'preflight': 'passed'}
 
 
 def release(release_id):
@@ -381,6 +404,9 @@ def bootstrap():
 
 def main():
     os.umask(0o077)
+    if sys.argv[1:] == ['preflight']:
+        print(json.dumps(preflight()))
+        return
     STATE.mkdir(exist_ok=True)
     (STATE / 'releases').mkdir(exist_ok=True)
     args = sys.argv[1:]
@@ -414,7 +440,7 @@ def main():
             raise MigrationRequired('Review compatibility and rerun with these exact pending migrations: ' + ','.join(sorted(pending)))
         result = publish(release_id, info['Id'], bool(pending))
     else:
-        raise ValueError('Expected status, bootstrap, deploy <release> <image>, or rollback <release|previous>')
+        raise ValueError('Expected preflight, status, bootstrap, deploy <release> <image>, or rollback <release|previous>')
     print(json.dumps(result))
 
 

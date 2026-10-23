@@ -18,6 +18,7 @@ import {
 import { WebsiteDay } from '../src/website/website.types';
 import { WebsiteItineraryDto } from '../src/website/website.dto';
 import { ValidationPipe } from '@nestjs/common';
+import { WebsiteSequenceAndDraft1793491200000 } from '../src/migrations/1793491200000-WebsiteSequenceAndDraft';
 import { AddItineraryDayRecycle1792627200000 } from '../src/migrations/1792627200000-AddItineraryDayRecycle';
 
 async function main() {
@@ -36,7 +37,9 @@ async function main() {
     migrations: readdirSync(`${__dirname}/../src/migrations`)
       .filter(
         (name) =>
-          name.endsWith('.ts') && !name.includes('AddItineraryDayRecycle'),
+          name.endsWith('.ts') &&
+          !name.includes('AddItineraryDayRecycle') &&
+          !name.includes('WebsiteSequenceAndDraft'),
       )
       .map((name) => `${__dirname}/../src/migrations/${name}`),
     synchronize: false,
@@ -118,6 +121,7 @@ async function main() {
       assert.equal(rows.length, 1);
       assert.deepEqual(rows[0], { is_deleted: false, original_date: null });
     }
+    await new WebsiteSequenceAndDraft1793491200000().up(q);
     const data = plainToInstance(ItineraryInput, {
       title: 'roundtrip',
       startDate: '2026-10-20',
@@ -212,7 +216,7 @@ async function main() {
       endCityId: city,
       overnightCityId: null,
       guideLanguage: '',
-      guideScope: '',
+
       items: [],
       legs: [],
       hotels: [],

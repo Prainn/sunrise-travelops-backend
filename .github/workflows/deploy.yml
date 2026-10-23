@@ -85,6 +85,8 @@ jobs:
           rm "$source/repository.tgz"
           cd "$source"
           base="/opt/sunrise-travelops-$DEPLOY_ENV"
+          stage='Check release file access before build'
+          python3 scripts/deploy.py preflight
           if [[ "$OPERATION" == rollback ]]; then
             stage='Rollback and verify health'
             python3 scripts/deploy.py rollback "$ROLLBACK_RELEASE"
@@ -139,7 +141,9 @@ jobs:
             image="$image-runtime-$GITHUB_SHA"
           fi
           stage='Build and verify candidate image'
+          build_started=$SECONDS
           docker buildx build --builder sunrise --load --label "org.opencontainers.image.revision=$source_sha" -t "$image" .
+          echo "Backend image build/load: $((SECONDS - build_started)) seconds." >> "$GITHUB_STEP_SUMMARY"
           stage='Migration review, activation and health verification'
           result=0
           python3 scripts/deploy.py deploy "$release" "$image" || result=$?

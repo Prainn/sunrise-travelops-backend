@@ -78,16 +78,20 @@ export async function coordinator(
   unit: string,
   duty: 'reception' | 'operation' = 'reception',
 ) {
+  const dutyFilter =
+    unit === 'shengxu' ? '' : " AND i.coordinator_duty IN ($3,'both')";
   const [row] = await manager.query<{ id: string; name: string }[]>(
-    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2 AND i.coordinator_duty IN ($3,'both') FOR SHARE OF u,i`,
-    [unit, id, duty],
+    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2${dutyFilter} FOR SHARE OF u,i`,
+    unit === 'shengxu' ? [unit, id] : [unit, id, duty],
   );
   return (
     row ??
     invalid(
-      duty === 'operation'
-        ? '请选择本业务启用的操作计调'
-        : '请选择本业务启用的收客计调',
+      unit === 'shengxu'
+        ? '请选择本业务启用的计调'
+        : duty === 'operation'
+          ? '请选择本业务启用的操作计调'
+          : '请选择本业务启用的收客计调',
     )
   );
 }

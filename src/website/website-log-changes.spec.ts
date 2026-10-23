@@ -29,7 +29,6 @@ function day(id: string, dayNumber: number): WebsiteDay {
     meals: [],
     services: [],
     guideLanguage: '',
-    guideScope: '',
   };
 }
 function plan(): WebsiteItinerary {

@@ -34,6 +34,7 @@ interface DirectRow {
   receivingGroupId: string | null;
   receivingAccountName: string;
   orderStatus: 'unconverted' | 'converted';
+  proposalSent: boolean;
   loss: boolean;
   reviewedAt: Date | null;
   operatedAt: Date | null;
@@ -97,6 +98,8 @@ export class DirectLedgersService {
           actor.id === row.operatorId &&
           !row.operated &&
           (!row.loss || Boolean(row.reviewedAt)) &&
+          row.proposalSent &&
+          row.orderStatus === 'converted' &&
           actor.permissions.includes('ledger:direct:operate'),
         canChangeStatus:
           edit &&
@@ -397,6 +400,11 @@ export class DirectLedgersService {
         conflict(
           ErrorCode.DIRECT_LEDGER_NOT_PENDING_OPERATION,
           '仅待操作的台账可以标记已操作',
+        );
+      if (!row.proposalSent || row.orderStatus !== 'converted')
+        conflict(
+          ErrorCode.DIRECT_LEDGER_OPERATION_PREREQUISITES_NOT_MET,
+          '台账须已发送方案且已成团，才能标记已操作',
         );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET operated=true,operated_at=coalesce(operated_at,now()),updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,

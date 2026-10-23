@@ -16,6 +16,32 @@ spec.loader.exec_module(release)
 
 
 class ReleaseSafety(unittest.TestCase):
+    def test_preflight_rejects_inaccessible_config_before_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            state = base / 'backend'
+            (state / 'releases').mkdir(parents=True)
+            (base / 'server.env').write_text('private-config')
+            (state / 'state.json').write_text('{"current": null, "previous": null}')
+            with patch.object(release, 'BASE', base), patch.object(release, 'STATE', state), \
+                 patch.object(release.os, 'geteuid', return_value=1002):
+                self.assertEqual(release.preflight(), {'preflight': 'passed'})
+                access = os.access
+                with patch.object(release.os, 'access', side_effect=lambda path, mode:
+                                  False if path == base / 'server.env' else access(path, mode)):
+                    with self.assertRaisesRegex(PermissionError, 'server.env'):
+                        release.preflight()
+
+    def test_preflight_rejects_root_maintenance(self):
+        with patch.object(release.os, 'geteuid', return_value=0):
+            with self.assertRaisesRegex(PermissionError, 'sunrise-runner'):
+                release.preflight()
+
+    def test_retired_permissions_cannot_be_marked_compatible(self):
+        name = 'RetireUnusedPermissions1793577600000'
+        with self.assertRaises(release.MigrationRequired):
+            release.check_schema({name: '1'}, {}, [], [], True)
+
     def candidate_result(self, state, target, database, reviewed=''):
         with tempfile.TemporaryDirectory() as temporary:
             with patch.object(release, 'STATE', Path(temporary)), \

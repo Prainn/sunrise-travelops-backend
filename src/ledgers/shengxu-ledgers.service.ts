@@ -165,7 +165,7 @@ export class ShengxuLedgersService {
     const params: unknown[] = [delegate ? 'shengxu' : owner];
     let where = `WHERE business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL AND ${
       delegate
-        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND i.coordinator_duty IN ('reception','both') AND u.id=resource_agencies.coordinator_id)`
+        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND u.id=resource_agencies.coordinator_id)`
         : 'coordinator_id=$1'
     }`;
     if (query.keyword?.trim())
@@ -205,7 +205,7 @@ export class ShengxuLedgersService {
         `SELECT id FROM resource_agencies WHERE id=$1 AND ($2::uuid IS NULL OR coordinator_id=$2) AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL`,
         [agencyId, owner],
       );
-      if (!rows.length) invalid('请选择关联收客计调的启用盛旭组团社');
+      if (!rows.length) invalid('请选择关联计调的启用盛旭组团社');
     }
     const params: unknown[] = [agencyId];
     let where = 'WHERE agency_id=$1 AND deleted_at IS NULL';
@@ -238,7 +238,7 @@ export class ShengxuLedgersService {
         `SELECT name AS "agencyName",country_or_region AS "countryOrRegion",city,coordinator_id AS "coordinatorId" FROM resource_agencies WHERE id=$1 AND ($2::uuid IS NULL OR coordinator_id=$2) AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL FOR SHARE`,
         [input.agencyId, owner],
       );
-      if (!agency) invalid('请选择关联收客计调的启用盛旭组团社');
+      if (!agency) invalid('请选择关联计调的启用盛旭组团社');
     }
     let contactName = existing?.contactName;
     if (
