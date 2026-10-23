@@ -1,7 +1,9 @@
 [worker.oci]
   gc = true
-  reservedSpace = "512MB"
-  maxUsedSpace = "2GB"
+  # Keep lint/build, production pruning and layer copies from competing for RAM.
+  max-parallelism = 1
+  reservedSpace = "2GB"
+  maxUsedSpace = "4GB"
   minFreeSpace = "4GB"
 
 # Match the existing ECS Docker registry mirrors.

@@ -424,8 +424,20 @@ async function ledgers() {
     async () => {
       for (const b of direct) {
         const row = b.ledgers[0];
+        await h.unchanged(() =>
+          deny(
+            b.a,
+            'PUT',
+            `/ledgers/direct/${row.id}/operation`,
+            { version: row.version },
+            409,
+            'DIRECT_LEDGER_OPERATION_PREREQUISITES_NOT_MET',
+          ),
+        );
         const edited = await h.call(b.a, 'PUT', `/ledgers/direct/${row.id}`, {
           ...b.ledgerInputs[0],
+          proposalSent: true,
+          orderStatus: 'converted',
           loss: true,
           version: row.version,
         });
@@ -435,6 +447,11 @@ async function ledgers() {
           'POST',
           `/ledgers/direct/${row.id}/review`,
           { version: edited.version },
+        );
+        await h.unchanged(() =>
+          deny(b.manager, 'PUT', `/ledgers/direct/${row.id}/operation`, {
+            version: reviewed.version,
+          }),
         );
         const operated = await h.call<RecordRef & { operated: boolean }>(
           b.a,
@@ -933,40 +950,55 @@ async function main() {
 }
 
 async function boundaries() {
-  await check('盛旭台账入口与组团社引用隔离，公共资源保持共享', async () => {
-    const sx = businesses[0];
-    const input = {
-      recordDate: '2030-01-01',
-      ...sx.agencies[0],
-      quotedGroups: 1,
-      convertedGroups: 0,
-    };
-    const row = await h.call(sx.a, 'POST', '/ledgers/shengxu', input, 201);
-    await h.page(sx.b, '/ledgers/shengxu', [row.id]);
-    await h.unchanged(async () => {
-      await deny(sx.b, 'PUT', `/ledgers/shengxu/${row.id}`, {
-        ...input,
-        version: row.version,
+  await check(
+    '盛旭台账入口与引用隔离；霖熹/独立站禁止组团社资源访问',
+    async () => {
+      const sx = businesses[0];
+      const input = {
+        recordDate: '2030-01-01',
+        ...sx.agencies[0],
+        quotedGroups: 1,
+        convertedGroups: 0,
+      };
+      const row = await h.call(sx.a, 'POST', '/ledgers/shengxu', input, 201);
+      await h.page(sx.b, '/ledgers/shengxu', [row.id]);
+      await h.unchanged(async () => {
+        await deny(sx.b, 'PUT', `/ledgers/shengxu/${row.id}`, {
+          ...input,
+          version: row.version,
+        });
+        for (const b of businesses.slice(1)) {
+          await deny(b.a, 'GET', '/ledgers/shengxu');
+          await deny(b.manager, 'GET', `/ledgers/shengxu/${row.id}`);
+          await deny(
+            sx.a,
+            'POST',
+            '/ledgers/shengxu',
+            { ...input, ...b.agencies[0] },
+            400,
+            'VALIDATION_ERROR',
+          );
+        }
       });
-      for (const b of businesses.slice(1)) {
-        await deny(b.a, 'GET', '/ledgers/shengxu');
-        await deny(b.manager, 'GET', `/ledgers/shengxu/${row.id}`);
-        await deny(
-          sx.a,
-          'POST',
-          '/ledgers/shengxu',
-          { ...input, ...b.agencies[0] },
-          400,
-          'VALIDATION_ERROR',
-        );
-      }
-    });
-    const allAgencies = businesses.flatMap((b) =>
-      b.agencies.map((agency) => agency.agencyId),
-    );
-    for (const b of businesses)
-      await h.page(b.a, '/resources/selections/agencies', allAgencies, 2);
-  });
+      const allAgencies = businesses.flatMap((b) =>
+        b.agencies.map((agency) => agency.agencyId),
+      );
+      for (const actor of [
+        sx.a,
+        sx.manager,
+        sx.resource,
+        root,
+        admin,
+        executive,
+      ])
+        await h.page(actor, '/resources/selections/agencies', allAgencies, 2);
+      await h.unchanged(async () => {
+        for (const b of businesses.slice(1))
+          for (const actor of [b.a, b.manager, b.resource])
+            await deny(actor, 'GET', '/resources/selections/agencies');
+      });
+    },
+  );
   await check(
     '直客专属配置：当前业务版本可读，另一业务历史版本及写入口不可读写',
     async () => {
