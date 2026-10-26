@@ -38,7 +38,11 @@ const toDateRange = ({ value }: { value: unknown }): unknown => {
 };
 
 export class UserQueryDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: LOGIN_SCOPES })
+  @ApiPropertyOptional({
+    enum: LOGIN_SCOPES,
+    description:
+      'Filter accounts by identity scope; retain their full identities',
+  })
   @IsOptional()
   @IsIn(LOGIN_SCOPES)
   scope?: LoginScope;

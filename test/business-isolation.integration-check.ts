@@ -809,8 +809,8 @@ async function tours() {
               'PUT',
               `/tours/${row.id}`,
               { ...update, version: row.version },
-              actor === b.b ? 403 : 404,
-              actor === b.b ? 'AUTH_FORBIDDEN' : 'NOT_FOUND',
+              actor === foreign.manager ? 404 : 403,
+              actor === foreign.manager ? 'NOT_FOUND' : 'AUTH_FORBIDDEN',
             );
             await deny(
               actor,
@@ -820,8 +820,8 @@ async function tours() {
                 version: row.version,
                 reason: 'denied',
               },
-              actor === b.b ? 403 : 404,
-              actor === b.b ? 'AUTH_FORBIDDEN' : 'NOT_FOUND',
+              actor === foreign.manager ? 404 : 403,
+              actor === foreign.manager ? 'NOT_FOUND' : 'AUTH_FORBIDDEN',
             );
           }
           await deny(
@@ -881,36 +881,57 @@ async function tours() {
     }
   });
   await check(
-    '成团表：本业务编辑/撤销有效；实时计调分工仅收客403，改回操作恢复访问',
+    '成团表：计调各分工可查看但不可写；负责人编辑/撤销有效',
     async () => {
       for (const b of businesses) {
         const { sourceModule: _source, ...input } = b.tourInputs[0];
         void _source;
-        const edited = await h.call(b.a, 'PUT', `/tours/${b.tours[0].id}`, {
-          ...input,
-          remark: 'valid edit',
-          version: b.tours[0].version,
-        });
+        for (const duty of ['reception', 'operation', 'both', null]) {
+          await h.db.query(
+            'UPDATE user_identities SET coordinator_duty=$1 WHERE id=$2',
+            [duty, b.a.identityId],
+          );
+          await h.call(b.a, 'GET', `/tours/${b.tours[0].id}`);
+          await h.unchanged(async () => {
+            await deny(b.a, 'POST', '/tours', b.tourInputs[0]);
+            await deny(b.a, 'POST', '/tours', linkedTourInput(b));
+            await deny(
+              b.a,
+              'GET',
+              `/tours/sources?sourceModule=${b.unit === 'shengxu' ? 'standard' : 'website'}`,
+            );
+            await deny(b.a, 'PUT', `/tours/${b.tours[0].id}`, {
+              ...input,
+              version: b.tours[0].version,
+            });
+            await deny(b.a, 'POST', `/tours/${b.tours[0].id}/cancel`, {
+              version: b.tours[0].version,
+            });
+          });
+        }
+        await h.db.query(
+          "UPDATE user_identities SET coordinator_duty='operation' WHERE id=$1",
+          [b.a.identityId],
+        );
+        const edited = await h.call(
+          b.manager,
+          'PUT',
+          `/tours/${b.tours[0].id}`,
+          {
+            ...input,
+            remark: 'valid edit',
+            version: b.tours[0].version,
+          },
+        );
         assert.equal(edited.version, b.tours[0].version + 1);
         await h.call(
-          b.a,
+          b.manager,
           'POST',
           `/tours/${edited.id}/cancel`,
           { version: edited.version, reason: 'valid cancel' },
           201,
         );
-        if (b.unit !== 'shengxu') {
-          await h.db.query(
-            `UPDATE user_identities SET coordinator_duty='reception' WHERE id=$1`,
-            [b.a.identityId],
-          );
-          await deny(b.a, 'GET', '/tours');
-          await h.db.query(
-            `UPDATE user_identities SET coordinator_duty='operation' WHERE id=$1`,
-            [b.a.identityId],
-          );
-          await h.call(b.a, 'GET', `/tours/${edited.id}`);
-        }
+        await h.call(b.a, 'GET', `/tours/${edited.id}`);
       }
     },
   );
