@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import {
   ResourceInputDto,
   ResourceQueryDto,
@@ -14,11 +23,23 @@ export class CreateCityDto extends ResourceInputDto {
   @MinLength(1)
   @MaxLength(100)
   province: string;
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number | null;
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number | null;
 }
 export class UpdateCityDto extends CreateCityDto {
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class CityResponse implements ResourceAuditResponse {
+  longitude: number | null;
+  latitude: number | null;
   id: string;
   code: string;
   name: string;
