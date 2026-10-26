@@ -56,7 +56,9 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'sys:business-dictionary:list',
     ...INQUIRY_PERMISSIONS,
     'itinerary:download',
-    ...TOUR_PERMISSIONS,
+    'tour:list',
+    'tour:rating:list',
+    'tour:rating:update',
   ],
   RESOURCE_MANAGER: ['sys:business-dictionary:list', ...RESOURCE_PERMISSIONS],
 };
@@ -91,7 +93,8 @@ const WEBSITE_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
 export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
-  coordinatorDuty: CoordinatorDuty | null = null,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 分工仍由身份调用方传入，成团表权限已统一为计调只读。
+  _coordinatorDuty: CoordinatorDuty | null = null,
 ): string[] {
   const summaryPermissions = (
     scope === 'headquarters'
@@ -174,18 +177,7 @@ export function effectivePermissions(
         permission.startsWith('resource:agency:')
       )
         return false;
-      if (
-        !['linxi', 'website'].includes(scope) ||
-        selected.includes('BUSINESS_MANAGER') ||
-        !permission.startsWith('tour:') ||
-        permission.startsWith('tour:rating:')
-      )
-        return true;
-      // Direct-business coordinators never create tours; only operation/both can manage them.
-      return (
-        permission !== 'tour:create' &&
-        (coordinatorDuty === 'operation' || coordinatorDuty === 'both')
-      );
+      return true;
     })
     .sort();
 }

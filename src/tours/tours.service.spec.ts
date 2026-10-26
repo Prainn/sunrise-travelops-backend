@@ -319,7 +319,7 @@ describe('manual tour contract and scope', () => {
 describe('tour and independent rating access', () => {
   const identity = (
     scope: 'shengxu' | 'linxi' | 'website',
-    duty: 'reception' | 'operation' | 'both',
+    duty: 'reception' | 'operation' | 'both' | null,
     roles = ['COORDINATOR'],
   ): AuthenticatedUser => ({
     ...user,
@@ -328,17 +328,17 @@ describe('tour and independent rating access', () => {
     permissions: effectivePermissions(scope, roles, duty),
   });
 
-  it.each(['linxi', 'website'] as const)(
+  it.each(['shengxu', 'linxi', 'website'] as const)(
     '%s coordinators cannot create either manual or linked tours',
     async (scope) => {
-      for (const duty of ['reception', 'operation', 'both'] as const) {
+      for (const duty of ['reception', 'operation', 'both', null] as const) {
         const { service, query } = setup();
         const current = identity(scope, duty);
-        for (const sourceModule of ['manual', 'website'] as const) {
+        for (const sourceModule of ['manual', 'standard', 'website'] as const) {
           await expect(
             service.create({ ...input(), sourceModule }, current),
           ).rejects.toMatchObject({ status: 403 });
-          if (sourceModule === 'website') {
+          if (sourceModule !== 'manual') {
             await expect(
               service.sources({ sourceModule }, current),
             ).rejects.toMatchObject({ status: 403 });
@@ -349,25 +349,47 @@ describe('tour and independent rating access', () => {
     },
   );
 
-  it.each(['linxi', 'website'] as const)(
-    '%s reception can read/save own rating without tour access',
+  it.each(['shengxu', 'linxi', 'website'] as const)(
+    '%s coordinators can read related tours but cannot update or cancel for any duty',
     async (scope) => {
-      const tour = { ...savedTour(), business_unit: scope };
-      const { service, query } = setup(tour);
-      const current = identity(scope, 'reception');
-      await expect(
-        service.list(new TourQueryDto(), current),
-      ).rejects.toMatchObject({ status: 403 });
-      await expect(service.get(other, current)).rejects.toMatchObject({
-        status: 403,
+      for (const duty of ['reception', 'operation', 'both', null] as const) {
+        const { service, query } = setup({
+          ...savedTour(),
+          business_unit: scope,
+        });
+        const current = identity(scope, duty);
+        await expect(
+          service.list(new TourQueryDto(), current),
+        ).resolves.toMatchObject({ total: 1 });
+        await expect(service.get(other, current)).resolves.toMatchObject({
+          id: other,
+        });
+        const [sql, params] = query.mock.calls.at(-1)!;
+        expect(params).toEqual([other, scope, actor]);
+        expect(sql).toContain('t.business_unit = $2');
+        expect(sql).toContain(
+          '(t.collect_coordinator_id = $3 OR t.operator_id = $3 OR t.creator_id = $3)',
+        );
+        query.mockClear();
+        await expect(
+          service.update(other, updateInput(), current),
+        ).rejects.toMatchObject({ status: 403 });
+        await expect(
+          service.cancel(other, { version: 1, reason: '' }, current),
+        ).rejects.toMatchObject({ status: 403 });
+        expect(query).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(['shengxu', 'linxi', 'website'] as const)(
+    '%s read-only tour access preserves own rating writes',
+    async (scope) => {
+      const { service, query } = setup({
+        ...savedTour(),
+        business_unit: scope,
       });
-      await expect(
-        service.update(other, updateInput(), current),
-      ).rejects.toMatchObject({ status: 403 });
-      await expect(
-        service.cancel(other, { version: 1, reason: '' }, current),
-      ).rejects.toMatchObject({ status: 403 });
-      expect(query).not.toHaveBeenCalled();
+      const current = identity(scope, 'reception');
       await expect(
         service.ratings(new RatingQueryDto(), current),
       ).resolves.toMatchObject({ total: 1 });
@@ -379,44 +401,6 @@ describe('tour and independent rating access', () => {
           sql.includes('INSERT INTO tour_ratings'),
         ),
       ).toBe(true);
-    },
-  );
-
-  it.each(['linxi', 'website'] as const)(
-    '%s operation/both only manage related tours inside their business',
-    async (scope) => {
-      for (const duty of ['operation', 'both'] as const) {
-        const current = identity(scope, duty);
-        const tour = {
-          ...savedTour(),
-          business_unit: scope,
-          creator_id: other,
-          collect_coordinator_id: other,
-        };
-        const { service } = setup(tour);
-        const patch = updateInput();
-        delete patch.manualSource;
-        await expect(
-          service.update(other, patch, current),
-        ).resolves.toBeDefined();
-        await expect(
-          service.cancel(other, { version: 1, reason: '取消' }, current),
-        ).resolves.toBeDefined();
-        const unrelated = setup({ ...tour, operator_id: other });
-        await expect(
-          unrelated.service.update(other, patch, current),
-        ).rejects.toMatchObject({ status: 403 });
-        await expect(
-          unrelated.service.cancel(other, { version: 1, reason: '' }, current),
-        ).rejects.toMatchObject({ status: 403 });
-        const foreign = setup({ ...tour, business_unit: 'shengxu' });
-        await expect(
-          foreign.service.update(other, patch, current),
-        ).rejects.toMatchObject({ status: 404 });
-        await expect(
-          foreign.service.cancel(other, { version: 1, reason: '' }, current),
-        ).rejects.toMatchObject({ status: 404 });
-      }
     },
   );
 

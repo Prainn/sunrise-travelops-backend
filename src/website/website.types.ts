@@ -69,6 +69,14 @@ export interface WebsiteConfig {
   skeletons: WebsiteSkeleton[];
   templates: WebsiteTemplate[];
 }
+export type WebsiteConfigGroup = Exclude<keyof WebsiteConfig, 'version'>;
+export type WebsiteConfigRecord = WebsiteConfig[WebsiteConfigGroup][number];
+export interface WebsiteConfigOption {
+  id: string;
+  value: string;
+  label: string;
+}
+
 export interface WebsiteInquiryInput {
   businessUnit?: WebsiteBusinessUnit;
   countryItemId: string;

@@ -2,8 +2,8 @@ import { AuthService } from './auth.service';
 import { MenuPermissionsService } from '../roles/menu-permissions.service';
 import { allowedMenuKeys } from '../roles/menu-definitions';
 
-describe('live tour duty and navigation', () => {
-  it('reads changed duty on each request while preserving the menu snapshot and rating access', async () => {
+describe('read-only tour navigation', () => {
+  it('keeps tour reads and ratings available when duty changes without granting tour writes', async () => {
     const identity = {
       id: 'identity',
       scope: 'linxi',
@@ -39,12 +39,15 @@ describe('live tour duty and navigation', () => {
       menus
         .navigation(await current())
         .groups.flatMap((group) => group.children.map((item) => item.menuKey));
-    expect(await visible()).toEqual(['guide-ratings']);
-    identity.coordinatorDuty = 'operation';
-    expect(await visible()).toEqual(['guide-ratings', 'tours']);
-    expect((await current()).permissions).not.toContain('tour:create');
-    identity.coordinatorDuty = 'reception';
-    expect(await visible()).toEqual(['guide-ratings']);
+    for (const duty of ['reception', 'operation', 'both']) {
+      identity.coordinatorDuty = duty;
+      expect(await visible()).toEqual(['guide-ratings', 'tours']);
+      const permissions = (await current()).permissions;
+      expect(permissions).toContain('tour:list');
+      for (const action of ['create', 'update', 'cancel']) {
+        expect(permissions).not.toContain(`tour:${action}`);
+      }
+    }
     const latest = await current();
     expect(latest.menuKeys).toEqual(snapshot);
     expect(latest.permissions).toContain('tour:rating:update');

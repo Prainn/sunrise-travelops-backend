@@ -48,7 +48,7 @@ interface DirectRow {
 }
 const WORKFLOW_STATUS = `CASE WHEN operated THEN 'operated' WHEN loss AND reviewed_at IS NULL THEN 'pending_confirmation' ELSE 'pending_operation' END`;
 const SELECT = `id,business_unit AS "businessUnit",order_no AS "orderNo",received_date::text AS "receivedDate",
- to_char(received_date,'YYYY-MM') AS "receivedMonth",source,creator_id AS "creatorId",creator_name AS "creatorName",
+ source,creator_id AS "creatorId",creator_name AS "creatorName",
  receiving_group_id AS "receivingGroupId",receiving_account_name AS "receivingAccountName",operator_id AS "operatorId",operator_name AS "operatorName",
  order_status AS "orderStatus",effective_contact AS "effectiveContact",proposal_sent AS "proposalSent",loss,priority,itinerary,
  not_converted_reason AS "notConvertedReason",loss_note AS "lossNote",remark,feedback_reason AS "feedbackReason",solution,
