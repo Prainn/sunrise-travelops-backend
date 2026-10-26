@@ -548,7 +548,7 @@ export class WebsiteConfigHotelDto
 {
   @IsUUID() cityId: string;
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) nameZh: string;
-  @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) nameEn: string;
+  @Transform(trim) @IsString() @MaxLength(150) nameEn: string;
   @IsDefined()
   @ValidateIf((o: WebsiteConfigHotelDto) => o.resourceId !== null)
   @IsUUID()
