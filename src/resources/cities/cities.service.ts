@@ -80,6 +80,7 @@ export class CitiesService {
     );
   }
   async create(input: CreateCityDto, actorId: string): Promise<CityResponse> {
+    this.assertCoordinates(input.longitude ?? null, input.latitude ?? null);
     const code =
       input.code ?? (await nextBusinessCode(this.cities.manager, 'CITY'));
     await ensureCodeAvailable(this.cities, code);
@@ -105,6 +106,10 @@ export class CitiesService {
         ErrorCode.RESOURCE_NOT_FOUND,
       );
       assertVersion(entity.version, input.version);
+      this.assertCoordinates(
+        input.longitude === undefined ? entity.longitude : input.longitude,
+        input.latitude === undefined ? entity.latitude : input.latitude,
+      );
       if (entity.name !== input.name)
         throw new BusinessException({
           code: ErrorCode.CONFLICT,
@@ -144,7 +149,17 @@ export class CitiesService {
       code: entity.code,
       name: entity.name,
       province: entity.province,
+      longitude: entity.longitude ?? null,
+      latitude: entity.latitude ?? null,
       status: entity.status,
     };
+  }
+  private assertCoordinates(longitude: number | null, latitude: number | null) {
+    if ((longitude == null) !== (latitude == null))
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '经纬度必须成对填写或清空',
+        status: HttpStatus.BAD_REQUEST,
+      });
   }
 }
