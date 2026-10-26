@@ -1,6 +1,13 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
 import { LOGIN_SCOPES, LoginScope } from '../users/user-identity.entity';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -24,6 +31,33 @@ export class OperationLogQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(LOGIN_SCOPES)
   scope?: LoginScope;
+
+  @ApiPropertyOptional({
+    description: '开始日期（北京时间，含当日）',
+    example: '2026-10-26',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2}$/)
+  start?: string;
+
+  @ApiPropertyOptional({
+    description: '结束日期（北京时间，含当日）',
+    example: '2026-10-26',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^[1-9]\d{3}-\d{2}-\d{2}$/)
+  end?: string;
+
+  @ApiPropertyOptional({
+    description: '按日志操作人名称包含搜索，不区分大小写',
+    maxLength: 80,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  actorName?: string;
 }
 
 @ApiTags('System')
@@ -41,6 +75,7 @@ export class OperationLogsController {
       query.pageSize,
       query.category,
       query.scope,
+      query,
     );
   }
 }
