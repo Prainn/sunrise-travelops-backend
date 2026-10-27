@@ -7,15 +7,15 @@ import {
 import { DataSource, EntityManager } from 'typeorm';
 import { effectivePermissions } from '../auth/identity-permissions';
 import { FeishuService } from '../feishu/feishu.service';
+import {
+  formatLedgerReminder,
+  LedgerReminderData,
+} from '../feishu/ledger-reminder';
 
-export interface LedgerReminderRow {
+export interface LedgerReminderRow extends LedgerReminderData {
   id: string;
   version: number;
-  businessUnit: 'linxi' | 'website';
-  orderNo: string;
-  creatorName: string;
   operatorId: string;
-  loss: boolean;
   reviewedAt: Date | null;
   operated: boolean;
   proposalSent: boolean;
@@ -131,6 +131,7 @@ export class LedgerNotificationsService
         if (!job) return false;
         const [row] = await manager.query<LedgerReminderRow[]>(
           `SELECT id,version,business_unit AS "businessUnit",order_no AS "orderNo",creator_name AS "creatorName",
+           source,receiving_account_name AS "receivingAccountName",loss_note AS "lossNote",
            operator_id AS "operatorId",loss,reviewed_at AS "reviewedAt",operated,proposal_sent AS "proposalSent",order_status AS "orderStatus"
            FROM direct_ledgers WHERE id=$1`,
           [job.ledger_id],
@@ -152,7 +153,11 @@ export class LedgerNotificationsService
         try {
           const { messageId } = await this.feishu.sendText(
             recipient.openId,
-            `SunriseOps ${job.kind === 'review' ? '台账待确认' : '台账待操作'}\n业务：${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}\n台账编号：${row.orderNo}\n收客计调：${row.creatorName}\n${job.kind === 'review' ? '请确认亏损台账。' : '已发送方案且已成团，请处理。'}\n打开台账：${this.feishu.ledgerUrl(row.businessUnit, row.orderNo)}`,
+            formatLedgerReminder(
+              job.kind,
+              row,
+              this.feishu.ledgerUrl(row.businessUnit, row.orderNo),
+            ),
             job.id,
           );
           await manager.query(

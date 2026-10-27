@@ -23,6 +23,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
+import { LedgerReminderKind } from '../../feishu/ledger-reminder';
+
+export class FeishuTestDto {
+  @ApiProperty({ enum: ['review', 'operate'] })
+  @IsIn(['review', 'operate'])
+  template: LedgerReminderKind;
+}
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
