@@ -30,6 +30,8 @@ interface DirectRow {
   id: string;
   orderNo: string;
   creatorName: string;
+  source: string;
+  lossNote: string;
   businessUnit: 'linxi' | 'website';
   creatorId: string;
   operatorId: string;

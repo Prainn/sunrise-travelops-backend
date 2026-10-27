@@ -188,7 +188,7 @@ async function main() {
       source: 'fixture',
       operatorId: operator.id,
       loss: true,
-      lossNote: 'fixture',
+      lossNote: '亏损测试备注' + '😀'.repeat(130),
       orderStatus: 'converted',
       proposalSent: true,
     });
@@ -226,11 +226,24 @@ async function main() {
     assert.equal(sent.length, 1);
     assert.equal(sent[0].openId, `ou_website_${manager.id}`);
     assert(sent[0].text.includes(row.orderNo));
+    assert(sent[0].text.includes('业务部门：独立站'));
+    assert(sent[0].text.includes(`收客计调：${row.creatorName}`));
+    assert(sent[0].text.includes('来源：fixture'));
+    assert(sent[0].text.includes('接单账号：独立站'));
+    assert(sent[0].text.includes('是否亏损：是'));
+    assert(
+      sent[0].text.includes(
+        '亏损备注：亏损测试备注' + '😀'.repeat(114) + '...',
+      ),
+    );
     assert(sent[0].text.includes('/data-ledgers/website?keyword='));
     row = await ledgers.review(row.id, row.version, managerActor);
     assert.equal((await jobs()).length, 2);
     fail = true;
     await notifications.drain();
+    assert(sent.at(-1)!.text.includes('台账待操作'));
+    assert(sent.at(-1)!.text.includes('来源：fixture'));
+    assert(!sent.at(-1)!.text.includes('亏损备注'));
     const failedUuid = sent.at(-1)!.uuid;
     assert.equal(
       (await jobs()).find((job) => job.id === failedUuid)!.attempts,
@@ -333,7 +346,7 @@ async function main() {
       collector,
       'POST',
       `/users/${manager.id}/feishu-test`,
-      undefined,
+      { template: 'review' },
       403,
       'AUTH_FORBIDDEN',
     );
@@ -341,7 +354,7 @@ async function main() {
       manager,
       'POST',
       `/users/${foreignManager.id}/feishu-test`,
-      undefined,
+      { template: 'review' },
       404,
       'USER_NOT_FOUND',
     );
@@ -349,7 +362,7 @@ async function main() {
       manager,
       'POST',
       `/users/${collector.id}/feishu-test`,
-      undefined,
+      { template: 'review' },
       400,
       'VALIDATION_ERROR',
     );
@@ -357,20 +370,53 @@ async function main() {
       manager,
       'POST',
       `/users/${operator.id}/feishu-test`,
-      undefined,
+      { template: 'operate' },
       503,
       'FEISHU_NOT_CONFIGURED',
     );
+    for (const body of [
+      {},
+      { template: 'other' },
+      { template: null },
+      { template: 'review', text: 'custom' },
+    ]) {
+      await h.call(
+        manager,
+        'POST',
+        `/users/${operator.id}/feishu-test`,
+        body,
+        400,
+        'VALIDATION_ERROR',
+      );
+    }
     const users = new UserManagementService(
       h.db.getRepository(UserEntity),
       h.db.getRepository(RoleEntity),
       h.db,
       sender,
     );
-    assert((await users.testFeishu(operator.id, managerActor)).messageId);
+    const countBefore = await h.db.query<{ count: string }[]>(
+      `SELECT count(*) FROM feishu_ledger_notifications`,
+    );
+    for (const template of ['review', 'operate'] as const) {
+      assert(
+        (await users.testFeishu(operator.id, template, managerActor)).messageId,
+      );
+      assert(sent.at(-1)!.text.includes('【模拟提醒】'));
+      assert(
+        sent
+          .at(-1)!
+          .text.includes(template === 'review' ? '台账待审核' : '台账待操作'),
+      );
+      assert(!sent.at(-1)!.text.includes('打开台账'));
+    }
+    assert.deepEqual(
+      await h.db.query(`SELECT count(*) FROM feishu_ledger_notifications`),
+      countBefore,
+    );
     assert.equal(sent.at(-1)!.openId, `ou_website_${operator.id}`);
     console.log(
-      'PASS Feishu: old-data upgrade, constraints, transaction rollback, scoped recipients, prerequisites, deduplication, concurrency, bounded retry, stale recipient suppression, real HTTP permissions and fixed test message',
+      'PASS Feishu: old-data upgrade, constraints, transaction rollback, scoped recipients, prerequisites, deduplication, concurrency, bounded retry, stale recipient suppression, real HTTP permissions, template validation and simulated reminders',
     );
   } finally {
     await h.close();

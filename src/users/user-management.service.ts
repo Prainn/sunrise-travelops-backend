@@ -14,6 +14,10 @@ import {
   UpdateUserBusinessGroupDto,
 } from './dto/business-group.dto';
 import { FeishuService } from '../feishu/feishu.service';
+import {
+  LedgerReminderKind,
+  simulatedLedgerReminder,
+} from '../feishu/ledger-reminder';
 import { randomUUID } from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -186,14 +190,18 @@ export class UserManagementService {
   async getFormData(id: string, actor: AuthenticatedUser) {
     return this.response(await this.requireUser(id, actor));
   }
-  async testFeishu(id: string, actor: AuthenticatedUser) {
+  async testFeishu(
+    id: string,
+    template: LedgerReminderKind,
+    actor: AuthenticatedUser,
+  ) {
     if (!actor.permissions.includes('sys:user:update')) denied();
     const user = await this.requireUser(id, actor);
     if (user.status !== UserStatus.Enabled || !user.feishuOpenId)
       assignmentInvalid('请选择已启用且已接入飞书的账号');
     return this.feishu.sendText(
       user.feishuOpenId,
-      'SunriseOps 飞书接入测试：你已成功接收私聊消息。',
+      simulatedLedgerReminder(template),
       randomUUID(),
     );
   }

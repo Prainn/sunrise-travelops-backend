@@ -35,6 +35,7 @@ import {
 } from '../common/swagger/api-response.decorator';
 import {
   FeishuTestResponse,
+  FeishuTestDto,
   CreateUserDto,
   CreatedUserResponse,
   ResetUserPasswordDto,
@@ -177,14 +178,15 @@ export class UserManagementController {
   @Permissions('sys:user:update')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Send a fixed Feishu test message to a managed enabled user',
+    summary: 'Send a simulated ledger reminder to a managed enabled user',
   })
   @ApiSuccessResponse({ type: FeishuTestResponse })
   testFeishu(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: FeishuTestDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.userManagement.testFeishu(id, user);
+    return this.userManagement.testFeishu(id, input.template, user);
   }
 
   @Post(':id/reset-password')
