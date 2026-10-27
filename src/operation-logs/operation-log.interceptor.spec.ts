@@ -86,6 +86,7 @@ describe('OperationLogInterceptor', () => {
     const excluded = new Set([
       'AuthController.refresh', // Token renewal is not a user operation.
       'ToursController.availableGuides', // POST body is a read-only scheduling query.
+      'WebsiteController.validateItinerary', // Read-only validation does not record operation logs.
       'LynxController.register', // Public attribution collection, not an internal page.
       // These services save audit rows in their transaction; account-links.integration-check
       // verifies the committed audit alongside relation/session changes.
@@ -197,19 +198,29 @@ describe('OperationLogInterceptor', () => {
     expect(JSON.stringify(entries)).not.toContain('private');
   });
 
-  it('does not audit the read-only POST guide availability query', async () => {
-    await firstValueFrom(
-      interceptor.intercept(
-        context('ToursController', 'availableGuides', {
-          user: actor,
-          params: {},
-          body: {},
+  it.each([
+    ['ToursController', 'availableGuides'],
+    ['WebsiteController', 'validateItinerary'],
+  ])(
+    'does not audit read-only POST %s.%s, including failures',
+    async (controller, handler) => {
+      const request = { user: actor, params: {}, body: {} };
+      await firstValueFrom(
+        interceptor.intercept(context(controller, handler, request), {
+          handle: () => of([]),
         }),
-        { handle: () => of([]) },
-      ),
-    );
-    expect(entries).toHaveLength(0);
-  });
+      );
+      const failure = new Error('validation failed');
+      await expect(
+        firstValueFrom(
+          interceptor.intercept(context(controller, handler, request), {
+            handle: () => throwError(() => failure),
+          }),
+        ),
+      ).rejects.toBe(failure);
+      expect(entries).toHaveLength(0);
+    },
+  );
 
   it.each([
     ['ShengxuLedgersController', 'create', '新增盛旭台账'],
@@ -566,6 +577,10 @@ describe('OperationLogInterceptor', () => {
     ['ItinerariesController', 'downloadClick', 'quotation'],
     ['WebsiteController', 'generate', 'itinerary'],
     ['WebsiteController', 'saveConfig', 'website-config'],
+    ['WebsiteController', 'createConfigRecord', 'website-config'],
+    ['WebsiteController', 'updateConfigRecord', 'website-config'],
+    ['WebsiteController', 'deleteConfigRecord', 'website-config'],
+    ['UserManagementController', 'testFeishu', 'user'],
     ['ToursController', 'cancel', 'tour'],
     ['ToursController', 'saveRating', 'guide-rating'],
     ['GuideLeavesController', 'update', 'guide-leave'],

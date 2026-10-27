@@ -80,6 +80,7 @@ describe('independent website permissions', () => {
     expect(websitePermissions('website', ['COORDINATOR'])).toEqual([
       'website:config:list',
       'website:inquiry:create',
+      'website:inquiry:delete',
       'website:inquiry:list',
       'website:inquiry:update',
       'website:itinerary:confirm',
@@ -140,7 +141,7 @@ describe('independent website permissions', () => {
 
   it('allows root to operate website business and configuration', () => {
     const permissions = websitePermissions('headquarters', ['ROOT']);
-    expect(permissions).toHaveLength(12);
+    expect(permissions).toHaveLength(13);
     expect(permissions).toEqual(
       expect.arrayContaining([
         'website:inquiry:transfer',
