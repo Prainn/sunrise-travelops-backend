@@ -28,7 +28,7 @@ type Action = {
 };
 
 const resources: Record<string, string> = {
-  AgenciesController: '旅行社',
+  AgenciesController: '组团社',
   CitiesController: '城市',
   HotelsController: '酒店',
   RestaurantsController: '餐厅',
@@ -43,6 +43,7 @@ function actionFor(
   controller: string,
   handler: string,
   body: Record<string, unknown>,
+  ledgerUnit?: unknown,
 ): Action | null {
   if (controller === 'MenuPermissionsController' && handler === 'save')
     return { category: 'system-category', label: '配置菜单权限' };
@@ -61,7 +62,11 @@ function actionFor(
     const ledger =
       controller === 'ShengxuLedgersController'
         ? '盛旭台账'
-        : '霖熹/独立站台账';
+        : ledgerUnit === 'linxi'
+          ? '霖熹台账'
+          : ledgerUnit === 'website'
+            ? '独立站台账'
+            : '直客台账';
     const labels: Record<string, string> = {
       create: `新增${ledger}`,
       update: `编辑${ledger}`,
@@ -94,7 +99,7 @@ function actionFor(
       parseDocument: { category: 'inquiry', label: '解析询盘文档' },
       contact: {
         category: 'resource',
-        label: '新增旅行社联系人',
+        label: '新增组团社联系人',
         parentKey: 'id',
         resultId: true,
       },
@@ -135,6 +140,7 @@ function actionFor(
         resultId: true,
       },
       saveItinerary: { category: 'itinerary', label: '保存独立站行程' },
+      validateItinerary: { category: 'itinerary', label: '校验独立站行程' },
       copy: {
         category: 'itinerary',
         label: '复制独立站行程',
@@ -145,6 +151,18 @@ function actionFor(
       confirm: { category: 'quotation', label: '冻结独立站报价' },
       downloadClick: { category: 'quotation', label: '独立站报价下载点击' },
       saveConfig: { category: 'website-config', label: '保存独立站配置' },
+      createConfigRecord: {
+        category: 'website-config',
+        label: '新增独立站配置',
+      },
+      updateConfigRecord: {
+        category: 'website-config',
+        label: '编辑独立站配置',
+      },
+      deleteConfigRecord: {
+        category: 'website-config',
+        label: '删除独立站配置',
+      },
     };
     return actions[handler] ?? null;
   }
@@ -176,6 +194,7 @@ function actionFor(
       update: '编辑用户',
       delete: '删除用户',
       resetPassword: '重置用户密码',
+      testFeishu: '发送飞书测试消息',
       updateCoordinatorDuty: '设置计调分工',
       updateBusinessGroup: '调整业务组成员',
     };
@@ -269,16 +288,31 @@ export class OperationLogInterceptor implements NestInterceptor {
       request.body && typeof request.body === 'object'
         ? (request.body as Record<string, unknown>)
         : {};
-    const action = actionFor(
-      context.getClass().name,
-      context.getHandler().name,
-      body,
-    );
+    const controller = context.getClass().name;
+    const handler = context.getHandler().name;
+    const ledgerUnit =
+      request.user?.scope === 'headquarters'
+        ? handler === 'create'
+          ? body.businessUnit
+          : undefined
+        : request.user?.scope;
+    const action = actionFor(controller, handler, body, ledgerUnit);
     if (!action) return next.handle();
 
-    const base = (success: boolean): Omit<OperationEntry, 'detail'> => ({
+    const base = (
+      success: boolean,
+      item: Record<string, unknown> = {},
+    ): Omit<OperationEntry, 'detail'> => ({
       category: action.category,
-      action: action.label,
+      action:
+        controller === 'DirectLedgersController'
+          ? actionFor(
+              controller,
+              handler,
+              body,
+              item.businessUnit ?? ledgerUnit,
+            )!.label
+          : action.label,
       success,
       actorId: request.user?.id ?? null,
       actorName: (
@@ -338,7 +372,7 @@ export class OperationLogInterceptor implements NestInterceptor {
             const targets = targetIds(item);
             const entries = (targets.length ? targets : [null]).map(
               (id): OperationEntry => ({
-                ...base(true),
+                ...base(true, item),
                 detail: detail(id),
               }),
             );

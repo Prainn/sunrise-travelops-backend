@@ -2,6 +2,7 @@ import {
   HttpCode,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -22,6 +23,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   WebsiteConfigDto,
+  WebsiteConfigListQuery,
+  WebsiteConfigRecordDto,
+  WebsiteConfigVersionDto,
   WebsiteConfigQuery,
   WebsiteConfirmDto,
   WebsiteCreateItineraryDto,
@@ -258,6 +262,82 @@ export class WebsiteController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.getConfig(user, query.version, query.businessUnit);
+  }
+  @Get('config/:group/options')
+  @Permissions('website:config:list')
+  @ApiOperation({ summary: '专属配置关联项分页选项' })
+  configOptions(
+    @Param('group') group: string,
+    @Query() query: WebsiteConfigListQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.configOptions(group, query, user);
+  }
+  @Get('config/:group')
+  @Permissions('website:config:list')
+  @ApiOperation({ summary: '按标签页分页读取专属配置及本页关联名称' })
+  configRecords(
+    @Param('group') group: string,
+    @Query() query: WebsiteConfigListQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.configRecords(group, query, user);
+  }
+  @Post('config/:group')
+  @Permissions('website:config:update')
+  @ApiOperation({ summary: '新增一条配置并生成新配置版本' })
+  createConfigRecord(
+    @Param('group') group: string,
+    @Query() query: WebsiteBusinessQuery,
+    @Body() input: WebsiteConfigRecordDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.mutateConfigRecord(
+      'create',
+      group,
+      undefined,
+      input,
+      user,
+      query.businessUnit,
+    );
+  }
+  @Put('config/:group/:id')
+  @Permissions('website:config:update')
+  @ApiOperation({ summary: '更新一条配置并生成新配置版本' })
+  updateConfigRecord(
+    @Param('group') group: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: WebsiteBusinessQuery,
+    @Body() input: WebsiteConfigRecordDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.mutateConfigRecord(
+      'update',
+      group,
+      id,
+      input,
+      user,
+      query.businessUnit,
+    );
+  }
+  @Delete('config/:group/:id')
+  @Permissions('website:config:update')
+  @ApiOperation({ summary: '删除一条配置并生成新配置版本，保留历史快照' })
+  deleteConfigRecord(
+    @Param('group') group: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: WebsiteBusinessQuery,
+    @Body() input: WebsiteConfigVersionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.mutateConfigRecord(
+      'delete',
+      group,
+      id,
+      input,
+      user,
+      query.businessUnit,
+    );
   }
   @Put('config')
   @Permissions('website:config:update')

@@ -13,13 +13,42 @@ import {
   DashboardTrendQuery,
 } from './dashboard.dto';
 import { DashboardService } from './dashboard.service';
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import { ToursService } from '../tours/tours.service';
+import { TourMapQuery, TourMapResponse } from '../tours/tour-map.dto';
+import { FlightMapQuery, FlightMapResponse } from '../tours/flight-map.dto';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
 @ApiCommonErrorResponses()
 @Controller('dashboard')
 export class DashboardController {
-  constructor(private readonly service: DashboardService) {}
+  constructor(
+    private readonly service: DashboardService,
+    private readonly tours: ToursService,
+  ) {}
+
+  @Get('flight-map')
+  @Permissions('tour:list')
+  @ApiOperation({ summary: '当前成团可见范围内的按日航班航线演示数据' })
+  @ApiSuccessResponse({ type: FlightMapResponse })
+  flightMap(
+    @Query() query: FlightMapQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tours.flightMap(query, user);
+  }
+
+  @Get('tour-map')
+  @Permissions('tour:list')
+  @ApiOperation({ summary: '当前成团可见范围内的云南计划位置与团务地图' })
+  @ApiSuccessResponse({ type: TourMapResponse })
+  tourMap(
+    @Query() query: TourMapQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tours.map(query, user);
+  }
 
   // Global JWT authentication applies. Each source is gated separately by the service.
   @Get('summary')

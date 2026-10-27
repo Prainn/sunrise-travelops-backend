@@ -71,23 +71,28 @@ export class UserManagementService {
   }
   async getPage(query: UserQueryDto, actor: AuthenticatedUser) {
     const qb = this.query(actor);
+    const identityFilters: string[] = [];
+    const identityParams: Record<string, string> = {};
     if (query.scope) {
       if (actor.scope !== 'headquarters' && query.scope !== actor.scope)
         denied();
-      qb.andWhere('identity.scope=:selectedScope', {
-        selectedScope: query.scope,
-      });
+      identityFilters.push('x.scope=:selectedScope');
+      identityParams.selectedScope = query.scope;
     }
     if (query.businessGroupId) {
       if (!['headquarters', 'linxi'].includes(actor.scope)) denied();
-      qb.andWhere('identity.business_group_id=:groupId', {
-        groupId: query.businessGroupId,
-      });
+      identityFilters.push('x.business_group_id=:groupId');
+      identityParams.groupId = query.businessGroupId;
     }
-    if (query.coordinatorDuty)
-      qb.andWhere('identity.coordinator_duty=:duty', {
-        duty: query.coordinatorDuty,
-      });
+    if (query.coordinatorDuty) {
+      identityFilters.push('x.coordinator_duty=:duty');
+      identityParams.duty = query.coordinatorDuty;
+    }
+    if (identityFilters.length)
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM user_identities x WHERE x.user_id=u.id AND ${identityFilters.join(' AND ')})`,
+        identityParams,
+      );
     if (query.keyword?.trim())
       qb.andWhere(
         '(u.username ILIKE :keyword OR u.nickname ILIKE :keyword OR u.mobile ILIKE :keyword)',

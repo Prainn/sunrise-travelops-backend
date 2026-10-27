@@ -1,6 +1,15 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
+import {
+  buildTourMap,
+  loadMapPlans,
+  CityLocation,
+  MapTourRow,
+} from './tour-map';
+import { TourMapQuery, MapBusinessUnit } from './tour-map.dto';
+import { FlightMapQuery, FlightMapResponse } from './flight-map.dto';
+import { buildFlightMap, FlightMapRow } from './flight-map';
 import { ErrorCode, ErrorCodeValue } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { PageResult } from '../common/types/page-result';
@@ -155,6 +164,89 @@ export class ToursService {
   }
 
   // ---------- reads ----------
+  async flightMap(
+    query: FlightMapQuery,
+    user: AuthenticatedUser,
+  ): Promise<FlightMapResponse> {
+    this.require(user, 'tour:list');
+    if (query.businessUnit && !this.unitAllowed(user, query.businessUnit))
+      forbidden();
+    const date =
+      query.date ??
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    const canSelect = user.scope === 'headquarters';
+    const unit = canSelect
+      ? (query.businessUnit ?? null)
+      : (user.scope as MapBusinessUnit);
+    const params: unknown[] = [date];
+    let where = `t.status='active' AND leg.event_at >= $1::date
+      AND leg.event_at < $1::date + INTERVAL '1 day'${this.visible(user, params)}`;
+    if (query.businessUnit)
+      where += ` AND t.business_unit=$${params.push(query.businessUnit)}`;
+    // The outbound flight can depart after midnight, beyond the tour's occupancy end date.
+    // One statement supplies one consistent snapshot; no itinerary/quote queries or N+1 reads.
+    const rows = await this.db.query<FlightMapRow[]>(
+      `SELECT t.id,t.tour_no AS "tourNo",t.business_unit AS "businessUnit",
+        t.source_module AS "sourceModule",t.schedule_mode AS "scheduleMode",
+        (t.adults+t.children+t.leaders) AS "totalPeople",leg.kind,
+        to_char(leg.event_at,'YYYY-MM-DD HH24:MI') AS "scheduledAt",leg.flight
+       FROM tours t CROSS JOIN LATERAL (
+         VALUES ('pickup',t.pickup_at,t.pickup_flight),
+           ('drop',CASE WHEN t.schedule_mode='flight' THEN t.drop_at + INTERVAL '3 hours'
+             ELSE t.drop_at END,t.drop_flight)
+       ) AS leg(kind,event_at,flight)
+       WHERE ${where} ORDER BY leg.event_at,t.tour_no,t.id,leg.kind`,
+      params,
+    );
+    return buildFlightMap(date, unit, canSelect, rows);
+  }
+
+  async map(query: TourMapQuery, user: AuthenticatedUser) {
+    this.require(user, 'tour:list');
+    if (query.businessUnit && !this.unitAllowed(user, query.businessUnit))
+      forbidden();
+    const date =
+      query.date ??
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    const canSelect = user.scope === 'headquarters';
+    const unit = canSelect
+      ? (query.businessUnit ?? null)
+      : (user.scope as MapBusinessUnit);
+    return this.db.transaction('REPEATABLE READ', async (manager) => {
+      const params: unknown[] = [date];
+      let where = `t.status='active' AND t.occupy_from <= $1::date AND t.occupy_to >= $1::date${this.visible(user, params)}`;
+      if (query.businessUnit)
+        where += ` AND t.business_unit=$${params.push(query.businessUnit)}`;
+      const rows = await manager.query<MapTourRow[]>(
+        `SELECT t.id,t.tour_no AS "tourNo",t.business_unit AS "businessUnit",t.source_module AS "sourceModule",
+          t.adults,t.children,t.leaders,(t.adults+t.children+t.leaders) AS "totalPeople",t.days,
+          t.guide_name AS "guideName",t.collect_coordinator_name AS "collectCoordinatorName",t.operator_name AS "operatorName",
+          to_char(t.pickup_at,'YYYY-MM-DD HH24:MI') AS "pickupAt",to_char(t.drop_at,'YYYY-MM-DD HH24:MI') AS "dropAt",
+          t.pickup_flight AS "pickupFlight",t.drop_flight AS "dropFlight"
+         FROM tours t WHERE ${where} ORDER BY t.start_date,t.tour_no,t.id`,
+        params,
+      );
+      const cities = await manager.query<CityLocation[]>(
+        `SELECT id,name,province,status,longitude,latitude FROM resource_cities WHERE deleted_at IS NULL ORDER BY code,id`,
+      );
+      const plans = await loadMapPlans(
+        manager,
+        rows.map((row) => row.id),
+      );
+      return buildTourMap(date, unit, canSelect, rows, cities, plans);
+    });
+  }
+
   async countActive(from: string, until: string, user: AuthenticatedUser) {
     this.require(user, 'tour:list');
     const params: unknown[] = [];

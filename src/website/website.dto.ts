@@ -10,6 +10,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsObject,
   IsString,
   IsUUID,
   Matches,
@@ -247,6 +248,20 @@ export class WebsiteBusinessQuery {
 }
 export class WebsiteConfigQuery extends WebsiteBusinessQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) version?: number;
+}
+export class WebsiteConfigListQuery extends PaginationQueryDto {
+  @IsOptional() @IsIn(['linxi', 'website']) businessUnit?: WebsiteBusinessUnit;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) version?: number;
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(100) keyword:
+    string | undefined = undefined;
+  @IsOptional() @IsUUID() cityId?: string;
+  @IsOptional() @IsUUID() excludeId?: string;
+}
+export class WebsiteConfigVersionDto {
+  @IsInt() @Min(0) version: number;
+}
+export class WebsiteConfigRecordDto extends WebsiteConfigVersionDto {
+  @IsObject() record: Record<string, unknown>;
 }
 export class WebsiteItemDto implements WebsiteItem {
   @IsUUID() id: string;

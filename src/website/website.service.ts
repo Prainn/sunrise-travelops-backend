@@ -1,6 +1,9 @@
 import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { createValidationException } from '../common/validation/validation-exception.factory';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -13,6 +16,8 @@ import { UserEntity, UserStatus } from '../users/user.entity';
 import type {
   WebsiteBusinessUnit,
   WebsiteConfig,
+  WebsiteConfigGroup,
+  WebsiteConfigRecord,
   WebsiteInquiry,
   WebsiteInquiryInput,
   WebsiteDay,
@@ -25,6 +30,9 @@ import type {
   WebsiteValidation,
 } from './website.types';
 import type {
+  WebsiteConfigListQuery,
+  WebsiteConfigRecordDto,
+  WebsiteConfigVersionDto,
   WebsiteConfirmDto,
   WebsiteCreateItineraryDto,
   WebsiteInquiryQuery,
@@ -33,6 +41,15 @@ import type {
   WebsiteTransferDto,
   WebsiteUpdateInquiryDto,
   WebsiteUpdateItineraryDto,
+} from './website.dto';
+import {
+  WebsiteCityDto,
+  WebsiteAttractionDto,
+  WebsiteConfigHotelDto,
+  WebsiteRouteDto,
+  WebsitePatternDto,
+  WebsiteSkeletonDto,
+  WebsiteTemplateDto,
 } from './website.dto';
 import {
   buildWebsitePreview,
@@ -72,6 +89,27 @@ const resourceTables: Record<ResourceKind, string> = {
   hotel: 'resource_hotels',
   restaurant: 'resource_restaurants',
   transport: 'resource_transports',
+};
+const configRecordTypes: Record<
+  WebsiteConfigGroup,
+  new () => WebsiteConfigRecord
+> = {
+  cities: WebsiteCityDto,
+  attractions: WebsiteAttractionDto,
+  hotels: WebsiteConfigHotelDto,
+  routes: WebsiteRouteDto,
+  patterns: WebsitePatternDto,
+  skeletons: WebsiteSkeletonDto,
+  templates: WebsiteTemplateDto,
+};
+const configGroupLimits: Record<WebsiteConfigGroup, number> = {
+  cities: 1000,
+  attractions: 5000,
+  hotels: 5000,
+  routes: 5000,
+  patterns: 1000,
+  skeletons: 1000,
+  templates: 5000,
 };
 const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer_name AS "customerName",i.planned_days AS "plannedDays",
   EXISTS(SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active') AS "hasActiveTour",
@@ -247,6 +285,178 @@ export class WebsiteService {
       version,
     );
   }
+  private configGroup(group: string): WebsiteConfigGroup {
+    if (!Object.hasOwn(configRecordTypes, group))
+      fail('VALIDATION_ERROR', '未知配置分组', HttpStatus.BAD_REQUEST);
+    return group as WebsiteConfigGroup;
+  }
+  private async configPage(
+    requestedGroup: string,
+    query: WebsiteConfigListQuery,
+    user: AuthenticatedUser,
+  ) {
+    this.permission(user, 'website:config:list');
+    const businessUnit = this.businessUnit(user, query.businessUnit);
+    const group = this.configGroup(requestedGroup);
+    if (query.cityId && !['attractions', 'hotels', 'patterns'].includes(group))
+      fail(
+        'VALIDATION_ERROR',
+        '此配置分组不支持城市筛选',
+        HttpStatus.BAD_REQUEST,
+      );
+    const [result] = await this.db.manager.query<
+      Array<{ version: number; total: number; list: WebsiteConfigRecord[] }>
+    >(
+      `WITH snapshot AS (
+        SELECT version,config FROM website_config_versions
+        WHERE business_unit=$1 AND version=COALESCE($2::integer,
+          (SELECT version FROM website_config_current WHERE business_unit=$1))
+      ), matches AS (
+        SELECT item,ordinality FROM snapshot,
+          jsonb_array_elements(config->($3::text)) WITH ORDINALITY AS entry(item,ordinality)
+        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code')),lower($4))>0)
+          AND ($5::text IS NULL OR item->>'cityId'=$5)
+          AND ($6::text IS NULL OR item->>'id'<>$6)
+      ), page AS (
+        SELECT item,ordinality FROM matches ORDER BY ordinality LIMIT $7 OFFSET $8
+      )
+      SELECT version,(SELECT count(*)::integer FROM matches) AS total,
+        COALESCE((SELECT jsonb_agg(item ORDER BY ordinality) FROM page),'[]'::jsonb) AS list
+      FROM snapshot`,
+      [
+        businessUnit,
+        query.version ?? null,
+        group,
+        query.keyword?.trim() || null,
+        query.cityId ?? null,
+        query.excludeId ?? null,
+        query.pageSize,
+        (query.page - 1) * query.pageSize,
+      ],
+    );
+    if (!result)
+      fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND);
+    return { ...result, page: query.page, pageSize: query.pageSize };
+  }
+  async configOptions(
+    group: string,
+    query: WebsiteConfigListQuery,
+    user: AuthenticatedUser,
+  ) {
+    const result = await this.configPage(group, query, user);
+    return {
+      ...result,
+      list: result.list.map((item) => ({
+        id: item.id,
+        value: 'code' in item ? item.code : item.id,
+        label: 'code' in item ? item.code : item.nameZh,
+      })),
+    };
+  }
+  async configRecords(
+    group: string,
+    query: WebsiteConfigListQuery,
+    user: AuthenticatedUser,
+  ) {
+    const result = await this.configPage(group, query, user);
+    const ids = new Set<string>();
+    for (const item of result.list) {
+      if ('cityId' in item) ids.add(item.cityId);
+      if ('fromCityId' in item) {
+        ids.add(item.fromCityId);
+        ids.add(item.toCityId);
+      }
+      if ('parentId' in item && item.parentId) ids.add(item.parentId);
+      if ('attractionIds' in item)
+        item.attractionIds.forEach((id) => ids.add(id));
+      if ('days' in item)
+        item.days.forEach((day) => {
+          ids.add(day.cityId);
+          if (day.patternId) ids.add(day.patternId);
+        });
+    }
+    const references: Record<string, string> = {};
+    if (ids.size) {
+      const rows = await this.db.manager.query<
+        Array<{ id: string; name: string }>
+      >(
+        `SELECT item->>'id' AS id,item->>'nameZh' AS name FROM website_config_versions v,
+          jsonb_array_elements((v.config->'cities')||(v.config->'attractions')||(v.config->'patterns')) AS item
+        WHERE v.business_unit=$1 AND v.version=$2 AND item->>'id'=ANY($3::text[])`,
+        [this.businessUnit(user, query.businessUnit), result.version, [...ids]],
+      );
+      rows.forEach((row) => {
+        references[row.id] = row.name;
+      });
+    }
+    return { ...result, references };
+  }
+  async mutateConfigRecord(
+    action: 'create' | 'update' | 'delete',
+    requestedGroup: string,
+    id: string | undefined,
+    input: WebsiteConfigVersionDto | WebsiteConfigRecordDto,
+    user: AuthenticatedUser,
+    requested?: WebsiteBusinessUnit,
+  ) {
+    this.permission(user, 'website:config:update');
+    const businessUnit = this.businessUnit(user, requested);
+    const group = this.configGroup(requestedGroup);
+    let record: WebsiteConfigRecord | undefined;
+    if ('record' in input) {
+      record = plainToInstance(configRecordTypes[group], input.record);
+      const errors = validateSync(record, {
+        whitelist: true,
+        forbidNonWhitelisted: true,
+      });
+      if (errors.length) throw createValidationException(errors);
+      if (action === 'update' && record.id !== id)
+        fail(
+          'VALIDATION_ERROR',
+          '记录 ID 与路径不一致',
+          HttpStatus.BAD_REQUEST,
+        );
+    }
+    return this.db.transaction(async (manager) => {
+      await manager.query(
+        'SELECT id FROM website_config_current WHERE business_unit=$1 FOR UPDATE',
+        [businessUnit],
+      );
+      const old = await this.config(manager, businessUnit);
+      if (old.version !== input.version)
+        fail('CONFLICT', '配置已更新，请重新加载', HttpStatus.CONFLICT, {
+          currentVersion: old.version,
+        });
+      const next = structuredClone(old);
+      const records: WebsiteConfigRecord[] = next[group];
+      const index = records.findIndex((item) => item.id === (record?.id ?? id));
+      if (action === 'create') {
+        if (
+          (Object.keys(configRecordTypes) as WebsiteConfigGroup[]).some((key) =>
+            next[key].some((item) => item.id === record?.id),
+          )
+        )
+          fail('CONFLICT', '配置记录 ID 已存在', HttpStatus.CONFLICT);
+        if (records.length >= configGroupLimits[group])
+          fail('VALIDATION_ERROR', '配置数量超过上限', HttpStatus.BAD_REQUEST);
+        records.push(record!);
+      } else {
+        if (index < 0)
+          fail('NOT_FOUND', '配置记录不存在', HttpStatus.NOT_FOUND);
+        if (action === 'delete') records.splice(index, 1);
+        else records.splice(index, 1, record!);
+      }
+      validateWebsiteConfig(next);
+      const saved = await this.writeConfig(
+        manager,
+        next,
+        old,
+        user,
+        businessUnit,
+      );
+      return { version: saved.version };
+    });
+  }
   private configReferences(config: WebsiteConfig): ResourceReference[] {
     return [
       ...config.cities.flatMap((c) =>
@@ -390,27 +600,37 @@ export class WebsiteService {
         fail('CONFLICT', '配置已更新，请重新加载', HttpStatus.CONFLICT, {
           currentVersion: old.version,
         });
-      const issues = await this.resourceIssues(
-        manager,
-        this.configReferences(input),
-        this.configReferences(old),
-      );
-      if (issues.length) invalid('配置引用的基础资源不可用', { issues });
-      const [next] = await manager.query<Array<{ version: number }>>(
-        "SELECT nextval('website_config_version_seq')::integer AS version",
-      );
-      const saved: WebsiteConfig = { ...input, version: next.version };
-      await manager.query(
-        'INSERT INTO website_config_versions(version,config,created_by,business_unit) VALUES($1,$2::jsonb,$3,$4)',
-        [saved.version, JSON.stringify(saved), user.id, businessUnit],
-      );
-      await manager.query(
-        'UPDATE website_config_current SET version=$1 WHERE business_unit=$2',
-        [saved.version, businessUnit],
-      );
-      return saved;
+      return this.writeConfig(manager, input, old, user, businessUnit);
     });
   }
+  private async writeConfig(
+    manager: EntityManager,
+    input: WebsiteConfig,
+    old: WebsiteConfig,
+    user: AuthenticatedUser,
+    businessUnit: WebsiteBusinessUnit,
+  ) {
+    const issues = await this.resourceIssues(
+      manager,
+      this.configReferences(input),
+      this.configReferences(old),
+    );
+    if (issues.length) invalid('配置引用的基础资源不可用', { issues });
+    const [next] = await manager.query<Array<{ version: number }>>(
+      "SELECT nextval('website_config_version_seq')::integer AS version",
+    );
+    const saved: WebsiteConfig = { ...input, version: next.version };
+    await manager.query(
+      'INSERT INTO website_config_versions(version,config,created_by,business_unit) VALUES($1,$2::jsonb,$3,$4)',
+      [saved.version, JSON.stringify(saved), user.id, businessUnit],
+    );
+    await manager.query(
+      'UPDATE website_config_current SET version=$1 WHERE business_unit=$2',
+      [saved.version, businessUnit],
+    );
+    return saved;
+  }
+
   private async owner(
     manager: EntityManager,
     id: string,

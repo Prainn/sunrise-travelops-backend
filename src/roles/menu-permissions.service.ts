@@ -72,6 +72,9 @@ export class MenuPermissionsService {
         children: group.children.filter(
           (item) =>
             item.scopes.includes(actor.scope) &&
+            (item.menuKey !== 'business-groups' ||
+              actor.scope === 'headquarters' ||
+              actor.roles.includes('BUSINESS_MANAGER')) &&
             (root ||
               (actor.menuKeys.includes(item.menuKey) &&
                 item.permissions.some((permission) =>

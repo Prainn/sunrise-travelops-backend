@@ -117,11 +117,11 @@ describe('OperationLogInterceptor', () => {
     ['ShengxuLedgersController', 'create', '新增盛旭台账'],
     ['ShengxuLedgersController', 'update', '编辑盛旭台账'],
     ['ShengxuLedgersController', 'delete', '删除盛旭台账'],
-    ['DirectLedgersController', 'create', '新增霖熹/独立站台账'],
-    ['DirectLedgersController', 'update', '编辑霖熹/独立站台账'],
-    ['DirectLedgersController', 'delete', '删除霖熹/独立站台账'],
-    ['DirectLedgersController', 'review', '审核霖熹/独立站台账'],
-    ['DirectLedgersController', 'operate', '保存霖熹/独立站台账操作信息'],
+    ['DirectLedgersController', 'create', '新增霖熹台账'],
+    ['DirectLedgersController', 'update', '编辑霖熹台账'],
+    ['DirectLedgersController', 'delete', '删除霖熹台账'],
+    ['DirectLedgersController', 'review', '审核霖熹台账'],
+    ['DirectLedgersController', 'operate', '保存霖熹台账操作信息'],
   ])(
     'records successful and failed %s.%s with its target',
     async (controller, handler, action) => {
@@ -162,6 +162,95 @@ describe('OperationLogInterceptor', () => {
       expect(JSON.stringify(entries)).not.toContain('private-');
     },
   );
+
+  it.each(['create', 'update', 'delete', 'review', 'operate'])(
+    'distinguishes website %s from linxi without changing actor scope',
+    async (handler) => {
+      await firstValueFrom(
+        interceptor.intercept(
+          context('DirectLedgersController', handler, {
+            user: { ...actor, scope: 'website' },
+            params: { id: 'ledger-id' },
+            query: {},
+            body: {},
+          }),
+          { handle: () => of(undefined) },
+        ),
+      );
+      expect(entries[0].action).toContain('独立站台账');
+      expect(entries[0].scope).toBe('website');
+    },
+  );
+
+  it.each(['linxi', 'website'])(
+    'labels headquarters delegated creation using target %s for success and failure',
+    async (businessUnit) => {
+      const request = {
+        user: actor,
+        params: {},
+        query: {},
+        body: { businessUnit },
+      };
+      await firstValueFrom(
+        interceptor.intercept(
+          context('DirectLedgersController', 'create', request),
+          { handle: () => of({ id: 'ledger-id', businessUnit }) },
+        ),
+      );
+      const failure = new Error('failed');
+      await expect(
+        firstValueFrom(
+          interceptor.intercept(
+            context('DirectLedgersController', 'create', request),
+            { handle: () => throwError(() => failure) },
+          ),
+        ),
+      ).rejects.toBe(failure);
+      expect(
+        entries.map(({ action, scope, success }) => ({
+          action,
+          scope,
+          success,
+        })),
+      ).toEqual(
+        [true, false].map((success) => ({
+          action: businessUnit === 'linxi' ? '新增霖熹台账' : '新增独立站台账',
+          scope: 'headquarters',
+          success,
+        })),
+      );
+    },
+  );
+
+  it('uses the returned ledger business and does not trust an update body to classify a rejected headquarters action', async () => {
+    const request = {
+      user: actor,
+      params: { id: 'ledger-id' },
+      query: {},
+      body: { businessUnit: 'linxi' },
+    };
+    await firstValueFrom(
+      interceptor.intercept(
+        context('DirectLedgersController', 'create', request),
+        { handle: () => of({ id: 'ledger-id', businessUnit: 'website' }) },
+      ),
+    );
+    expect(entries[0].action).toBe('新增独立站台账');
+    const failure = new Error('forbidden');
+    await expect(
+      firstValueFrom(
+        interceptor.intercept(
+          context('DirectLedgersController', 'update', request),
+          { handle: () => throwError(() => failure) },
+        ),
+      ),
+    ).rejects.toBe(failure);
+    expect(entries[1]).toMatchObject({
+      action: '编辑直客台账',
+      scope: 'headquarters',
+      success: false,
+    });
+  });
 
   it('records a conversion once with the new inquiry and source visit, including failed source', async () => {
     const request = {
