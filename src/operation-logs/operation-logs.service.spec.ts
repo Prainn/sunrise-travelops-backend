@@ -39,6 +39,37 @@ describe('Operation log filters', () => {
       .getQueryAndParameters();
   }
 
+  it('separates historical ledger labels using the saved scope without rewriting stored rows', async () => {
+    const rows = [
+      { category: 'ledger', scope: 'linxi', action: '新增霖熹/独立站台账' },
+      {
+        category: 'ledger',
+        scope: 'website',
+        action: '保存霖熹/独立站台账操作信息',
+      },
+      {
+        category: 'ledger',
+        scope: 'headquarters',
+        action: '新增霖熹/独立站台账',
+      },
+      { category: 'ledger', scope: null, action: '编辑霖熹/独立站台账' },
+      { category: 'ledger', scope: 'website', action: '新增独立站台账' },
+      { category: 'inquiry', scope: 'linxi', action: '新增霖熹/独立站台账' },
+    ].map((row) => Object.assign(new OperationLogEntity(), row));
+    findAndCount.mockResolvedValue([rows, rows.length]);
+    const result = await service.page(1, 20);
+    expect(result.list.map((row) => row.action)).toEqual([
+      '新增霖熹台账',
+      '保存独立站台账操作信息',
+      '新增霖熹/独立站台账',
+      '编辑霖熹/独立站台账',
+      '新增独立站台账',
+      '新增霖熹/独立站台账',
+    ]);
+    expect(rows[0].action).toBe('新增霖熹/独立站台账');
+    expect(result.total).toBe(rows.length);
+  });
+
   it('combines all filters in the database query before counting and paging', async () => {
     const query = plainToInstance(OperationLogQueryDto, {
       page: '2',
