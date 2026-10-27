@@ -1,3 +1,4 @@
+import { BusinessException } from '../exceptions/business.exception';
 import {
   ArgumentsHost,
   Catch,
@@ -96,6 +97,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
+      if (
+        exception instanceof BusinessException &&
+        [ErrorCode.FEISHU_NOT_CONFIGURED, ErrorCode.FEISHU_SEND_FAILED].some(
+          (code) => code === exception.code,
+        )
+      ) {
+        return {
+          status,
+          code: exception.code,
+          message: exception.message,
+          details: {},
+        };
+      }
       if (status >= 500) {
         return {
           status,

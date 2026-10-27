@@ -13,6 +13,12 @@ import {
   UpdateCoordinatorDutyDto,
   UpdateUserBusinessGroupDto,
 } from './dto/business-group.dto';
+import { FeishuService } from '../feishu/feishu.service';
+import {
+  LedgerReminderKind,
+  simulatedLedgerReminder,
+} from '../feishu/ledger-reminder';
+import { randomUUID } from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -47,6 +53,7 @@ export class UserManagementService {
     @InjectRepository(RoleEntity)
     private readonly roles: Repository<RoleEntity>,
     private readonly dataSource: DataSource,
+    private readonly feishu: FeishuService,
   ) {}
   private query(actor: AuthenticatedUser, manager = this.dataSource.manager) {
     const qb = manager
@@ -183,6 +190,22 @@ export class UserManagementService {
   async getFormData(id: string, actor: AuthenticatedUser) {
     return this.response(await this.requireUser(id, actor));
   }
+  async testFeishu(
+    id: string,
+    template: LedgerReminderKind,
+    actor: AuthenticatedUser,
+  ) {
+    if (!actor.permissions.includes('sys:user:update')) denied();
+    const user = await this.requireUser(id, actor);
+    if (user.status !== UserStatus.Enabled || !user.feishuOpenId)
+      assignmentInvalid('请选择已启用且已接入飞书的账号');
+    return this.feishu.sendText(
+      user.feishuOpenId,
+      simulatedLedgerReminder(template),
+      randomUUID(),
+    );
+  }
+
   async getRoleOptions(actor: AuthenticatedUser) {
     const rows = await this.roles.find({
       where: { isEnabled: true },
@@ -399,6 +422,7 @@ export class UserManagementService {
           gender: input.gender,
           mobile: input.mobile,
           email: input.email,
+          feishuOpenId: input.feishuOpenId ?? '',
           status: input.status === 1 ? UserStatus.Enabled : UserStatus.Disabled,
           passwordHash: await argon2.hash(password),
           isSuperuser: false,
@@ -474,6 +498,7 @@ export class UserManagementService {
         gender: input.gender,
         mobile: input.mobile,
         email: input.email,
+        feishuOpenId: input.feishuOpenId ?? user.feishuOpenId,
         status: input.status === 1 ? UserStatus.Enabled : UserStatus.Disabled,
         updatedBy: actor.id,
       });
@@ -570,6 +595,7 @@ export class UserManagementService {
       gender: user.gender,
       mobile: user.mobile,
       email: user.email,
+      feishuOpenId: user.feishuOpenId,
       status: user.status === UserStatus.Enabled ? 1 : 0,
       createTime: user.createdAt.toISOString(),
       identities: user.identities.map((i) => {
