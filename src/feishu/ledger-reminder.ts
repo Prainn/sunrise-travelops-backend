@@ -24,7 +24,7 @@ export function formatLedgerReminder(
   ledgerUrl?: string,
 ): string {
   return [
-    `SunriseOps 台账${kind === 'review' ? '待审核' : '待操作'}`,
+    `【${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}】${kind === 'review' ? '审核' : '操作'}台账`,
     `业务部门：${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}`,
     `台账编号：${summary(row.orderNo)}`,
     `收客计调：${summary(row.creatorName)}`,

@@ -241,7 +241,7 @@ async function main() {
     assert.equal((await jobs()).length, 2);
     fail = true;
     await notifications.drain();
-    assert(sent.at(-1)!.text.includes('台账待操作'));
+    assert(sent.at(-1)!.text.includes('操作台账'));
     assert(sent.at(-1)!.text.includes('来源：fixture'));
     assert(!sent.at(-1)!.text.includes('亏损备注'));
     const failedUuid = sent.at(-1)!.uuid;
@@ -406,7 +406,7 @@ async function main() {
       assert(
         sent
           .at(-1)!
-          .text.includes(template === 'review' ? '台账待审核' : '台账待操作'),
+          .text.includes(template === 'review' ? '审核台账' : '操作台账'),
       );
       assert(!sent.at(-1)!.text.includes('打开台账'));
     }

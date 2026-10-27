@@ -21,6 +21,15 @@ describe('ledger reminders', () => {
       row,
       'https://example.test/ledger',
     );
+    expect(review.split('\n')[0]).toBe('【独立站】审核台账');
+    expect(
+      formatLedgerReminder('review', { ...row, businessUnit: 'linxi' }).split(
+        '\n',
+      )[0],
+    ).toBe('【霖熹】审核台账');
+    expect(formatLedgerReminder('operate', row).split('\n')[0]).toBe(
+      '【独立站】操作台账',
+    );
     for (const line of [
       '业务部门：独立站',
       '台账编号：WEB-123',
@@ -38,7 +47,7 @@ describe('ledger reminders', () => {
       businessUnit: 'linxi',
     });
     expect(operate).toContain('业务部门：霖熹');
-    expect(operate).toContain('台账待操作');
+    expect(operate.split('\n')[0]).toBe('【霖熹】操作台账');
     expect(operate).not.toContain('亏损');
   });
 
