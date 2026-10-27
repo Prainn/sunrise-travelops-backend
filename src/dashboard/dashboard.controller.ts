@@ -16,6 +16,7 @@ import { DashboardService } from './dashboard.service';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ToursService } from '../tours/tours.service';
 import { TourMapQuery, TourMapResponse } from '../tours/tour-map.dto';
+import { FlightMapQuery, FlightMapResponse } from '../tours/flight-map.dto';
 
 @ApiTags('Dashboard')
 @ApiBearerAuth()
@@ -26,6 +27,17 @@ export class DashboardController {
     private readonly service: DashboardService,
     private readonly tours: ToursService,
   ) {}
+
+  @Get('flight-map')
+  @Permissions('tour:list')
+  @ApiOperation({ summary: '当前成团可见范围内的按日航班航线演示数据' })
+  @ApiSuccessResponse({ type: FlightMapResponse })
+  flightMap(
+    @Query() query: FlightMapQuery,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tours.flightMap(query, user);
+  }
 
   @Get('tour-map')
   @Permissions('tour:list')
