@@ -272,7 +272,7 @@ export class ShengxuLedgersService {
     )
       conflict(
         ErrorCode.SHENGXU_LEDGER_DUPLICATE,
-        '当天该组团社已有台账，请修改已有记录',
+        '当天该组团社的该联系人已有台账，请修改已有记录',
       );
     throw error;
   }
