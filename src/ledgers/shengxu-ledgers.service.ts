@@ -1,3 +1,4 @@
+import { isFullAdministrator } from '../auth/account-access';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { ErrorCode } from '../common/constants/error-code';
@@ -52,15 +53,18 @@ export class ShengxuLedgersService {
       actor.scope !== 'shengxu' &&
       !(
         actor.scope === 'headquarters' &&
-        (action === 'list' || (action === 'create' && isLedgerRoot(actor)))
+        (isFullAdministrator(actor) ||
+          action === 'list' ||
+          (action === 'create' && isLedgerRoot(actor)))
       )
     )
       forbidden();
   }
   private manageable(row: ShengxuRow, actor: AuthenticatedUser) {
     return (
-      actor.scope === 'shengxu' &&
-      (row.creatorId === actor.id || isManager(actor))
+      isFullAdministrator(actor) ||
+      (actor.scope === 'shengxu' &&
+        (row.creatorId === actor.id || isManager(actor)))
     );
   }
   private present(row: ShengxuRow, actor: AuthenticatedUser) {

@@ -1,3 +1,4 @@
+import { isFullAdministrator } from '../auth/account-access';
 import { LedgerNotificationsService } from './ledger-notifications.service';
 import { requireBusinessGroup } from '../users/coordinator-assignment';
 import { Injectable } from '@nestjs/common';
@@ -65,16 +66,21 @@ export class DirectLedgersService {
   private access(actor: AuthenticatedUser, action = 'list') {
     requirePermission(actor, `ledger:direct:${action}`);
     if (actor.scope === 'headquarters') {
-      if (action !== 'list' && !(action === 'create' && isLedgerRoot(actor)))
+      if (
+        !isFullAdministrator(actor) &&
+        action !== 'list' &&
+        !(action === 'create' && isLedgerRoot(actor))
+      )
         forbidden();
     } else if (!['linxi', 'website'].includes(actor.scope)) forbidden();
   }
   private manageable(row: DirectRow, actor: AuthenticatedUser) {
     return (
-      actor.scope === row.businessUnit &&
-      (isManager(actor) ||
-        row.creatorId === actor.id ||
-        row.operatorId === actor.id)
+      isFullAdministrator(actor) ||
+      (actor.scope === row.businessUnit &&
+        (isManager(actor) ||
+          row.creatorId === actor.id ||
+          row.operatorId === actor.id))
     );
   }
   private present(row: DirectRow, actor: AuthenticatedUser) {
@@ -95,15 +101,16 @@ export class DirectLedgersService {
           !row.operatedAt &&
           actor.permissions.includes('ledger:direct:delete'),
         canReview:
-          actor.scope === row.businessUnit &&
-          isManager(actor) &&
+          (isFullAdministrator(actor) ||
+            (actor.scope === row.businessUnit && isManager(actor))) &&
           row.loss &&
           !row.reviewedAt &&
           !row.operated &&
           actor.permissions.includes('ledger:direct:review'),
         canOperate:
-          actor.scope === row.businessUnit &&
-          actor.id === row.operatorId &&
+          (isFullAdministrator(actor) ||
+            (actor.scope === row.businessUnit &&
+              actor.id === row.operatorId)) &&
           !row.operated &&
           (!row.loss || Boolean(row.reviewedAt)) &&
           row.proposalSent &&
@@ -111,7 +118,9 @@ export class DirectLedgersService {
           actor.permissions.includes('ledger:direct:operate'),
         canChangeStatus:
           edit &&
-          (actor.id === row.creatorId || isManager(actor)) &&
+          (isFullAdministrator(actor) ||
+            actor.id === row.creatorId ||
+            isManager(actor)) &&
           !row.operatedAt,
       },
     };
@@ -359,7 +368,8 @@ export class DirectLedgersService {
       if (
         row.orderStatus !== input.orderStatus &&
         row.creatorId !== actor.id &&
-        !isManager(actor)
+        !isManager(actor) &&
+        !isFullAdministrator(actor)
       )
         forbidden();
       const data = {
@@ -380,7 +390,7 @@ export class DirectLedgersService {
   }
   async review(id: string, version: number, actor: AuthenticatedUser) {
     this.access(actor, 'review');
-    if (!isManager(actor)) forbidden();
+    if (!isManager(actor) && !isFullAdministrator(actor)) forbidden();
     return this.db.transaction(async (manager) => {
       const row = await this.row(manager, id, actor, true);
       assertVersion(row.version, version);
@@ -405,7 +415,8 @@ export class DirectLedgersService {
     this.access(actor, 'operate');
     return this.db.transaction(async (manager) => {
       const row = await this.row(manager, id, actor, true);
-      if (row.operatorId !== actor.id) forbidden();
+      if (row.operatorId !== actor.id && !isFullAdministrator(actor))
+        forbidden();
       assertVersion(row.version, input.version);
       if (row.operated || (row.loss && !row.reviewedAt))
         conflict(
