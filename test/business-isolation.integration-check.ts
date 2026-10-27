@@ -962,6 +962,38 @@ async function boundaries() {
       };
       const row = await h.call(sx.a, 'POST', '/ledgers/shengxu', input, 201);
       await h.page(sx.b, '/ledgers/shengxu', [row.id]);
+      const [otherContact] = await h.db.query<{ id: string }[]>(
+        `INSERT INTO resource_agency_contacts(agency_id,name,name_key)
+         VALUES($1,'Second contact','second contact') RETURNING id`,
+        [input.agencyId],
+      );
+      const otherInput = { ...input, contactId: otherContact.id };
+      const otherRow = await h.call(
+        sx.a,
+        'POST',
+        '/ledgers/shengxu',
+        otherInput,
+        201,
+      );
+      await h.unchanged(async () => {
+        await deny(
+          sx.a,
+          'POST',
+          '/ledgers/shengxu',
+          otherInput,
+          409,
+          'SHENGXU_LEDGER_DUPLICATE',
+        );
+        await deny(
+          sx.a,
+          'PUT',
+          `/ledgers/shengxu/${otherRow.id}`,
+          { ...input, version: otherRow.version },
+          409,
+          'SHENGXU_LEDGER_DUPLICATE',
+        );
+      });
+      await h.page(sx.b, '/ledgers/shengxu', [row.id, otherRow.id]);
       await h.unchanged(async () => {
         await deny(sx.b, 'PUT', `/ledgers/shengxu/${row.id}`, {
           ...input,
