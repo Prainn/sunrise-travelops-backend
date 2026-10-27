@@ -8,6 +8,8 @@ import {
   MapTourRow,
 } from './tour-map';
 import { TourMapQuery, MapBusinessUnit } from './tour-map.dto';
+import { FlightMapQuery, FlightMapResponse } from './flight-map.dto';
+import { buildFlightMap, FlightMapRow } from './flight-map';
 import { ErrorCode, ErrorCodeValue } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { PageResult } from '../common/types/page-result';
@@ -162,6 +164,48 @@ export class ToursService {
   }
 
   // ---------- reads ----------
+  async flightMap(
+    query: FlightMapQuery,
+    user: AuthenticatedUser,
+  ): Promise<FlightMapResponse> {
+    this.require(user, 'tour:list');
+    if (query.businessUnit && !this.unitAllowed(user, query.businessUnit))
+      forbidden();
+    const date =
+      query.date ??
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    const canSelect = user.scope === 'headquarters';
+    const unit = canSelect
+      ? (query.businessUnit ?? null)
+      : (user.scope as MapBusinessUnit);
+    const params: unknown[] = [date];
+    let where = `t.status='active' AND leg.event_at >= $1::date
+      AND leg.event_at < $1::date + INTERVAL '1 day'${this.visible(user, params)}`;
+    if (query.businessUnit)
+      where += ` AND t.business_unit=$${params.push(query.businessUnit)}`;
+    // The outbound flight can depart after midnight, beyond the tour's occupancy end date.
+    // One statement supplies one consistent snapshot; no itinerary/quote queries or N+1 reads.
+    const rows = await this.db.query<FlightMapRow[]>(
+      `SELECT t.id,t.tour_no AS "tourNo",t.business_unit AS "businessUnit",
+        t.source_module AS "sourceModule",t.schedule_mode AS "scheduleMode",
+        (t.adults+t.children+t.leaders) AS "totalPeople",leg.kind,
+        to_char(leg.event_at,'YYYY-MM-DD HH24:MI') AS "scheduledAt",leg.flight
+       FROM tours t CROSS JOIN LATERAL (
+         VALUES ('pickup',t.pickup_at,t.pickup_flight),
+           ('drop',CASE WHEN t.schedule_mode='flight' THEN t.drop_at + INTERVAL '3 hours'
+             ELSE t.drop_at END,t.drop_flight)
+       ) AS leg(kind,event_at,flight)
+       WHERE ${where} ORDER BY leg.event_at,t.tour_no,t.id,leg.kind`,
+      params,
+    );
+    return buildFlightMap(date, unit, canSelect, rows);
+  }
+
   async map(query: TourMapQuery, user: AuthenticatedUser) {
     this.require(user, 'tour:list');
     if (query.businessUnit && !this.unitAllowed(user, query.businessUnit))
