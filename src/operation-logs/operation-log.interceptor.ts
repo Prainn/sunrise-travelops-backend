@@ -140,6 +140,7 @@ function actionFor(
         resultId: true,
       },
       saveItinerary: { category: 'itinerary', label: '保存独立站行程' },
+      validateItinerary: { category: 'itinerary', label: '校验独立站行程' },
       copy: {
         category: 'itinerary',
         label: '复制独立站行程',
@@ -150,6 +151,18 @@ function actionFor(
       confirm: { category: 'quotation', label: '冻结独立站报价' },
       downloadClick: { category: 'quotation', label: '独立站报价下载点击' },
       saveConfig: { category: 'website-config', label: '保存独立站配置' },
+      createConfigRecord: {
+        category: 'website-config',
+        label: '新增独立站配置',
+      },
+      updateConfigRecord: {
+        category: 'website-config',
+        label: '编辑独立站配置',
+      },
+      deleteConfigRecord: {
+        category: 'website-config',
+        label: '删除独立站配置',
+      },
     };
     return actions[handler] ?? null;
   }
@@ -181,6 +194,7 @@ function actionFor(
       update: '编辑用户',
       delete: '删除用户',
       resetPassword: '重置用户密码',
+      testFeishu: '发送飞书测试消息',
       updateCoordinatorDuty: '设置计调分工',
       updateBusinessGroup: '调整业务组成员',
     };
