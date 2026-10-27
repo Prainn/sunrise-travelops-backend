@@ -1,3 +1,4 @@
+import { LedgerNotificationsService } from './ledger-notifications.service';
 import { ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -80,7 +81,9 @@ function fixture(unit: 'shengxu' | 'linxi' | 'website') {
     query,
     directInput,
     shengxuInput,
-    direct: new DirectLedgersService(db),
+    direct: new DirectLedgersService(db, {
+      enqueue: jest.fn(),
+    } as unknown as LedgerNotificationsService),
     shengxu: new ShengxuLedgersService(db),
   };
 }

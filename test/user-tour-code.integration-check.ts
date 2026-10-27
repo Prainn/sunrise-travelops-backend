@@ -1,3 +1,5 @@
+import { FeishuService } from '../src/feishu/feishu.service';
+import { ConfigService } from '@nestjs/config';
 /** Disposable local PostgreSQL only. Does not load environment files. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -39,6 +41,7 @@ async function main() {
       db.getRepository(UserEntity),
       db.getRepository(RoleEntity),
       db,
+      new FeishuService(new ConfigService({})),
     );
     const coordinator = await db
       .getRepository(RoleEntity)

@@ -50,6 +50,26 @@ export function validateEnvironment(environment: Environment): Environment {
     );
   }
 
+  if (environment.FEISHU_APP_SECRET?.trim()) {
+    if (
+      !environment.FEISHU_APP_ID?.trim() ||
+      !environment.FEISHU_WEB_BASE_URL?.trim()
+    )
+      throw new Error(
+        'FEISHU_APP_ID and FEISHU_WEB_BASE_URL are required with FEISHU_APP_SECRET',
+      );
+    const url = new URL(environment.FEISHU_WEB_BASE_URL);
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== '/'
+    )
+      throw new Error('FEISHU_WEB_BASE_URL must be a public HTTP(S) origin');
+  }
+
   parseTrustProxy(environment.TRUST_PROXY);
 
   return environment;
