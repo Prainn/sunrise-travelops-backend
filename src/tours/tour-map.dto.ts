@@ -1,3 +1,4 @@
+import type { TourGuideService } from './tour-guide-services';
 import { IsIn, IsISO8601, IsOptional, Matches } from 'class-validator';
 
 export type MapBusinessUnit = 'shengxu' | 'linxi' | 'website';
@@ -49,7 +50,8 @@ export class MapTour {
   adults: number;
   children: number;
   leaders: number;
-  guideName: string | null;
+  guideServices: TourGuideService[];
+  todayGuideServices: TourGuideService[];
   collectCoordinatorName: string;
   operatorName: string;
   pickupAt: string;

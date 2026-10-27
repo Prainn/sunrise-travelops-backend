@@ -19,6 +19,7 @@ import {
 type AuditRequest = Request & {
   user?: AuthenticatedUser;
   menuPermissionChange?: unknown;
+  tourGuideServiceChange?: unknown;
 };
 type Action = {
   category: OperationCategory;
@@ -316,6 +317,21 @@ export class OperationLogInterceptor implements NestInterceptor {
       const data: Record<string, string | number> = {};
       if (request.menuPermissionChange)
         return JSON.stringify(request.menuPermissionChange);
+      if (
+        controller === 'ToursController' &&
+        request.tourGuideServiceChange &&
+        error === undefined
+      )
+        return JSON.stringify({
+          recordId: id,
+          ...request.tourGuideServiceChange,
+        });
+      if (
+        controller === 'ToursController' &&
+        handler === 'saveRating' &&
+        typeof request.params.guideId === 'string'
+      )
+        data.guideId = request.params.guideId;
       if (typeof id === 'string') data.recordId = id.slice(0, 100);
       if (action.parentKey && request.params[action.parentKey] != null)
         data.parentId = String(request.params[action.parentKey]).slice(0, 100);

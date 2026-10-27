@@ -1,13 +1,20 @@
+import type { Request } from 'express';
+import type { GuideServiceChange } from './tour-guide-services';
+type TourAuditRequest = Request & {
+  tourGuideServiceChange?: GuideServiceChange;
+};
 import {
   Body,
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
   Put,
   Query,
+  Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -99,10 +106,11 @@ export class ToursController {
     return this.service.guideLanguages(query, user);
   }
 
-  @Get('available-guides')
+  @Post('available-guides')
+  @HttpCode(200)
   @Permissions('tour:list')
   availableGuides(
-    @Query() query: TourGuideQueryDto,
+    @Body() query: TourGuideQueryDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.availableGuides(query, user);
@@ -117,14 +125,15 @@ export class ToursController {
     return this.service.ratings(query, user);
   }
 
-  @Put('ratings/:id')
+  @Put(':id/ratings/:guideId')
   @Permissions('tour:rating:update')
   saveRating(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('guideId', new ParseUUIDPipe()) guideId: string,
     @Body() input: RatingScoreDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.saveRating(id, input, user);
+    return this.service.saveRating(id, guideId, input, user);
   }
 
   @Get(':id')
@@ -138,8 +147,14 @@ export class ToursController {
 
   @Post()
   @Permissions('tour:create')
-  create(@Body() input: CreateTourDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.create(input, user);
+  create(
+    @Body() input: CreateTourDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: TourAuditRequest,
+  ) {
+    return this.service.create(input, user, (change) => {
+      request.tourGuideServiceChange = change;
+    });
   }
 
   @Put(':id')
@@ -148,8 +163,11 @@ export class ToursController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateTourDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Req() request: TourAuditRequest,
   ) {
-    return this.service.update(id, input, user);
+    return this.service.update(id, input, user, (change) => {
+      request.tourGuideServiceChange = change;
+    });
   }
 
   @Post(':id/cancel')

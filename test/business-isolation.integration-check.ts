@@ -57,6 +57,7 @@ function linkedTourInput(b: Business) {
     children: 0,
     leaders: 0,
     shopping: false,
+    guideServices: [],
     scheduleMode: 'flight',
     pickupFlightId,
     dropFlightId,

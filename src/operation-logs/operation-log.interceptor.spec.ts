@@ -85,6 +85,7 @@ describe('OperationLogInterceptor', () => {
   it('covers mutations and exports not audited within their business transaction', async () => {
     const excluded = new Set([
       'AuthController.refresh', // Token renewal is not a user operation.
+      'ToursController.availableGuides', // POST body is a read-only scheduling query.
       'LynxController.register', // Public attribution collection, not an internal page.
       // These services save audit rows in their transaction; account-links.integration-check
       // verifies the committed audit alongside relation/session changes.
@@ -111,6 +112,59 @@ describe('OperationLogInterceptor', () => {
       if (entries.length === before) missing.push(`${controller}.${handler}`);
     }
     expect(missing).toEqual([]);
+  });
+
+  it('records service segment pointers and the composite rating target without request payloads', async () => {
+    const change = {
+      serviceIds: ['segment-a'],
+      guideIds: ['guide-a'],
+      removedServiceIds: ['segment-b'],
+      removedGuideIds: ['guide-b'],
+    };
+    await firstValueFrom(
+      interceptor.intercept(
+        context('ToursController', 'update', {
+          user: actor,
+          params: { id: 'tour-a' },
+          body: { remark: 'private' },
+          tourGuideServiceChange: change,
+        }),
+        { handle: () => of({ id: 'tour-a' }) },
+      ),
+    );
+    expect(JSON.parse(entries[0].detail)).toEqual({
+      recordId: 'tour-a',
+      ...change,
+    });
+    await firstValueFrom(
+      interceptor.intercept(
+        context('ToursController', 'saveRating', {
+          user: actor,
+          params: { id: 'tour-a', guideId: 'guide-a' },
+          body: { selfScore: 50 },
+        }),
+        { handle: () => of({ tourId: 'tour-a', guideId: 'guide-a' }) },
+      ),
+    );
+    expect(JSON.parse(entries[1].detail)).toEqual({
+      recordId: 'tour-a',
+      guideId: 'guide-a',
+    });
+    expect(JSON.stringify(entries)).not.toContain('private');
+  });
+
+  it('does not audit the read-only POST guide availability query', async () => {
+    await firstValueFrom(
+      interceptor.intercept(
+        context('ToursController', 'availableGuides', {
+          user: actor,
+          params: {},
+          body: {},
+        }),
+        { handle: () => of([]) },
+      ),
+    );
+    expect(entries).toHaveLength(0);
   });
 
   it.each([
