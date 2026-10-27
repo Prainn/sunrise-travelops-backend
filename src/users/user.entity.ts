@@ -46,6 +46,9 @@ export class UserEntity extends AuditedEntity {
   @Column({ type: 'varchar', length: 30, default: '' })
   mobile: string;
 
+  @Column({ name: 'feishu_open_id', type: 'varchar', length: 100, default: '' })
+  feishuOpenId: string;
+
   @Column({ type: 'varchar', length: 254, default: '' })
   email: string;
 

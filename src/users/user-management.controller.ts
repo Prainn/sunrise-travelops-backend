@@ -34,6 +34,7 @@ import {
   ApiSuccessResponse,
 } from '../common/swagger/api-response.decorator';
 import {
+  FeishuTestResponse,
   CreateUserDto,
   CreatedUserResponse,
   ResetUserPasswordDto,
@@ -44,6 +45,7 @@ import {
   TourCodeSuggestionQueryDto,
   TourCodeSuggestionResponse,
 } from './dto/user-management.dto';
+import { Throttle } from '@nestjs/throttler';
 import { UserManagementService } from './user-management.service';
 
 @ApiTags('Users')
@@ -168,6 +170,21 @@ export class UserManagementController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.userManagement.delete(query.ids, user);
+  }
+
+  @Post(':id/feishu-test')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('sys:user:update')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Send a fixed Feishu test message to a managed enabled user',
+  })
+  @ApiSuccessResponse({ type: FeishuTestResponse })
+  testFeishu(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.userManagement.testFeishu(id, user);
   }
 
   @Post(':id/reset-password')

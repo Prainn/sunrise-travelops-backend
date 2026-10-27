@@ -17,6 +17,9 @@ x-api-environment: &api-environment
   CORS_ORIGIN: ${CORS_ORIGIN:?required}
   TRUST_PROXY: "1"
   LOG_LEVEL: info
+  FEISHU_APP_ID: ${FEISHU_APP_ID:-cli_aa55a43825395d19}
+  FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+  FEISHU_WEB_BASE_URL: ${FEISHU_WEB_BASE_URL:-}
   LYNX_VISITS_DB_HOST: lynx-visits-db
   LYNX_VISITS_DB_PORT: 5432
   LYNX_VISITS_DB_NAME: travelops_dev

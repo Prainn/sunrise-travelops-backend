@@ -1,3 +1,5 @@
+import { FeishuService } from '../feishu/feishu.service';
+import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { RoleEntity } from '../roles/role.entity';
@@ -34,6 +36,7 @@ describe('UserManagementService.response', () => {
       {} as Repository<UserEntity>,
       {} as Repository<RoleEntity>,
       {} as DataSource,
+      new FeishuService(new ConfigService({})),
     );
     const user = {
       id: 'user',
@@ -95,6 +98,7 @@ describe('UserManagementService.delete', () => {
       {} as Repository<UserEntity>,
       {} as Repository<RoleEntity>,
       dataSource,
+      new FeishuService(new ConfigService({})),
     );
     return { service, manager };
   }
@@ -170,6 +174,7 @@ describe('UserManagementService coordinator duty by business', () => {
       {} as Repository<UserEntity>,
       {} as Repository<RoleEntity>,
       db,
+      new FeishuService(new ConfigService({})),
     );
     const input = Object.assign(new UpdateUserDto(), {
       nickname: 'Test',

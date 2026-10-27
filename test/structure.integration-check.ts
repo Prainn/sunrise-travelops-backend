@@ -1,3 +1,4 @@
+import { FeishuService } from '../src/feishu/feishu.service';
 import { AccountLinksService } from '../src/users/account-links.service';
 import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
 import { allowedMenuKeys } from '../src/roles/menu-definitions';
@@ -825,6 +826,7 @@ async function main() {
       db.getRepository(UserEntity),
       db.getRepository(RoleEntity),
       db,
+      new FeishuService(new ConfigService({})),
     );
     const role = async (code: string) =>
       (await db.manager.findOneByOrFail(RoleEntity, { code })).id;

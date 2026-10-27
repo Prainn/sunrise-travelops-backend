@@ -137,6 +137,13 @@ export class IdentityInput {
 }
 
 class UserEditableFieldsDto {
+  @ApiPropertyOptional({ default: '', maxLength: 100 })
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @Transform(trim)
+  @IsString()
+  @Matches(/^(?:|ou_[A-Za-z0-9_-]{1,97})$/)
+  feishuOpenId?: string;
+
   @ApiProperty({ example: '李明' })
   @Transform(trim)
   @IsString()
@@ -279,6 +286,7 @@ export class UserIdentityResponse {
 }
 
 export class UserItemResponse {
+  @ApiProperty() feishuOpenId: string;
   @ApiProperty() version: number;
   id: string;
   username: string;
@@ -293,6 +301,10 @@ export class UserItemResponse {
   identities: UserIdentityResponse[];
   status: number;
   createTime: string;
+}
+
+export class FeishuTestResponse {
+  @ApiProperty() messageId: string;
 }
 
 export class CreatedUserResponse extends UserItemResponse {

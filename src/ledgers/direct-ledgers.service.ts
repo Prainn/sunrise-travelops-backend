@@ -1,3 +1,4 @@
+import { LedgerNotificationsService } from './ledger-notifications.service';
 import { requireBusinessGroup } from '../users/coordinator-assignment';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
@@ -27,6 +28,8 @@ import {
 
 interface DirectRow {
   id: string;
+  orderNo: string;
+  creatorName: string;
   businessUnit: 'linxi' | 'website';
   creatorId: string;
   operatorId: string;
@@ -53,7 +56,10 @@ const SELECT = `id,business_unit AS "businessUnit",order_no AS "orderNo",receive
 
 @Injectable()
 export class DirectLedgersService {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly notifications: LedgerNotificationsService,
+  ) {}
   private access(actor: AuthenticatedUser, action = 'list') {
     requirePermission(actor, `ledger:direct:${action}`);
     if (actor.scope === 'headquarters') {
@@ -324,6 +330,7 @@ export class DirectLedgersService {
           .join(',')}) RETURNING ${SELECT}`,
         Object.values(data),
       );
+      await this.notifications.enqueue(manager, row);
       return this.present(row, actor);
     });
   }
@@ -365,6 +372,7 @@ export class DirectLedgersService {
           )},version=version+1,updated_at=now() WHERE id=$1 RETURNING ${SELECT}`,
         [id, ...Object.values(data)],
       );
+      await this.notifications.enqueue(manager, saved, row);
       return this.present(saved, actor);
     });
   }
@@ -383,6 +391,7 @@ export class DirectLedgersService {
         `UPDATE direct_ledgers SET reviewed_at=now(),reviewed_by=$2,updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
         [id, actor.id],
       );
+      await this.notifications.enqueue(manager, saved, row);
       return this.present(saved, actor);
     });
   }
@@ -410,6 +419,7 @@ export class DirectLedgersService {
         `UPDATE direct_ledgers SET operated=true,operated_at=coalesce(operated_at,now()),updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
         [id, actor.id],
       );
+      await this.notifications.enqueue(manager, saved, row);
       return this.present(saved, actor);
     });
   }

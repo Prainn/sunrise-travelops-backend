@@ -1,3 +1,4 @@
+import { FeishuService } from '../src/feishu/feishu.service';
 import { AccountLinksService } from '../src/users/account-links.service';
 /** Only uses the task's disposable PostgreSQL at 127.0.0.1:55441. */
 import 'reflect-metadata';
@@ -114,6 +115,7 @@ async function main() {
       db.getRepository(UserEntity),
       db.getRepository(RoleEntity),
       db,
+      new FeishuService(new ConfigService({})),
     );
     let fixtureRoot: AuthenticatedUser;
     const createIdentity = async (
