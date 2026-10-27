@@ -23,8 +23,12 @@ export interface RoleMenuConfig {
 export class MenuPermissionsService {
   constructor(private readonly db: DataSource) {}
 
-  private assertRoot(actor: AuthenticatedUser) {
-    if (actor.scope !== 'headquarters' || !actor.roles.includes('ROOT'))
+  private assertRoot(actor: AuthenticatedUser, permission: string) {
+    if (
+      actor.scope !== 'headquarters' ||
+      !actor.roles.includes('ROOT') ||
+      !actor.permissions.includes(permission)
+    )
       throw new BusinessException({
         code: 'AUTH_FORBIDDEN',
         message: '仅超级管理员可配置菜单权限',
@@ -51,7 +55,7 @@ export class MenuPermissionsService {
   }
 
   async list(actor: AuthenticatedUser) {
-    this.assertRoot(actor);
+    this.assertRoot(actor, 'sys:menu-permission:list');
     const rows = await this.db.query<
       Array<{ code: string; name: string; version: number; menuKeys: string[] }>
     >(
@@ -75,11 +79,10 @@ export class MenuPermissionsService {
             (item.menuKey !== 'business-groups' ||
               actor.scope === 'headquarters' ||
               actor.roles.includes('BUSINESS_MANAGER')) &&
-            (root ||
-              (actor.menuKeys.includes(item.menuKey) &&
-                item.permissions.some((permission) =>
-                  actor.permissions.includes(permission),
-                ))),
+            (root || actor.menuKeys.includes(item.menuKey)) &&
+            item.permissions.some((permission) =>
+              actor.permissions.includes(permission),
+            ),
         ),
       })).filter((group) => group.children.length > 0),
     };
@@ -101,7 +104,7 @@ export class MenuPermissionsService {
     input: { version: number; menuKeys: string[] },
     actor: AuthenticatedUser,
   ) {
-    this.assertRoot(actor);
+    this.assertRoot(actor, 'sys:menu-permission:update');
     return this.db.transaction(async (manager) => {
       const [row] = await manager.query<
         Array<{

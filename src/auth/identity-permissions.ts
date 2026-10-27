@@ -1,4 +1,9 @@
 import {
+  isFullAdministrator,
+  SUNRISE_DENIED_PERMISSIONS,
+} from './account-access';
+import {
+  PERMISSION_DEFINITIONS,
   ADMIN_PERMISSIONS,
   BUSINESS_GROUP_PERMISSIONS,
   LEDGER_PERMISSIONS,
@@ -180,4 +185,19 @@ export function effectivePermissions(
       return true;
     })
     .sort();
+}
+
+/** Account restrictions are recomputed for every authenticated request. */
+export function effectiveAccountPermissions(
+  scope: LoginScope,
+  roles: string[],
+  coordinatorDuty: CoordinatorDuty | null,
+  username: string,
+): string[] {
+  if (isFullAdministrator({ scope, roles, username }))
+    return Object.keys(PERMISSION_DEFINITIONS).sort();
+  const permissions = effectivePermissions(scope, roles, coordinatorDuty);
+  return username === 'sunrise'
+    ? permissions.filter((p) => !SUNRISE_DENIED_PERMISSIONS.includes(p))
+    : permissions;
 }
