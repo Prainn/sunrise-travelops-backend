@@ -416,7 +416,7 @@ export class ToursService {
          JOIN LATERAL (SELECT wq.* FROM website_quotations wq JOIN website_itineraries wi ON wi.id = wq.itinerary_id
            WHERE wi.inquiry_id = i.id ORDER BY wq.confirmed_at DESC, wq.id DESC LIMIT 1) q ON true
          JOIN website_itineraries it ON it.id = q.itinerary_id
-         WHERE i.status NOT IN ('lost','archived')${scope}
+         WHERE i.deleted_at IS NULL AND i.status NOT IN ('lost','archived')${scope}
            AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active')
            ${like ? `AND (i.code ILIKE ${like} OR i.customer_name ILIKE ${like})` : ''}
          ORDER BY q.confirmed_at DESC LIMIT 50`,
@@ -437,7 +437,7 @@ export class ToursService {
         (q.snapshot->'itinerary'->>'days')::int AS days, (q.first_downloaded_at IS NOT NULL) AS downloaded
        FROM inquiries i
        JOIN LATERAL (SELECT * FROM itinerary_quotes WHERE inquiry_id = i.id ORDER BY created_at DESC, id DESC LIMIT 1) q ON true
-       WHERE i.status NOT IN ('lost','archived')${scope}
+       WHERE i.deleted_at IS NULL AND i.status NOT IN ('lost','archived')${scope}
          AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='standard' AND t.inquiry_id=i.id AND t.status='active')
          ${like ? `AND (i.code ILIKE ${like} OR i.agency_name ILIKE ${like} OR i.contact_name ILIKE ${like})` : ''}
        ORDER BY q.created_at DESC LIMIT 50`,
@@ -784,7 +784,7 @@ export class ToursService {
         forbidden();
       const rows = await manager.query<Row[]>(
         `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.customer_name, i.country_item_id, i.country_code,
-           i.country_or_region, i.business_unit FROM website_inquiries i WHERE i.id = $1 FOR UPDATE`,
+           i.country_or_region, i.business_unit FROM website_inquiries i WHERE i.id = $1 AND i.deleted_at IS NULL FOR UPDATE`,
         [inquiryId],
       );
       const i = rows[0];
@@ -814,7 +814,7 @@ export class ToursService {
     }
     const rows = await manager.query<Row[]>(
       `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.business_unit, i.agency_name, i.contact_name,
-         i.country_item_id, i.country_code, i.country_or_region FROM inquiries i WHERE i.id = $1 FOR UPDATE`,
+         i.country_item_id, i.country_code, i.country_or_region FROM inquiries i WHERE i.id = $1 AND i.deleted_at IS NULL FOR UPDATE`,
       [inquiryId],
     );
     const i = rows[0];

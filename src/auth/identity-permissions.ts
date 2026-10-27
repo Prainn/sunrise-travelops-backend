@@ -1,4 +1,9 @@
 import {
+  isFullAdministrator,
+  SUNRISE_DENIED_PERMISSIONS,
+} from './account-access';
+import {
+  PERMISSION_DEFINITIONS,
   ADMIN_PERMISSIONS,
   BUSINESS_GROUP_PERMISSIONS,
   LEDGER_PERMISSIONS,
@@ -73,6 +78,7 @@ const websiteCoordinatorPermissions = [
   ...websiteReads,
   'website:inquiry:create',
   'website:inquiry:update',
+  'website:inquiry:delete',
   'website:itinerary:create',
   'website:itinerary:update',
   'website:itinerary:confirm',
@@ -93,8 +99,7 @@ const WEBSITE_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
 export function effectivePermissions(
   scope: LoginScope,
   roles: string[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 分工仍由身份调用方传入，成团表权限已统一为计调只读。
-  _coordinatorDuty: CoordinatorDuty | null = null,
+  coordinatorDuty: CoordinatorDuty | null = null,
 ): string[] {
   const summaryPermissions = (
     scope === 'headquarters'
@@ -173,6 +178,14 @@ export function effectivePermissions(
   ]
     .filter((permission) => {
       if (
+        ['inquiry:delete', 'website:inquiry:delete'].includes(permission) &&
+        scope !== 'headquarters' &&
+        scope !== 'shengxu' &&
+        !selected.includes('BUSINESS_MANAGER') &&
+        coordinatorDuty === 'operation'
+      )
+        return false;
+      if (
         ['linxi', 'website'].includes(scope) &&
         permission.startsWith('resource:agency:')
       )
@@ -180,4 +193,19 @@ export function effectivePermissions(
       return true;
     })
     .sort();
+}
+
+/** Account restrictions are recomputed for every authenticated request. */
+export function effectiveAccountPermissions(
+  scope: LoginScope,
+  roles: string[],
+  coordinatorDuty: CoordinatorDuty | null,
+  username: string,
+): string[] {
+  if (isFullAdministrator({ scope, roles, username }))
+    return Object.keys(PERMISSION_DEFINITIONS).sort();
+  const permissions = effectivePermissions(scope, roles, coordinatorDuty);
+  return username === 'sunrise'
+    ? permissions.filter((p) => !SUNRISE_DENIED_PERMISSIONS.includes(p))
+    : permissions;
 }

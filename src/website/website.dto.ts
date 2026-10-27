@@ -291,7 +291,7 @@ export class WebsiteLegDto implements WebsiteLeg {
 }
 export class WebsiteHotelDto implements WebsiteHotelStay {
   @IsUUID() id: string;
-  @IsIn(['A', 'B']) tier: 'A' | 'B';
+  @IsIn(['A', 'B', 'C', 'D']) tier: 'A' | 'B' | 'C' | 'D';
   @IsUUID() cityId: string;
   @IsDefined()
   @ValidateIf((o: WebsiteHotelDto) => o.configHotelId !== null)
@@ -357,7 +357,7 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteLegDto)
   legs: WebsiteLegDto[];
   @IsArray()
-  @ArrayMaxSize(2)
+  @ArrayMaxSize(4)
   @ValidateNested({ each: true })
   @Type(() => WebsiteHotelDto)
   hotels: WebsiteHotelDto[];
@@ -433,6 +433,17 @@ class WebsiteBoardDeletedDto {
   date: string | null;
 }
 class WebsiteReorderDraftDto implements WebsiteReorderDraft {
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(10000)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  removedItemIds: string[] = [];
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteLegDto)
+  transportCopies: WebsiteLegDto[] = [];
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(365)

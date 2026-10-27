@@ -97,6 +97,7 @@ function actionFor(
       update: { category: 'inquiry', label: '编辑询盘' },
       transfer: { category: 'inquiry', label: '转交询盘' },
       archive: { category: 'inquiry', label: '归档询盘' },
+      delete: { category: 'inquiry', label: '删除询盘' },
       parseDocument: { category: 'inquiry', label: '解析询盘文档' },
       contact: {
         category: 'resource',
@@ -134,6 +135,7 @@ function actionFor(
       update: { category: 'inquiry', label: '编辑独立站询盘' },
       transfer: { category: 'inquiry', label: '转交独立站询盘' },
       archive: { category: 'inquiry', label: '归档独立站询盘' },
+      delete: { category: 'inquiry', label: '删除独立站询盘' },
       createItinerary: {
         category: 'itinerary',
         label: '新增独立站行程',

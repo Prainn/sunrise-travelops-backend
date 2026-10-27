@@ -99,6 +99,7 @@ export interface WebsiteInquiryInput {
   lostReason: string;
 }
 export interface WebsiteInquiry extends WebsiteInquiryInput {
+  canDelete: boolean;
   businessUnit: WebsiteBusinessUnit;
   hasActiveTour: boolean;
   countryCode: string | null;
@@ -134,7 +135,7 @@ export interface WebsiteLeg {
 }
 export interface WebsiteHotelStay {
   id: string;
-  tier: 'A' | 'B';
+  tier: 'A' | 'B' | 'C' | 'D';
   cityId: string;
   // Website configuration hotel; distinct from the public hotel resourceId.
   configHotelId: string | null;
@@ -220,7 +221,7 @@ export interface WebsiteOutput {
   inclusions: string[];
   exclusions: string[];
   hotelOptions: Array<{
-    tier: 'A' | 'B';
+    tier: 'A' | 'B' | 'C' | 'D';
     city: string;
     hotel: string;
     roomType: string;
@@ -268,7 +269,7 @@ export interface WebsiteLogChange {
     dayNumber?: number;
     nameZh?: string;
     nameEn?: string;
-    hotelTier?: 'A' | 'B';
+    hotelTier?: 'A' | 'B' | 'C' | 'D';
     mealSlot?: string;
     vehicleType?: string;
   };
@@ -302,6 +303,8 @@ export interface WebsiteInquiryLog {
 
 /** Unapplied board edits; canonical details stay in their structured tables. */
 export interface WebsiteReorderDraft {
+  removedItemIds?: string[];
+  transportCopies?: WebsiteLeg[];
   dayIds: string[];
   addedDayIds: string[];
   deletedDays: { id: string; dayNumber: number; date: string | null }[];

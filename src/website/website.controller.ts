@@ -117,6 +117,17 @@ export class WebsiteController {
   ) {
     return this.service.transfer(id, input, user);
   }
+  @Delete('inquiries/:id')
+  @HttpCode(204)
+  @Permissions('website:inquiry:delete')
+  @ApiOperation({ summary: '软删除询盘：收客计调本人负责、负责人本业务全部' })
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: WebsiteVersionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.service.delete(id, input.version, user);
+  }
   @Post('inquiries/:id/archive')
   @Permissions('website:inquiry:archive')
   archive(

@@ -7,7 +7,7 @@ import {
   LoginScope,
   SCOPE_NAMES,
 } from '../users/user-identity.entity';
-import { effectivePermissions } from './identity-permissions';
+import { effectiveAccountPermissions } from './identity-permissions';
 import { UserLoginRecordEntity } from './user-login-record.entity';
 import { DEPARTMENT_OPTIONS } from '../users/user-management.constants';
 import {
@@ -274,7 +274,12 @@ export class AuthService {
         DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
         '',
       roles,
-      permissions: effectivePermissions(scope, roles, identity.coordinatorDuty),
+      permissions: effectiveAccountPermissions(
+        scope,
+        roles,
+        identity.coordinatorDuty,
+        user.username,
+      ),
       menuKeys,
     };
   }

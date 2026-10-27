@@ -78,6 +78,7 @@ function fixture() {
     })),
   };
   const inquiry: WebsiteInquiry = {
+    canDelete: false,
     businessUnit: 'website',
     hasActiveTour: false,
     id: randomUUID(),
@@ -177,6 +178,34 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it('renders economy and two-star hotel alternatives in both language outputs', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const original = itinerary.days[0].hotels[0];
+    itinerary.days[0].hotels = (['C', 'D'] as const).map((tier) => ({
+      ...original,
+      id: randomUUID(),
+      tier,
+      nameZh: `酒店${tier}`,
+      nameEn: `Hotel ${tier}`,
+    }));
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.issues.filter((issue) => issue.severity === 'ERROR'),
+    ).toEqual([]);
+    expect(
+      preview.chinese.hotelOptions.map((hotel) => [hotel.tier, hotel.hotel]),
+    ).toEqual([
+      ['C', '酒店C'],
+      ['D', '酒店D'],
+    ]);
+    expect(
+      preview.english.hotelOptions.map((hotel) => [hotel.tier, hotel.hotel]),
+    ).toEqual([
+      ['C', 'Hotel C'],
+      ['D', 'Hotel D'],
+    ]);
+  });
+
   it('renders each HSR leg destination in both languages and accepts a manual hotel without costs', () => {
     const { config, inquiry, itinerary } = fixture();
     validateWebsiteConfig(config);

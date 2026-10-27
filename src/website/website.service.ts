@@ -9,6 +9,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { ErrorCodeValue } from '../common/constants/error-code';
+import { canDeleteInquiry } from '../common/inquiry-delete';
 import { assertNoActiveTour } from '../common/tour-lock';
 import { requireDictionaryItem } from '../common/dictionary-items';
 import { nextBusinessCode } from '../common/business-code';
@@ -217,12 +218,23 @@ export class WebsiteService {
       scope += ` AND i.owner_id=$${params.push(user.id)}`;
     const rows = await manager.query<WebsiteInquiry[]>(
       `SELECT ${inquiryColumns} FROM website_inquiries i
-      WHERE i.id=$1${scope}${lock ? ' FOR UPDATE OF i' : ''}`,
+      WHERE i.deleted_at IS NULL AND i.id=$1${scope}${lock ? ' FOR UPDATE OF i' : ''}`,
       params,
     );
     if (!rows[0])
       fail('INQUIRY_NOT_FOUND', '独立站询盘不存在', HttpStatus.NOT_FOUND);
-    return rows[0];
+    return this.inquiryResponse(rows[0], user);
+  }
+  private inquiryResponse(
+    row: WebsiteInquiry,
+    user: AuthenticatedUser,
+  ): WebsiteInquiry {
+    return {
+      ...row,
+      canDelete:
+        !row.hasActiveTour &&
+        canDeleteInquiry(user, row.ownerId, 'website:inquiry:delete'),
+    };
   }
   private async itinerary(
     id: string,
@@ -681,7 +693,7 @@ export class WebsiteService {
     businessUnit?: WebsiteBusinessUnit,
   ) {
     this.permission(user, 'website:inquiry:list');
-    const clauses: string[] = [];
+    const clauses: string[] = ['i.deleted_at IS NULL'];
     if (user.scope !== 'headquarters' || businessUnit)
       clauses.push(
         `i.business_unit=$${params.push(this.businessUnit(user, businessUnit))}`,
@@ -745,7 +757,7 @@ export class WebsiteService {
       paging,
     );
     return {
-      list,
+      list: list.map((row) => this.inquiryResponse(row, user)),
       total: Number(count[0].total),
       page: query.page,
       pageSize: query.pageSize,
@@ -1041,6 +1053,28 @@ export class WebsiteService {
         },
       );
       return updated;
+    });
+  }
+  async delete(
+    id: string,
+    version: number,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    this.permission(user, 'website:inquiry:delete');
+    await this.db.transaction(async (manager) => {
+      const row = await this.inquiry(id, user, manager, true);
+      if (!canDeleteInquiry(user, row.ownerId, 'website:inquiry:delete'))
+        fail(
+          'AUTH_FORBIDDEN',
+          '只能删除当前本人负责的询盘',
+          HttpStatus.FORBIDDEN,
+        );
+      this.version(row.version, version);
+      await assertNoActiveTour(manager, 'website', id);
+      await manager.query(
+        'UPDATE website_inquiries SET deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1',
+        [id],
+      );
     });
   }
   async archive(id: string, version: number, user: AuthenticatedUser) {
@@ -1537,6 +1571,11 @@ export class WebsiteService {
         })),
         reorderDraft: draft
           ? {
+              removedItemIds: (draft.removedItemIds ?? []).map(remapId),
+              transportCopies: (draft.transportCopies ?? []).map((leg) => ({
+                ...leg,
+                id: remapId(leg.id),
+              })),
               dayIds: draft.dayIds.map(remapId),
               addedDayIds: draft.addedDayIds.map(remapId),
               deletedDays: draft.deletedDays.map((entry) => ({

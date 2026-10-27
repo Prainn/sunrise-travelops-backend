@@ -175,6 +175,7 @@ describe('website inquiry save audit (transaction manager stub)', () => {
         version: 1,
       });
       const before: WebsiteInquiry = {
+        canDelete: false,
         ...input,
         id: 'inquiry',
         code: 'WIQ-1',

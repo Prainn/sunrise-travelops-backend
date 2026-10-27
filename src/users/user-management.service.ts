@@ -1,3 +1,4 @@
+import { RESERVED_USERNAMES } from '../auth/account-access';
 import {
   availableTourCode,
   linkError,
@@ -61,7 +62,10 @@ export class UserManagementService {
       .leftJoinAndSelect('u.identities', 'identity')
       .leftJoinAndSelect('identity.roles', 'role')
       .leftJoinAndSelect('identity.businessGroup', 'businessGroup')
-      .where('u.is_superuser = false');
+      .where('u.is_superuser = false')
+      .andWhere('u.username NOT IN (:...reservedUsernames)', {
+        reservedUsernames: RESERVED_USERNAMES,
+      });
     if (actor.scope !== 'headquarters')
       qb.andWhere(
         'EXISTS (SELECT 1 FROM user_identities x WHERE x.user_id=u.id AND x.scope=:scope) AND NOT EXISTS (SELECT 1 FROM user_identities x WHERE x.user_id=u.id AND x.scope<>:scope)',
@@ -382,9 +386,9 @@ export class UserManagementService {
       `SELECT count(*)::int AS total,
         count(*) FILTER(WHERE status NOT IN ('lost','archived'))::int AS unfinished
        FROM (
-         SELECT status FROM inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
+         SELECT status FROM inquiries WHERE owner_id=$1 AND deleted_at IS NULL${scopes ? ' AND business_unit=ANY($2)' : ''}
          UNION ALL
-         SELECT status FROM website_inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
+         SELECT status FROM website_inquiries WHERE owner_id=$1 AND deleted_at IS NULL${scopes ? ' AND business_unit=ANY($2)' : ''}
        ) owned_inquiries`,
       scopes ? [id, scopes] : [id],
     );
@@ -409,7 +413,7 @@ export class UserManagementService {
       });
   }
   async create(input: CreateUserDto, actor: AuthenticatedUser) {
-    if (input.username === 'sunrise') denied('该账号名已保留');
+    if (RESERVED_USERNAMES.includes(input.username)) denied('该账号名已保留');
     const password =
       input.password ?? `${randomBytes(12).toString('base64url')}A1!`;
     return this.dataSource.transaction(async (manager) => {

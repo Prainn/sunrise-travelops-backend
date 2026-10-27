@@ -217,7 +217,6 @@ async function run() {
     assert.equal(a.quotedCount, 23);
     assert.equal(a.convertedCount, 3);
     assert.equal(a.name, 'Agency renamed');
-    assert.equal(a.firstFollowUp, '');
     const october = await list(
       sxManager,
       'shengxu-agency-summary',

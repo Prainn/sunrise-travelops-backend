@@ -114,6 +114,50 @@ describe('OperationLogInterceptor', () => {
     expect(missing).toEqual([]);
   });
 
+  it.each([
+    ['InquiriesController', '删除询盘'],
+    ['WebsiteController', '删除独立站询盘'],
+  ])(
+    'records %s deletion after a 204 response and captures rejected versions',
+    async (controller, action) => {
+      const request = {
+        user: actor,
+        params: { id: 'inquiry-id' },
+        body: { version: 2 },
+        query: {},
+      };
+      await firstValueFrom(
+        interceptor.intercept(context(controller, 'delete', request), {
+          handle: () => of(undefined),
+        }),
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        category: 'inquiry',
+        action,
+        success: true,
+        detail: JSON.stringify({ recordId: 'inquiry-id' }),
+      });
+      const failure = new BusinessException({
+        code: ErrorCode.INQUIRY_VERSION_CONFLICT,
+        message: 'Conflict',
+        status: HttpStatus.CONFLICT,
+      });
+      await expect(
+        firstValueFrom(
+          interceptor.intercept(context(controller, 'delete', request), {
+            handle: () => throwError(() => failure),
+          }),
+        ),
+      ).rejects.toBe(failure);
+      expect(entries[1]).toMatchObject({
+        category: 'inquiry',
+        action,
+        success: false,
+      });
+    },
+  );
+
   it('records service segment pointers and the composite rating target without request payloads', async () => {
     const change = {
       serviceIds: ['segment-a'],

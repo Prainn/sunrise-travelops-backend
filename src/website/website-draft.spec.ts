@@ -73,6 +73,8 @@ describe('website draft save and explicit validation', () => {
       ],
       deletedDays: [],
       reorderDraft: {
+        removedItemIds: [],
+        transportCopies: [],
         dayIds: ['day'],
         addedDayIds: [],
         deletedDays: [],
@@ -92,6 +94,7 @@ describe('website draft save and explicit validation', () => {
     jest.spyOn(internal, 'itinerary').mockImplementation(() =>
       Promise.resolve({
         inquiry: {
+          canDelete: false,
           businessUnit: 'website',
           destinations: [],
           version: 1,
