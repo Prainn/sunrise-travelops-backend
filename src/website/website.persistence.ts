@@ -41,7 +41,8 @@ export async function loadWebsiteDetails(
   const legs = await manager.query<DetailRow<WebsiteLeg>[]>(
     `SELECT day_id AS "dayId",json_build_object(
       'id',id,'routeId',route_id,'fromCityId',from_city_id,'toCityId',to_city_id,'mode',mode,
-      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state
+      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state,
+      'vehicleType',vehicle_type,'distanceKm',distance_km::text,'durationMinutes',duration_minutes,'showInMileage',show_in_mileage
       ) AS value FROM website_legs WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
   );
@@ -65,9 +66,9 @@ export async function loadWebsiteDetails(
     [dayIds],
   );
   const vehiclePrices = await manager.query<WebsiteVehiclePrice[]>(
-    `SELECT vehicle_type AS "vehicleType",unit_price::text AS "unitPrice"
+    `SELECT vehicle_type AS "vehicleType",plan,includes_driver AS "includesDriver",includes_guide AS "includesGuide",unit_price::text AS "unitPrice"
       FROM website_vehicle_prices WHERE itinerary_id=$1 ORDER BY CASE vehicle_type
-        WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END`,
+        WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END,plan`,
     [itineraryId],
   );
   const forDay = <T>(rows: DetailRow<T>[], id: string) =>
@@ -209,6 +210,10 @@ export async function saveWebsiteDetails(
       'name_zh',
       'name_en',
       'fee_state',
+      'vehicle_type',
+      'distance_km',
+      'duration_minutes',
+      'show_in_mileage',
     ],
     days.flatMap((d) =>
       d.legs.map((i, n) => [
@@ -222,6 +227,10 @@ export async function saveWebsiteDetails(
         i.nameZh,
         i.nameEn,
         i.feeState,
+        i.vehicleType ?? null,
+        i.distanceKm ?? null,
+        i.durationMinutes ?? null,
+        i.showInMileage ?? false,
       ]),
     ),
   );
@@ -302,7 +311,21 @@ export async function saveWebsiteDetails(
   await insertRows(
     manager,
     'website_vehicle_prices',
-    ['itinerary_id', 'vehicle_type', 'unit_price'],
-    prices.map((p) => [itineraryId, p.vehicleType, p.unitPrice]),
+    [
+      'itinerary_id',
+      'vehicle_type',
+      'plan',
+      'includes_driver',
+      'includes_guide',
+      'unit_price',
+    ],
+    prices.map((p) => [
+      itineraryId,
+      p.vehicleType,
+      p.plan,
+      p.includesDriver,
+      p.includesGuide,
+      p.unitPrice,
+    ]),
   );
 }

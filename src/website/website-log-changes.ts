@@ -56,8 +56,12 @@ function itineraryContent(value: WebsiteItinerary) {
     // Key by vehicle type so repricing is a field change, not an array replacement.
     vehiclePrices: Object.fromEntries(
       value.vehiclePrices.map((price) => [
-        price.vehicleType,
-        { unitPrice: price.unitPrice },
+        `${price.vehicleType}.${price.plan}`,
+        {
+          unitPrice: price.unitPrice,
+          includesDriver: price.includesDriver,
+          includesGuide: price.includesGuide,
+        },
       ]),
     ),
   };

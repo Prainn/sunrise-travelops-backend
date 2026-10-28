@@ -53,6 +53,7 @@ import {
   WebsiteTemplateDto,
 } from './website.dto';
 import {
+  websiteTransportVehicleLabel,
   buildWebsitePreview,
   generateWebsiteDraft,
   validateWebsiteConfig,
@@ -326,9 +327,11 @@ export class WebsiteService {
       ), matches AS (
         SELECT item,ordinality FROM snapshot,
           jsonb_array_elements(config->($3::text)) WITH ORDINALITY AS entry(item,ordinality)
-        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code')),lower($4))>0)
+        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code',CASE WHEN $3='routes' THEN concat_ws(' ',item->>'mode',item->>'vehicleOptions') END,
+          CASE WHEN $3='routes' THEN (SELECT string_agg(concat_ws(' ',c->>'nameZh',c->>'nameEn'),' ') FROM jsonb_array_elements(config->'cities') c WHERE c->>'id' IN (item->>'fromCityId',item->>'toCityId')) END)),lower($4))>0)
           AND ($5::text IS NULL OR item->>'cityId'=$5)
           AND ($6::text IS NULL OR item->>'id'<>$6)
+          AND ($9::text IS NULL OR item->>'status'=$9)
       ), page AS (
         SELECT item,ordinality FROM matches ORDER BY ordinality LIMIT $7 OFFSET $8
       )
@@ -344,6 +347,7 @@ export class WebsiteService {
         query.excludeId ?? null,
         query.pageSize,
         (query.page - 1) * query.pageSize,
+        query.status ?? null,
       ],
     );
     if (!result)
@@ -355,13 +359,21 @@ export class WebsiteService {
     query: WebsiteConfigListQuery,
     user: AuthenticatedUser,
   ) {
-    const result = await this.configPage(group, query, user);
+    const result = await this.configRecords(group, query, user);
     return {
-      ...result,
+      version: result.version,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
       list: result.list.map((item) => ({
         id: item.id,
         value: 'code' in item ? item.code : item.id,
-        label: 'code' in item ? item.code : item.nameZh,
+        label:
+          'code' in item
+            ? item.code
+            : 'vehicleOptions' in item && item.vehicleOptions.length
+              ? `${item.nameZh} · ${item.vehicleOptions.map((option) => websiteTransportVehicleLabel(option.vehicleType, 'zh')).join(' / ')}`
+              : item.nameZh,
       })),
     };
   }
@@ -1273,9 +1285,9 @@ export class WebsiteService {
     if (
       duplicate(ids) ||
       duplicate(input.days.map((d) => String(d.dayNumber))) ||
-      duplicate(input.vehiclePrices.map((p) => p.vehicleType))
+      duplicate(input.vehiclePrices.map((p) => `${p.vehicleType}:${p.plan}`))
     )
-      invalid('行程明细ID、天数或车型不能重复');
+      invalid('行程明细ID、天数、车型方案不能重复');
     const retainedCities = new Set(
       old?.days.flatMap((d) => [
         d.departCityId,
@@ -1331,6 +1343,8 @@ export class WebsiteService {
           });
       });
       day.legs.forEach((leg) => {
+        if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
+          invalid('非包车交通段不能填写车型');
         city(leg.fromCityId);
         city(leg.toCityId);
         if (leg.routeId) {

@@ -54,6 +54,7 @@ describe('website draft save and explicit validation', () => {
       arrivalTime: '',
       departureTime: '',
       configVersion: 1,
+
       vehiclePrices: [],
       days: [
         {
@@ -132,6 +133,7 @@ describe('website draft save and explicit validation', () => {
       version: 1,
       cities: [],
       attractions: [],
+
       routes: [],
       hotels: [],
       patterns: [],

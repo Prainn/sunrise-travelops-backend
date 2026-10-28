@@ -464,6 +464,7 @@ async function main() {
       version: 1001,
       cities: [],
       attractions: [],
+
       routes: [],
       patterns: [],
       skeletons: [],
@@ -782,6 +783,7 @@ async function main() {
             recommendedMonths: [],
           },
         ],
+
         routes: [],
         patterns: [],
         skeletons: [
@@ -1105,12 +1107,21 @@ async function main() {
           title: '独立站人工报价',
           duration: 2,
           startDate: null,
-          pax: null,
+          pax: 3,
           arrivalTime: '',
           departureTime: '',
           configVersion: config.version,
           days,
-          vehiclePrices: [{ vehicleType: '7_seat', unitPrice: '1288.50' }],
+
+          vehiclePrices: [
+            {
+              vehicleType: '7_seat',
+              plan: 'A',
+              includesDriver: true,
+              includesGuide: true,
+              unitPrice: '1288.50',
+            },
+          ],
         };
       };
       const createPlan = async (input: WebsiteItineraryInput) => {
@@ -1357,7 +1368,7 @@ async function main() {
         }),
       );
       assert.equal(itinerary.startDate, null);
-      assert.equal(itinerary.pax, null);
+      assert.equal(itinerary.pax, 3);
       assert.equal(
         itinerary.days[0].items[0].id,
         savedInput.days[0].items[0].id,
@@ -1449,9 +1460,13 @@ async function main() {
         output.english.itinerary.map((day) => day.day),
         ['D1', 'D2'],
       );
-      assert.deepEqual(output.english.quotation, [
-        { vehicle: '7-seat vehicle', price: 'RMB 1288.50 PP' },
-      ]);
+      assert.deepEqual(
+        output.english.quotation.map(({ vehicle, price }) => ({
+          vehicle,
+          price,
+        })),
+        [{ vehicle: '7-seat vehicle', price: 'RMB 1288.50 PP' }],
+      );
       assert(
         output.english.inclusions.some((line) => line.includes('Test Lake')),
       );

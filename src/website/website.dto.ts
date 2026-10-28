@@ -256,6 +256,7 @@ export class WebsiteConfigListQuery extends PaginationQueryDto {
     string | undefined = undefined;
   @IsOptional() @IsUUID() cityId?: string;
   @IsOptional() @IsUUID() excludeId?: string;
+  @IsOptional() @IsIn(['enabled', 'disabled']) status?: ConfigStatus;
 }
 export class WebsiteConfigVersionDto {
   @IsInt() @Min(0) version: number;
@@ -277,6 +278,31 @@ export class WebsiteItemDto implements WebsiteItem {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteLegDto implements WebsiteLeg {
+  @ApiPropertyOptional({ nullable: true, maxLength: 100 })
+  @Transform(trim)
+  @ValidateIf((o: WebsiteLegDto) => o.vehicleType !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string | null = null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: '公里；未知留空，非负，最多两位小数',
+  })
+  @ValidateIf((o: WebsiteLegDto) => o.distanceKm !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  distanceKm: string | null = null;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteLegDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+  @ApiPropertyOptional({ default: false })
+  @IsBoolean()
+  showInMileage = false;
+
   @IsUUID() id: string;
   @IsDefined()
   @ValidateIf((o: WebsiteLegDto) => o.routeId !== null)
@@ -374,6 +400,9 @@ export class WebsiteDayDto implements WebsiteDay {
   services: WebsiteServiceDto[];
 }
 export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
+  @IsIn(['A', 'B']) plan: 'A' | 'B';
+  @IsBoolean() includesDriver: boolean;
+  @IsBoolean() includesGuide: boolean;
   @IsIn(vehicles) vehicleType: VehicleType;
   @IsDefined()
   @ValidateIf((o: WebsiteVehiclePriceDto) => o.unitPrice !== null)
@@ -507,7 +536,7 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Type(() => DeletedWebsiteDayDto)
   deletedDays?: DeletedWebsiteDayDto[] = [];
   @IsArray()
-  @ArrayMaxSize(5)
+  @ArrayMaxSize(10)
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
   vehiclePrices: WebsiteVehiclePriceDto[] = [];
@@ -584,7 +613,42 @@ export class WebsiteConfigHotelDto
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
   price: string;
 }
+export class WebsiteRouteVehicleOptionDto {
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteRouteVehicleOptionDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+}
 export class WebsiteRouteDto extends ConfigBaseDto implements WebsiteRoute {
+  @ApiPropertyOptional({ type: [WebsiteRouteVehicleOptionDto], maxItems: 100 })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((option: WebsiteRouteVehicleOptionDto) => option?.vehicleType)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteRouteVehicleOptionDto)
+  vehicleOptions: WebsiteRouteVehicleOptionDto[] = [];
+  @ApiPropertyOptional({
+    nullable: true,
+    description: '公里；未知留空，非负，最多两位小数',
+  })
+  @ValidateIf((o: WebsiteLegDto) => o.distanceKm !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  distanceKm: string | null = null;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteLegDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+
   @IsUUID() fromCityId: string;
   @IsUUID() toCityId: string;
   @IsIn(modes) mode: TransportMode;

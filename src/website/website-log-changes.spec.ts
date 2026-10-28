@@ -50,7 +50,16 @@ function plan(): WebsiteItinerary {
     updatedAt: '',
     days: [day('day-1', 1), day('day-2', 2)],
     deletedDays: [],
-    vehiclePrices: [{ vehicleType: '7_seat', unitPrice: '100.00' }],
+
+    vehiclePrices: [
+      {
+        vehicleType: '7_seat',
+        plan: 'A',
+        includesDriver: true,
+        includesGuide: true,
+        unitPrice: '100.00',
+      },
+    ],
   };
 }
 
@@ -128,7 +137,7 @@ describe('website field audit', () => {
     after.vehiclePrices[0].unitPrice = null;
     expect(websiteLogChanges(before, after)).toEqual([
       {
-        path: 'vehiclePrices.7_seat.unitPrice',
+        path: 'vehiclePrices.7_seat.A.unitPrice',
         kind: 'changed',
         before: '100.00',
         after: null,
