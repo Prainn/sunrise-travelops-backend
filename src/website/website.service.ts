@@ -315,6 +315,15 @@ export class WebsiteService {
     this.permission(user, 'website:config:list');
     const businessUnit = this.businessUnit(user, query.businessUnit);
     const group = this.configGroup(requestedGroup);
+    if (
+      group !== 'routes' &&
+      (query.fromCityId || query.toCityId || query.mode)
+    )
+      fail(
+        'VALIDATION_ERROR',
+        '此配置分组不支持交通筛选',
+        HttpStatus.BAD_REQUEST,
+      );
     if (query.cityId && !['attractions', 'hotels', 'patterns'].includes(group))
       fail(
         'VALIDATION_ERROR',
@@ -336,6 +345,9 @@ export class WebsiteService {
           AND ($5::text IS NULL OR item->>'cityId'=$5)
           AND ($6::text IS NULL OR item->>'id'<>$6)
           AND ($9::text IS NULL OR item->>'status'=$9)
+          AND ($10::text IS NULL OR item->>'fromCityId'=$10)
+          AND ($11::text IS NULL OR item->>'toCityId'=$11)
+          AND ($12::text IS NULL OR item->>'mode'=$12)
       ), page AS (
         SELECT item,ordinality FROM matches ORDER BY ordinality LIMIT $7 OFFSET $8
       )
@@ -352,6 +364,9 @@ export class WebsiteService {
         query.pageSize,
         (query.page - 1) * query.pageSize,
         query.status ?? null,
+        query.fromCityId ?? null,
+        query.toCityId ?? null,
+        query.mode ?? null,
       ],
     );
     if (!result)
@@ -1307,7 +1322,7 @@ export class WebsiteService {
       });
       day.legs.forEach((leg) => {
         if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
-          invalid('非包车交通段不能填写车型');
+          invalid('非专车交通段不能填写车型');
         city(leg.fromCityId);
         city(leg.toCityId);
         if (leg.routeId) {

@@ -9,6 +9,7 @@ import type {
   WebsiteConfigOption,
   WebsiteInquiry,
   WebsiteItinerary,
+  WebsiteRoute,
 } from '../src/website/website.types';
 
 const h = new IsolationHarness();
@@ -190,7 +191,11 @@ async function main() {
       'skeletons',
     ];
     for (const group of order) {
-      const saved = await h.call<{ version: number }>(
+      const saved = await h.call<{
+        version: number;
+        id: string;
+        group: string;
+      }>(
         editor,
         'POST',
         `/website/config/${group}`,
@@ -198,7 +203,9 @@ async function main() {
         201,
       );
       assert(saved.version > version);
-      assert.deepEqual(Object.keys(saved), ['version']);
+      assert.deepEqual(Object.keys(saved).sort(), ['group', 'id', 'version']);
+      assert.equal(saved.id, records[group].id);
+      assert.equal(saved.group, group);
       version = saved.version;
       const listed = await h.call<ConfigPage>(
         editor,
@@ -210,6 +217,112 @@ async function main() {
         assert.equal(listed.references[cities[0].id], cities[0].nameZh);
         assert.equal(listed.references[attraction.id], attraction.nameZh);
       }
+    }
+    const route = records.routes as WebsiteRoute;
+    const extraRoutes: WebsiteRoute[] = [
+      {
+        ...route,
+        id: randomUUID(),
+        mode: 'private_vehicle',
+        nameZh: '专车路线',
+      },
+      { ...route, id: randomUUID(), toCityId: cities[2].id },
+      { ...route, id: randomUUID(), fromCityId: cities[2].id },
+    ];
+    for (const record of extraRoutes) {
+      const saved = await h.call<{ version: number }>(
+        editor,
+        'POST',
+        '/website/config/routes',
+        { version, record },
+        201,
+      );
+      version = saved.version;
+    }
+    const routePage = await h.call<ConfigPage>(
+      editor,
+      'GET',
+      `/website/config/routes?fromCityId=${cities[0].id}&toCityId=${cities[1].id}&pageSize=1&page=2`,
+    );
+    assert.equal(routePage.total, 2);
+    assert.deepEqual(
+      routePage.list.map((item) => item.id),
+      [extraRoutes[0].id],
+    );
+    const combined = await h.call<ConfigPage>(
+      editor,
+      'GET',
+      `/website/config/routes?fromCityId=${cities[0].id}&toCityId=${cities[1].id}&mode=hsr&keyword=Route`,
+    );
+    assert.equal(combined.total, 1);
+    assert.equal(combined.list[0].id, route.id);
+    for (const [query, expected] of [
+      [`fromCityId=${cities[0].id}`, 3],
+      [`toCityId=${cities[1].id}`, 3],
+      ['mode=private_vehicle', 1],
+      [`fromCityId=${cities[1].id}`, 0],
+    ] as const) {
+      assert.equal(
+        (
+          await h.call<ConfigPage>(
+            editor,
+            'GET',
+            `/website/config/routes?${query}`,
+          )
+        ).total,
+        expected,
+      );
+    }
+    const routeOptions = await h.call<{
+      total: number;
+      list: WebsiteConfigOption[];
+    }>(
+      editor,
+      'GET',
+      `/website/config/routes/options?mode=private_vehicle&fromCityId=${cities[0].id}&toCityId=${cities[1].id}`,
+    );
+    assert.equal(routeOptions.total, 1);
+    assert.equal(routeOptions.list[0].id, extraRoutes[0].id);
+    for (const group of ['attractions', 'hotels', 'patterns']) {
+      assert.equal(
+        (
+          await h.call<ConfigPage>(
+            editor,
+            'GET',
+            `/website/config/${group}?cityId=${cities[0].id}`,
+          )
+        ).total,
+        1,
+      );
+      assert.equal(
+        (
+          await h.call<ConfigPage>(
+            editor,
+            'GET',
+            `/website/config/${group}?cityId=${cities[1].id}`,
+          )
+        ).total,
+        0,
+      );
+    }
+    assert.equal(
+      (
+        await h.call<ConfigPage>(
+          foreign,
+          'GET',
+          `/website/config/routes?mode=hsr&fromCityId=${cities[0].id}`,
+        )
+      ).total,
+      0,
+    );
+    for (const record of extraRoutes) {
+      const saved = await h.call<{ version: number }>(
+        editor,
+        'DELETE',
+        `/website/config/routes/${record.id}`,
+        { version },
+      );
+      version = saved.version;
     }
     current = await h.call<WebsiteConfig>(editor, 'GET', '/website/config');
     for (const group of order) {
@@ -338,6 +451,12 @@ async function main() {
       '/website/config/cities?pageSize=101',
       '/website/config/cities?page=0',
       '/website/config/cities?cityId=' + cities[0].id,
+      '/website/config/routes?fromCityId=invalid',
+      '/website/config/routes?toCityId=invalid',
+      '/website/config/routes?mode=invalid',
+      '/website/config/hotels?fromCityId=' + cities[0].id,
+      '/website/config/attractions?toCityId=' + cities[0].id,
+      '/website/config/patterns?mode=hsr',
     ])
       await h.call(editor, 'GET', path, undefined, 400, 'VALIDATION_ERROR');
     await h.call(

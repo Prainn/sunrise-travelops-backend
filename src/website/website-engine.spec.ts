@@ -584,7 +584,7 @@ describe('website report plans and mileage', () => {
       toCityId: config.cities[0].id,
       mode: 'private_vehicle',
       vehicleType: index === 0 ? '5_seat' : '7_seat',
-      nameZh: '包车',
+      nameZh: '专车',
       nameEn: 'Private vehicle',
       feeState: 'INCLUDED',
       distanceKm: String(distance),
@@ -596,6 +596,7 @@ describe('website report plans and mileage', () => {
       { ...day.legs[0], id: randomUUID(), distanceKm: null },
     ];
     const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.chinese.itinerary[0].transportation).toBe('专车');
     expect(preview.english.mileage?.map((row) => row.distanceKm)).toEqual([
       '190',
       '80',

@@ -261,7 +261,7 @@ async function main() {
               { vehicleType: '7_seat', durationMinutes: 210 },
               { vehicleType: '商务车', durationMinutes: null },
             ],
-      nameZh: i === 1 ? '大理至昆明高铁' : '昆明至大理包车',
+      nameZh: i === 1 ? '大理至昆明高铁' : '昆明至大理专车',
       nameEn:
         i === 1 ? 'Dali to Kunming train' : 'Kunming to Dali private vehicle',
       feeState: 'INCLUDED',

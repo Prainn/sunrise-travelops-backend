@@ -137,9 +137,9 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
   }
   for (const route of config.routes) {
     if (route.mode !== 'private_vehicle' && route.vehicleOptions.length > 0)
-      invalid('非包车交通段不能填写车型');
+      invalid('非专车交通段不能填写车型');
     if (route.mode === 'private_vehicle' && route.durationMinutes != null)
-      invalid('包车预计耗时必须按车型填写');
+      invalid('专车预计耗时必须按车型填写');
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
       invalid('路线的起点和终点必须为已有独立站城市');
   }
@@ -461,14 +461,14 @@ export function buildWebsitePreview(
         issue(
           'ITINERARY_INVALID',
           'ERROR',
-          '请明确包车交通段车型（例如5座或7座）',
+          '请明确专车交通段车型（例如5座或7座）',
           day.dayNumber,
         );
       if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
         issue(
           'ITINERARY_INVALID',
           'ERROR',
-          '非包车交通段不能填写车型',
+          '非专车交通段不能填写车型',
           day.dayNumber,
         );
       if (leg.fromCityId !== legCity)
@@ -741,7 +741,7 @@ export function buildWebsitePreview(
         }
         return {
           hsr: language === 'en' ? 'High-speed train' : '高铁',
-          private_vehicle: language === 'en' ? 'Private vehicle' : '包车',
+          private_vehicle: language === 'en' ? 'Private vehicle' : '专车',
           flight: language === 'en' ? 'Flight' : '航班',
           other: language === 'en' ? 'Other' : '其他',
         }[leg.mode];
@@ -963,7 +963,7 @@ export function buildWebsitePreview(
                     ? websiteTransportVehicleLabel(row.vehicleType, language)
                     : language === 'en'
                       ? 'Private vehicle'
-                      : '包车',
+                      : '专车',
                   flight: language === 'en' ? 'Flight' : '航班',
                   other: language === 'en' ? 'Other' : '其他',
                 }[row.mode],

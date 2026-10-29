@@ -248,6 +248,10 @@ export class WebsiteConfigListQuery extends PaginationQueryDto {
   @IsOptional() @Transform(trim) @IsString() @MaxLength(100) keyword:
     string | undefined = undefined;
   @IsOptional() @IsUUID() cityId?: string;
+  @IsOptional() @IsUUID() fromCityId?: string;
+  @IsOptional() @IsUUID() toCityId?: string;
+  @IsOptional() @IsIn(['hsr', 'private_vehicle', 'flight', 'other']) mode?:
+    'hsr' | 'private_vehicle' | 'flight' | 'other';
   @IsOptional() @IsUUID() excludeId?: string;
   @IsOptional() @IsIn(['enabled', 'disabled']) status?: ConfigStatus;
 }
