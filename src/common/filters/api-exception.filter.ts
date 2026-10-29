@@ -99,9 +99,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
       const status = exception.getStatus();
       if (
         exception instanceof BusinessException &&
-        [ErrorCode.FEISHU_NOT_CONFIGURED, ErrorCode.FEISHU_SEND_FAILED].some(
-          (code) => code === exception.code,
-        )
+        [
+          ErrorCode.FEISHU_NOT_CONFIGURED,
+          ErrorCode.FEISHU_SEND_FAILED,
+          ErrorCode.INSPECTION_ALERT_UNAVAILABLE,
+        ].some((code) => code === exception.code)
       ) {
         return {
           status,
