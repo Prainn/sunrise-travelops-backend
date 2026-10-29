@@ -51,8 +51,6 @@ describe('website draft save and explicit validation', () => {
       duration: 1,
       startDate: null,
       pax: null,
-      arrivalTime: '',
-      departureTime: '',
       configVersion: 1,
 
       vehiclePrices: [],

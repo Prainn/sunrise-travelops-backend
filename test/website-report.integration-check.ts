@@ -72,8 +72,6 @@ async function main() {
       duration: 1,
       startDate: null,
       pax: 3,
-      arrivalTime: '',
-      departureTime: '',
 
       vehiclePrices: [
         {

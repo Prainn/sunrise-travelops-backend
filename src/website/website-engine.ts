@@ -99,6 +99,12 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
       'city',
       'attraction',
     ];
+    const tokens = (text: string) =>
+      [...new Set([...text.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]))]
+        .sort()
+        .join(',');
+    if (tokens(template.zh) !== tokens(template.en))
+      invalid(`文案 ${template.code} 的中英文变量必须一致`);
     const matches = `${template.zh} ${template.en}`.matchAll(/\{([^{}]+)\}/g);
     for (const match of matches) {
       if (!variables.includes(match[1]))
@@ -826,7 +832,7 @@ export function buildWebsitePreview(
           language === 'en' ? meal.restaurantEn : meal.restaurantZh;
         const label = mealLabels[meal.slot];
         let recommendation = '';
-        if (restaurant) {
+        if (restaurant && meal.feeState === 'RECOMMENDED') {
           recommendation = template('restaurant-recommendation', {
             restaurant_or_meal: restaurant,
           });

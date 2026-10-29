@@ -6,7 +6,9 @@ export async function nextBusinessCode(
   prefix: string,
 ): Promise<string> {
   const rows: { code: string }[] = await manager.query(
-    'SELECT next_business_code($1) AS code',
+    prefix === 'INQ'
+      ? 'SELECT next_business_code($1, now()) AS code'
+      : 'SELECT next_business_code($1) AS code',
     [prefix],
   );
   return rows[0].code;

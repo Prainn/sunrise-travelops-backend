@@ -4,7 +4,6 @@ import {
   quotationPriceKey,
 } from './website-price';
 import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
@@ -130,7 +129,7 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
-  arrival_time AS "arrivalTime",departure_time AS "departureTime",config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
+  config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 function fail(
@@ -483,7 +482,7 @@ export class WebsiteService {
         user,
         businessUnit,
       );
-      return { version: saved.version };
+      return { version: saved.version, id: record?.id ?? id, group };
     });
   }
   private configReferences(config: WebsiteConfig): ResourceReference[] {
@@ -869,48 +868,7 @@ export class WebsiteService {
         'country-region',
         input.countryItemId,
       );
-      const [creator] = await manager.query<{ tourCode: string | null }[]>(
-        'SELECT tour_code AS "tourCode" FROM users WHERE id=$1 FOR SHARE',
-        [user.id],
-      );
-      if (!creator?.tourCode)
-        fail(
-          'VALIDATION_ERROR',
-          '当前账号未设置团号标识',
-          HttpStatus.BAD_REQUEST,
-        );
-      const [day] = await manager.query<{ date: string }[]>(
-        `SELECT (now() AT TIME ZONE 'Asia/Shanghai')::date::text AS date`,
-      );
-      // Reserve the rendered code independently of the business row: deletion
-      // cannot reuse it. One daily lock also covers ambiguous digit-ending markers.
-      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        `website-inquiry-number:${day.date}`,
-      ]);
-      const [counter] = await manager.query<{ next: number }[]>(
-        `SELECT (coalesce(max(sequence),0)+1)::integer AS next
-         FROM website_inquiry_numbers WHERE creator_code=$1 AND creation_date=$2`,
-        [creator.tourCode, day.date],
-      );
-      const base = tourNumberBase(
-        businessUnit === 'website' ? 'LYNX-INQ' : 'KMLX-WIQ',
-        day.date,
-        creator.tourCode,
-        country.code,
-      );
-      const taken = await manager.query<{ code: string }[]>(
-        'SELECT code FROM website_inquiry_numbers WHERE creation_date=$1',
-        [day.date],
-      );
-      const code = pickTourNumber(
-        base,
-        counter.next,
-        new Set(taken.map((row) => row.code)),
-      );
-      await manager.query(
-        `INSERT INTO website_inquiry_numbers(code,creator_code,creation_date,sequence) VALUES($1,$2,$3,$4)`,
-        [code, creator.tourCode, day.date, counter.next],
-      );
+      const code = await nextBusinessCode(manager, 'INQ');
       const id = randomUUID();
       await manager.query(
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
@@ -1446,8 +1404,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version,reorder_draft,business_unit)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
       [
         id,
         inquiryId,
@@ -1456,8 +1414,6 @@ export class WebsiteService {
         input.duration,
         input.startDate,
         input.pax,
-        input.arrivalTime,
-        input.departureTime,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
@@ -1524,16 +1480,14 @@ export class WebsiteService {
     action: WebsiteLogAction = 'itinerary_saved',
   ) {
     await manager.query(
-      `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,arrival_time=$6,departure_time=$7,
-      config_version=$8,reorder_draft=$9,version=version+1,updated_at=now() WHERE id=$1`,
+      `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,
+      config_version=$6,reorder_draft=$7,version=version+1,updated_at=now() WHERE id=$1`,
       [
         itinerary.id,
         input.title,
         input.duration,
         input.startDate,
         input.pax,
-        input.arrivalTime,
-        input.departureTime,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],

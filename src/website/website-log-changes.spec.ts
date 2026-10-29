@@ -41,8 +41,6 @@ function plan(): WebsiteItinerary {
     duration: 2,
     startDate: null,
     pax: null,
-    arrivalTime: '',
-    departureTime: '',
     configVersion: 1,
     status: 'draft',
     version: 1,

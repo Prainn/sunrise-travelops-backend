@@ -118,8 +118,6 @@ function fixture() {
     duration: 2,
     startDate: null,
     pax: 3,
-    arrivalTime: '',
-    departureTime: '',
     configVersion: config.version,
     status: 'draft',
     version: 1,

@@ -1108,8 +1108,6 @@ async function main() {
           duration: 2,
           startDate: null,
           pax: 3,
-          arrivalTime: '',
-          departureTime: '',
           configVersion: config.version,
           days,
 
@@ -1300,10 +1298,6 @@ async function main() {
         if (warningCode === 'VAL-W01')
           input.days[1].items = [attractionFixture()];
         if (warningCode === 'VAL-W02') input.startDate = '2026-10-07';
-        if (warningCode !== 'VAL-W03') {
-          input.arrivalTime = '09:00';
-          input.departureTime = '18:00';
-        }
         const warningPlan = await createPlan(input);
         const result = await preview(warningPlan.id);
         assert(
@@ -1506,8 +1500,6 @@ async function main() {
       );
       const monthBoundaryPlan = structuredClone(itinerary);
       monthBoundaryPlan.startDate = '2026-02-28';
-      monthBoundaryPlan.arrivalTime = '09:00';
-      monthBoundaryPlan.departureTime = '18:00';
       monthBoundaryPlan.days[0].items = [];
       monthBoundaryPlan.days[1].items = [attractionFixture()];
       const monthBoundaryConfig = structuredClone(config);

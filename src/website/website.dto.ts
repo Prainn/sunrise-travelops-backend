@@ -538,8 +538,6 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Min(1)
   @Max(10000)
   pax: number | null = null;
-  @IsString() @MaxLength(100) arrivalTime = '';
-  @IsString() @MaxLength(100) departureTime = '';
   @IsInt() @Min(0) configVersion: number;
   @IsArray()
   @ArrayMaxSize(365)

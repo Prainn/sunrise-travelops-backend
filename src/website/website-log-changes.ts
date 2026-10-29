@@ -40,8 +40,6 @@ function itineraryContent(value: WebsiteItinerary) {
     duration: value.duration,
     startDate: value.startDate,
     pax: value.pax,
-    arrivalTime: value.arrivalTime,
-    departureTime: value.departureTime,
     configVersion: value.configVersion,
     status: value.status,
     days: value.days,
@@ -91,50 +89,61 @@ export function websiteLogChanges(
   const plans = [after, before].filter(
     (value): value is WebsiteItinerary => !!value && 'inquiryId' in value,
   );
-  return changes.map((change) => {
-    const context: NonNullable<WebsiteLogChange['context']> = {};
-    const match = change.path.match(/^(days|deletedDays)\[([^\]]+)\]/);
-    if (match) {
-      const days = plans
-        .flatMap((plan) =>
-          match[1] === 'days'
-            ? plan.days
-            : (plan.deletedDays ?? []).map((entry) => entry.day),
-        )
-        .filter((day) => day.id === match[2]);
-      if (days[0]) context.dayNumber = days[0].dayNumber;
-      const itemMatch = change.path.match(
-        /\.(items|legs|hotels|meals|services)\[([^\]]+)\]/,
-      );
-      if (itemMatch) {
-        const collection = itemMatch[1] as
-          'items' | 'legs' | 'hotels' | 'meals' | 'services';
-        const item = days
-          .flatMap((day) => [...day[collection]])
-          .find((value) => value.id === itemMatch[2]);
-        if (item) {
-          context.nameZh = 'nameZh' in item ? item.nameZh : item.restaurantZh;
-          context.nameEn = 'nameEn' in item ? item.nameEn : item.restaurantEn;
-          if ('tier' in item) context.hotelTier = item.tier;
-          if ('slot' in item) context.mealSlot = item.slot;
+  return changes
+    .filter((change) => before !== undefined || !isEmpty(change.after))
+    .map((change) => {
+      const context: NonNullable<WebsiteLogChange['context']> = {};
+      const match = change.path.match(/^(days|deletedDays)\[([^\]]+)\]/);
+      if (match) {
+        const days = plans
+          .flatMap((plan) =>
+            match[1] === 'days'
+              ? plan.days
+              : (plan.deletedDays ?? []).map((entry) => entry.day),
+          )
+          .filter((day) => day.id === match[2]);
+        if (days[0]) context.dayNumber = days[0].dayNumber;
+        const itemMatch = change.path.match(
+          /\.(items|legs|hotels|meals|services)\[([^\]]+)\]/,
+        );
+        if (itemMatch) {
+          const collection = itemMatch[1] as
+            'items' | 'legs' | 'hotels' | 'meals' | 'services';
+          const item = days
+            .flatMap((day) => [...day[collection]])
+            .find((value) => value.id === itemMatch[2]);
+          if (item) {
+            context.nameZh = 'nameZh' in item ? item.nameZh : item.restaurantZh;
+            context.nameEn = 'nameEn' in item ? item.nameEn : item.restaurantEn;
+            if ('tier' in item) context.hotelTier = item.tier;
+            if ('slot' in item) context.mealSlot = item.slot;
+          }
         }
       }
-    }
-    const price = plans
-      .flatMap((plan) => plan.vehiclePrices)
-      .find((price) =>
-        change.path.startsWith(
-          `vehiclePrices.${JSON.stringify([price.vehicleType, price.hotelTier])}`,
-        ),
-      );
-    if (price?.vehicleType) context.vehicleType = price.vehicleType;
-    if (price?.hotelTier) context.hotelTier = price.hotelTier;
-    return {
-      path: change.path,
-      kind: change.kind,
-      before: change.before,
-      after: change.after,
-      ...(Object.keys(context).length ? { context } : {}),
-    };
-  });
+      const price = plans
+        .flatMap((plan) => plan.vehiclePrices)
+        .find((price) =>
+          change.path.startsWith(
+            `vehiclePrices.${JSON.stringify([price.vehicleType, price.hotelTier])}`,
+          ),
+        );
+      if (price?.vehicleType) context.vehicleType = price.vehicleType;
+      if (price?.hotelTier) context.hotelTier = price.hotelTier;
+      return {
+        path: change.path,
+        kind: change.kind,
+        before: change.before,
+        after: change.after,
+        ...(Object.keys(context).length ? { context } : {}),
+      };
+    });
+}
+
+function isEmpty(value: unknown): boolean {
+  return (
+    value == null ||
+    value === '' ||
+    (Array.isArray(value) && value.length === 0) ||
+    (typeof value === 'object' && Object.keys(value).length === 0)
+  );
 }

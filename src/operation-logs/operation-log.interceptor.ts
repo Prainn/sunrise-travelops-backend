@@ -1,3 +1,5 @@
+import { QueryFailedError } from 'typeorm';
+import { normalizeDatabaseError } from '../common/filters/api-exception.filter';
 import {
   CallHandler,
   ExecutionContext,
@@ -156,6 +158,7 @@ function actionFor(
       createConfigRecord: {
         category: 'website-config',
         label: '新增独立站配置',
+        resultId: true,
       },
       updateConfigRecord: {
         category: 'website-config',
@@ -350,10 +353,21 @@ export class OperationLogInterceptor implements NestInterceptor {
       if (typeof id === 'string') data.recordId = id.slice(0, 100);
       if (action.parentKey && request.params[action.parentKey] != null)
         data.parentId = String(request.params[action.parentKey]).slice(0, 100);
+      if (
+        controller === 'WebsiteController' &&
+        handler === 'createConfigRecord'
+      )
+        data.group = String(request.params.group ?? '');
       if (error !== undefined) {
         data.statusCode =
-          error instanceof HttpException ? error.getStatus() : 500;
+          error instanceof HttpException
+            ? error.getStatus()
+            : error instanceof QueryFailedError
+              ? normalizeDatabaseError(error.driverError).status
+              : 500;
         if (error instanceof BusinessException) data.errorCode = error.code;
+        else if (error instanceof QueryFailedError)
+          data.errorCode = normalizeDatabaseError(error.driverError).code;
       }
       return JSON.stringify(data);
     };
