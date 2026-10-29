@@ -77,10 +77,8 @@ async function main() {
 
       vehiclePrices: [
         {
-          vehicleType: '7_seat',
-          plan: 'A',
-          includesDriver: true,
-          includesGuide: true,
+          vehicleType: null,
+          hotelTier: null,
           unitPrice: '123.45',
         },
       ],
@@ -381,13 +379,9 @@ async function main() {
         },
       ],
       vehiclePrices: [
-        ...input.vehiclePrices,
         {
-          vehicleType: '7_seat' as const,
-          plan: 'B' as const,
-          includesDriver: false,
-          includesGuide: false,
-          unitPrice: '0.00',
+          ...input.vehiclePrices[0],
+          vehicleType: '定制22座车',
         },
       ],
     };
@@ -491,13 +485,14 @@ async function main() {
       },
       201,
     );
-    assert.equal(quote.schemaVersion, 4);
+    assert.equal(quote.schemaVersion, 5);
     assert.deepEqual(
-      quote.english.quotation.map((q) => [q.plan, q.totalPrice]),
-      [
-        ['A', '370.35'],
-        ['B', '0.00'],
-      ],
+      quote.english.quotation.map((q) => [
+        q.vehicleType,
+        q.hotelTier,
+        q.totalPrice,
+      ]),
+      [['定制22座车', null, '370.35']],
     );
     assert.deepEqual(
       quote.english.mileage?.map((m) => m.route),
@@ -533,7 +528,10 @@ async function main() {
       ]),
     );
     assert.deepEqual(copied.vehiclePrices, plan.vehiclePrices);
-    await assert.rejects(h.db.undoLastMigration(), /before rollback/);
+    await assert.rejects(
+      h.db.undoLastMigration(),
+      /Hotel-tier quotation data prevents rollback/,
+    );
     console.log(
       `Website report: fresh/upgrade migrations, constraints, isolation, save/copy/freeze passed (${h.requests} API calls)`,
     );

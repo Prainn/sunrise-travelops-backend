@@ -54,7 +54,7 @@ function plan(): WebsiteItinerary {
     vehiclePrices: [
       {
         vehicleType: '7_seat',
-        plan: 'A',
+        hotelTier: 'A',
         includesDriver: true,
         includesGuide: true,
         unitPrice: '100.00',
@@ -137,11 +137,11 @@ describe('website field audit', () => {
     after.vehiclePrices[0].unitPrice = null;
     expect(websiteLogChanges(before, after)).toEqual([
       {
-        path: 'vehiclePrices.7_seat.A.unitPrice',
+        path: 'vehiclePrices.["7_seat","A"].unitPrice',
         kind: 'changed',
         before: '100.00',
         after: null,
-        context: { vehicleType: '7_seat' },
+        context: { vehicleType: '7_seat', hotelTier: 'A' },
       },
     ]);
   });
@@ -180,8 +180,8 @@ it('records component prices and PDF display changes with the vehicle context', 
   after.vehiclePrices[0].priceComponents![0].unitPrice = '21.00';
   const changes = websiteLogChanges(before, after);
   expect(changes.map((row) => row.path).sort()).toEqual([
-    'vehiclePrices.7_seat.A.priceComponents.hotel.showInPdf',
-    'vehiclePrices.7_seat.A.priceComponents.hotel.unitPrice',
+    'vehiclePrices.["7_seat","A"].priceComponents.hotel.showInPdf',
+    'vehiclePrices.["7_seat","A"].priceComponents.hotel.unitPrice',
   ]);
   expect(changes.every((row) => row.context?.vehicleType === '7_seat')).toBe(
     true,

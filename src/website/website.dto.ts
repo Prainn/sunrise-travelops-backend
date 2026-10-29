@@ -28,7 +28,6 @@ import type {
   WebsiteBusinessUnit,
   FeeState,
   TransportMode,
-  VehicleType,
   ConfigStatus,
   WebsiteInquiryInput,
   WebsiteItineraryInput,
@@ -39,7 +38,8 @@ import type {
   WebsiteHotelStay,
   WebsiteMeal,
   WebsiteService,
-  WebsiteVehiclePrice,
+  WebsiteVehiclePriceInput,
+  WebsiteHotelTier,
   WebsiteCity,
   WebsiteAttraction,
   WebsiteConfigHotel,
@@ -58,13 +58,6 @@ const fees: FeeState[] = [
   'UNKNOWN',
 ];
 const modes: TransportMode[] = ['hsr', 'private_vehicle', 'flight', 'other'];
-const vehicles: VehicleType[] = [
-  '5_seat',
-  '7_seat',
-  '9_seat',
-  '14_seat',
-  '18_seat',
-];
 const statuses = ['new', 'planning', 'quoted', 'lost', 'archived'] as const;
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -409,16 +402,23 @@ export class WebsitePriceComponentDto {
   unitPrice: string | null;
   @IsBoolean() showInPdf: boolean;
 }
-export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
+export class WebsiteVehiclePriceDto implements WebsiteVehiclePriceInput {
   @IsArray()
   @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => WebsitePriceComponentDto)
   priceComponents: WebsitePriceComponentDto[] = [];
-  @IsIn(['A', 'B']) plan: 'A' | 'B';
-  @IsBoolean() includesDriver: boolean;
-  @IsBoolean() includesGuide: boolean;
-  @IsIn(vehicles) vehicleType: VehicleType;
+  @IsDefined()
+  @ValidateIf((o: WebsiteVehiclePriceDto) => o.hotelTier !== null)
+  @IsIn(['A', 'B', 'C', 'D'])
+  hotelTier: WebsiteHotelTier | null;
+  @IsDefined()
+  @Transform(trim)
+  @ValidateIf((o: WebsiteVehiclePriceDto) => o.vehicleType !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string | null;
   @IsDefined()
   @ValidateIf((o: WebsiteVehiclePriceDto) => o.unitPrice !== null)
   @IsString()
@@ -551,7 +551,7 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Type(() => DeletedWebsiteDayDto)
   deletedDays?: DeletedWebsiteDayDto[] = [];
   @IsArray()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(2000)
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
   vehiclePrices: WebsiteVehiclePriceDto[] = [];

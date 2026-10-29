@@ -128,10 +128,10 @@ function fixture() {
 
     vehiclePrices: [
       {
-        vehicleType: '7_seat',
-        plan: 'A',
-        includesDriver: true,
-        includesGuide: true,
+        vehicleType: null,
+        hotelTier: 'A',
+        includesDriver: false,
+        includesGuide: false,
         unitPrice: '8800.00',
       },
     ],
@@ -238,9 +238,9 @@ describe('website UAT output', () => {
     expect(preview.english.hotelOptions[0].hotel).toBe('Manual Hotel');
     expect(preview.english.quotation).toEqual([
       expect.objectContaining({
-        vehicle: '7-seat vehicle',
+        vehicle: 'No private vehicle',
         price: 'RMB 8800.00 PP',
-        plan: 'A',
+        hotelTier: 'A',
         pax: 3,
         totalPrice: '26400.00',
       }),
@@ -471,78 +471,90 @@ it('generates first and last day attractions without confirmed travel times', ()
 });
 
 describe('website report plans and mileage', () => {
-  it('prices A/B separately in cents, omits blank plans, and scopes guide/driver text', () => {
+  it('prices vehicle × hotel tiers and derives service scope from active days', () => {
     const { inquiry, itinerary, config } = fixture();
-    itinerary.vehiclePrices = [
-      {
-        vehicleType: '7_seat',
-        plan: 'A',
-        includesDriver: true,
-        includesGuide: false,
-        unitPrice: '6921',
-      },
-      {
-        vehicleType: '7_seat',
-        plan: 'B',
-        includesDriver: true,
-        includesGuide: true,
-        unitPrice: '8641',
-      },
-      {
-        vehicleType: '5_seat',
-        plan: 'A',
+    itinerary.days[0].legs = ['5_seat', '7_seat'].map((vehicleType) => ({
+      id: randomUUID(),
+      routeId: null,
+      fromCityId: config.cities[0].id,
+      toCityId: config.cities[0].id,
+      mode: 'private_vehicle',
+      vehicleType,
+      nameZh: '专车',
+      nameEn: 'Private vehicle',
+      feeState: 'INCLUDED',
+    }));
+    itinerary.days[0].hotels.push({
+      ...itinerary.days[0].hotels[0],
+      id: randomUUID(),
+      tier: 'B',
+    });
+    itinerary.days[0].guideLanguage = 'English';
+    itinerary.vehiclePrices = ['5_seat', '7_seat'].flatMap((vehicleType) =>
+      (['A', 'B'] as const).map((hotelTier) => ({
+        vehicleType,
+        hotelTier,
         includesDriver: false,
         includesGuide: false,
-        unitPrice: null,
+        unitPrice: hotelTier === 'A' ? '8641' : '6921',
+      })),
+    );
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.schemaVersion).toBe(5);
+    expect(
+      preview.english.quotation.map((row) => [
+        row.vehicleType,
+        row.hotelTier,
+        row.totalPrice,
+      ]),
+    ).toEqual([
+      ['5_seat', 'A', '25923.00'],
+      ['7_seat', 'A', '25923.00'],
+      ['5_seat', 'B', '20763.00'],
+      ['7_seat', 'B', '20763.00'],
+    ]);
+    expect(
+      preview.english.quotation.every(
+        (row) =>
+          row.includesDriver && row.includesGuide && row.plan === undefined,
+      ),
+    ).toBe(true);
+    expect(preview.english.inclusions).toContain(
+      'D1: Tour guide (English) included.',
+    );
+    expect(
+      preview.english.inclusions.some((line) =>
+        line.includes('Private driver included on D1.'),
+      ),
+    ).toBe(true);
+    expect(preview.chinese.quotation[0].hotelCategory).toBe('高端五星');
+    expect(preview.english.hotelOptions[0]).toMatchObject({
+      startDay: 1,
+      endDay: 1,
+      nights: 1,
+      breakfastIncluded: true,
+    });
+    itinerary.days[0].guideLanguage = '';
+    itinerary.deletedDays = [
+      {
+        day: {
+          ...structuredClone(itinerary.days[0]),
+          guideLanguage: 'English',
+        },
+        originalDate: null,
       },
     ];
-    itinerary.days[0].guideLanguage = 'English';
-    config.templates.push({
-      id: randomUUID(),
-      name: 'Guide',
-      code: 'guide',
-      status: 'enabled',
-      en: '{language} guide included.',
-      zh: '包含{language}导游。',
-    });
-    const preview = buildWebsitePreview(inquiry, itinerary, config);
-    for (const output of [preview.english, preview.chinese]) {
-      expect(
-        output.quotation.map((row) => [
-          row.plan,
-          row.pax,
-          row.unitPrice,
-          row.totalPrice,
-        ]),
-      ).toEqual([
-        ['A', 3, '6921.00', '20763.00'],
-        ['B', 3, '8641.00', '25923.00'],
-      ]);
-      expect(
-        output.teamStandard?.find((row) => row.category === 'service')?.included
-          .length,
-      ).toBeGreaterThan(0);
-    }
-    expect(preview.english.inclusions).toContain(
-      'For 7-seat vehicle B only: English guide included.',
-    );
-    expect(preview.english.inclusions).not.toContain(
-      'Private vehicle and driver included.',
-    );
-    expect(preview.english.itinerary[0].sightseeing).toContain(
-      'For 7-seat vehicle B only:',
-    );
-    itinerary.vehiclePrices[0].includesDriver = false;
-    itinerary.vehiclePrices[1].unitPrice = null;
-    const noServices = buildWebsitePreview(inquiry, itinerary, config).english;
     expect(
-      noServices.inclusions.some((line) =>
-        line.includes('Private vehicle and driver included'),
+      buildWebsitePreview(inquiry, itinerary, config).english.quotation.every(
+        (row) => row.includesGuide === false,
       ),
-    ).toBe(false);
-    expect(noServices.itinerary[0].sightseeing).not.toContain(
-      'English guide included',
-    );
+    ).toBe(true);
+    itinerary.days[1].overnightCityId = config.cities[0].id;
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues.some(
+        (issue) => issue.code === 'VAL-E09' && issue.dayNumber === 2,
+      ),
+    ).toBe(true);
   });
 
   it('keeps zero, null pax and maximum-precision totals distinct', () => {

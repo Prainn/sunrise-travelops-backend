@@ -1,4 +1,8 @@
-import { normalizeVehiclePrice } from './website-price';
+import {
+  normalizeVehiclePrice,
+  websiteQuotationOptions,
+  WEBSITE_HOTEL_TIERS,
+} from './website-price';
 import { toCents } from '../inquiries/money';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
@@ -284,9 +288,14 @@ export function buildWebsitePreview(
   itinerary: WebsiteItinerary,
   config: WebsiteConfig,
 ): WebsitePreview {
+  const quotationOptions = websiteQuotationOptions(itinerary.days);
   itinerary = {
     ...itinerary,
-    vehiclePrices: itinerary.vehiclePrices.map(normalizeVehiclePrice),
+    vehiclePrices: itinerary.vehiclePrices.map((price) => ({
+      ...normalizeVehiclePrice(price),
+      includesDriver: quotationOptions.includesDriver,
+      includesGuide: quotationOptions.includesGuide,
+    })),
   };
   const issues: WebsiteValidation[] = [];
   function issue(
@@ -316,7 +325,7 @@ export function buildWebsitePreview(
   )
     issue('VAL-E01', 'ERROR', '行程日数及顺序必须与计划天数一致');
   if (!itinerary.vehiclePrices.some((price) => price.unitPrice !== null))
-    issue('VAL-E07', 'ERROR', '至少填写一个车型的人民币人均售价');
+    issue('VAL-E07', 'ERROR', '至少填写一个车型与酒店档次组合的人民币人均售价');
   if (itinerary.pax === null)
     issue('VAL-E08', 'ERROR', '正式确认前请填写报价人数');
   if (itinerary.configVersion !== config.version)
@@ -340,6 +349,35 @@ export function buildWebsitePreview(
   const pricedPlans = itinerary.vehiclePrices.filter(
     (price) => price.unitPrice !== null,
   );
+  for (const price of itinerary.vehiclePrices) {
+    if (
+      !quotationOptions.vehicleTypes.includes(price.vehicleType) ||
+      !quotationOptions.hotelTiers.includes(price.hotelTier)
+    )
+      issue(
+        'VAL-E09',
+        'ERROR',
+        '报价组合已不在当前行程中，请调整车型或酒店档次',
+      );
+    if (price.unitPrice === null) continue;
+    for (const day of itinerary.days) {
+      if (
+        day.overnightCityId &&
+        !day.hotels.some(
+          (hotel) =>
+            hotel.tier === price.hotelTier &&
+            hotel.nameZh.trim() &&
+            hotel.nameEn.trim(),
+        )
+      )
+        issue(
+          'VAL-E09',
+          'ERROR',
+          '已报价酒店档次须覆盖每个住宿日并填写双语酒店名，不能推测其他档次酒店',
+          day.dayNumber,
+        );
+    }
+  }
   const seenAttractions = new Set<string>();
   const visited: string[] = [];
   for (const day of itinerary.days) {
@@ -566,15 +604,18 @@ export function buildWebsitePreview(
       inclusions.add(line);
       standards.get(category)!.add(line);
     }
-    const planLabel = (price: (typeof pricedPlans)[number]) =>
-      `${WEBSITE_VEHICLES[price.vehicleType][language]} ${price.plan}`;
-    const guidePlans = pricedPlans
-      .filter((price) => price.includesGuide)
-      .map(planLabel);
-    const guidePrefix =
-      language === 'en'
-        ? `For ${guidePlans.join(', ')} only: `
-        : `仅${guidePlans.join('、')}方案：`;
+    const hotelLabel = (tier: keyof typeof WEBSITE_HOTEL_TIERS | null) =>
+      tier
+        ? WEBSITE_HOTEL_TIERS[tier][language]
+        : language === 'en'
+          ? 'No accommodation'
+          : '不住宿';
+    const vehicleLabel = (vehicle: string | null) =>
+      vehicle
+        ? websiteTransportVehicleLabel(vehicle, language)
+        : language === 'en'
+          ? 'No private vehicle'
+          : '无专车';
 
     function city(id: string): string {
       const record = cities.get(id);
@@ -640,6 +681,7 @@ export function buildWebsitePreview(
       return `${name} (${labels[state]})`;
     }
     const hotelOptions: WebsiteOutput['hotelOptions'] = [];
+    const hotelStays = new Map<string, WebsiteOutput['hotelOptions'][number]>();
     const itineraryRows: WebsiteOutput['itinerary'] = [];
     for (const day of itinerary.days) {
       const sightseeing: string[] = [];
@@ -694,22 +736,14 @@ export function buildWebsitePreview(
           }
         }
       }
-      if (day.guideLanguage.trim() && guidePlans.length) {
-        const line = template('guide', {
-          language: day.guideLanguage,
-        });
-        if (!line)
-          issue(
-            'VAL-E05',
-            'ERROR',
-            '已选导游必须有双语 Included 文案',
-            day.dayNumber,
-          );
-        else {
-          include(guidePrefix + line, 'service');
-          sightseeing.push(guidePrefix + line);
-          events.set(`${day.id}-guide`, guidePrefix + line);
-        }
+      if (day.guideLanguage.trim()) {
+        const line =
+          language === 'en'
+            ? `D${day.dayNumber}: Tour guide (${day.guideLanguage.trim()}) included.`
+            : `第${day.dayNumber}天：包含${day.guideLanguage.trim()}导游服务。`;
+        include(line, 'service');
+        sightseeing.push(line);
+        events.set(`${day.id}-guide`, line);
       }
       for (const service of day.services) {
         const line = serviceLine(
@@ -746,24 +780,38 @@ export function buildWebsitePreview(
       const hotels: string[] = [];
       for (const hotel of day.hotels) {
         const name = language === 'en' ? hotel.nameEn : hotel.nameZh;
-        hotels.push(`${hotel.tier}: ${name}`);
-        events.set(hotel.id, `${hotel.tier}: ${name}`);
+        hotels.push(`${hotelLabel(hotel.tier)}: ${name}`);
+        events.set(hotel.id, `${hotelLabel(hotel.tier)}: ${name}`);
         const hotelOption = {
           tier: hotel.tier,
           city: city(hotel.cityId),
           hotel: name,
           roomType: hotel.roomType,
+          tierLabel: hotelLabel(hotel.tier),
+          startDay: day.dayNumber,
+          endDay: day.dayNumber,
+          nights: 1,
+          breakfastIncluded: hotel.breakfastIncluded,
         };
-        if (
-          !hotelOptions.some(
-            (option) =>
-              option.tier === hotelOption.tier &&
-              option.city === hotelOption.city &&
-              option.hotel === hotelOption.hotel &&
-              option.roomType === hotelOption.roomType,
-          )
-        )
-          hotelOptions.push(hotelOption);
+        if (day.overnightCityId) {
+          const stayKey = JSON.stringify([
+            hotel.tier,
+            hotel.cityId,
+            hotel.configHotelId,
+            hotel.resourceId,
+            name,
+            hotel.roomType,
+            hotel.breakfastIncluded,
+          ]);
+          const previous = hotelStays.get(stayKey);
+          if (previous?.endDay === day.dayNumber - 1) {
+            previous.endDay = day.dayNumber;
+            previous.nights = (previous.nights ?? 1) + 1;
+          } else {
+            hotelOptions.push(hotelOption);
+            hotelStays.set(stayKey, hotelOption);
+          }
+        }
         if (hotel.breakfastIncluded) {
           const hotelLine = template('hotel-breakfast', { hotel: name });
           include(hotelLine, 'hotel');
@@ -819,26 +867,28 @@ export function buildWebsitePreview(
         meal: meals.filter(Boolean).join('\n'),
       });
     }
-    for (const price of pricedPlans) {
-      const names = [
-        price.includesDriver
-          ? language === 'en'
-            ? 'Private driver'
-            : '司机'
-          : '',
-        price.includesGuide ? (language === 'en' ? 'Tour guide' : '导游') : '',
-      ].filter(Boolean);
-      const services =
-        names.join(' + ') ||
-        (language === 'en'
-          ? 'No driver or tour guide included'
-          : '不含司机及导游');
-      include(`${planLabel(price)}: ${services}`, 'service');
-      if (price.includesDriver)
-        include(
-          `${planLabel(price)}: ${template('private-driver')}`,
-          'service',
-        );
+    if (quotationOptions.includesDriver) {
+      const days = quotationOptions.driverDays
+        .map((day) => `D${day}`)
+        .join(', ');
+      include(
+        language === 'en'
+          ? `Private driver included on ${days}. The driver provides transportation and ticketing assistance only; guiding and commentary inside scenic areas are not included in the driver's service.`
+          : `第${quotationOptions.driverDays.join('、')}天包含专车司机。司机仅提供交通与票务协助，不提供景区内导览或讲解服务。`,
+        'service',
+      );
+      include(
+        language === 'en'
+          ? `Vehicle options: ${quotationOptions.vehicleTypes
+              .filter((vehicle): vehicle is string => vehicle !== null)
+              .map((vehicle) => vehicleLabel(vehicle))
+              .join(' / ')}; see the selected quotation option.`
+          : `报价车型：${quotationOptions.vehicleTypes
+              .filter((vehicle): vehicle is string => vehicle !== null)
+              .map((vehicle) => vehicleLabel(vehicle))
+              .join(' / ')}，以选定报价组合为准。`,
+        'transport',
+      );
     }
     exclusions.add(
       language === 'en'
@@ -866,54 +916,64 @@ export function buildWebsitePreview(
       inclusions: [...inclusions],
       exclusions: [...exclusions],
       hotelOptions,
-      quotation: pricedPlans.map((price) => {
-        const cents = BigInt(toCents(Number(price.unitPrice)));
-        const money = (value: bigint) =>
-          `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
-        const unitPrice = money(cents);
-        const services =
-          [
-            price.includesDriver
-              ? language === 'en'
-                ? 'Private driver'
-                : '司机'
-              : '',
-            price.includesGuide
-              ? language === 'en'
-                ? 'Tour guide'
-                : '导游'
-              : '',
-          ]
-            .filter(Boolean)
-            .join(' + ') ||
-          (language === 'en'
-            ? 'No driver or tour guide included'
-            : '不含司机及导游');
-        return {
-          vehicle: WEBSITE_VEHICLES[price.vehicleType][language],
-          vehicleType: price.vehicleType,
-          plan: price.plan,
-          includesDriver: price.includesDriver,
-          includesGuide: price.includesGuide,
-          pax: itinerary.pax,
-          unitPrice,
-          priceComponents: (price.priceComponents ?? [])
-            .filter(
-              (component) =>
-                component.showInPdf && component.unitPrice !== null,
-            )
-            .map((component) => ({
-              category: component.category,
-              unitPrice: money(BigInt(toCents(Number(component.unitPrice)))),
-            })),
-          totalPrice:
-            itinerary.pax === null
-              ? null
-              : money(cents * BigInt(itinerary.pax)),
-          services,
-          price: `RMB ${unitPrice} PP`,
-        };
-      }),
+      quotationServices: quotationOptions,
+      quotation: [...pricedPlans]
+        .sort(
+          (a, b) =>
+            (a.hotelTier ?? '').localeCompare(b.hotelTier ?? '') ||
+            (a.vehicleType ?? '').localeCompare(b.vehicleType ?? '', 'en', {
+              numeric: true,
+            }),
+        )
+        .map((price) => {
+          const cents = BigInt(toCents(Number(price.unitPrice)));
+          const money = (value: bigint) =>
+            `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
+          const unitPrice = money(cents);
+          const services =
+            [
+              price.includesDriver
+                ? language === 'en'
+                  ? 'Private driver'
+                  : '司机'
+                : '',
+              price.includesGuide
+                ? language === 'en'
+                  ? 'Tour guide'
+                  : '导游'
+                : '',
+            ]
+              .filter(Boolean)
+              .join(' + ') ||
+            (language === 'en'
+              ? 'No driver or tour guide included'
+              : '不含司机及导游');
+          return {
+            vehicle: vehicleLabel(price.vehicleType),
+            vehicleType: price.vehicleType,
+            hotelTier: price.hotelTier,
+            hotelCategory: hotelLabel(price.hotelTier),
+            includesDriver: price.includesDriver,
+            includesGuide: price.includesGuide,
+            pax: itinerary.pax,
+            unitPrice,
+            priceComponents: (price.priceComponents ?? [])
+              .filter(
+                (component) =>
+                  component.showInPdf && component.unitPrice !== null,
+              )
+              .map((component) => ({
+                category: component.category,
+                unitPrice: money(BigInt(toCents(Number(component.unitPrice)))),
+              })),
+            totalPrice:
+              itinerary.pax === null
+                ? null
+                : money(cents * BigInt(itinerary.pax)),
+            services,
+            price: `RMB ${unitPrice} PP`,
+          };
+        }),
       teamStandard: categories.map((category) => ({
         category,
         included: [...standards.get(category)!],
@@ -954,8 +1014,8 @@ export function buildWebsitePreview(
     sourceVersion: itinerary.version,
     inquiryVersion: inquiry.version,
     configVersion: config.version,
-    schemaVersion: 4,
-    validationVersion: 4,
+    schemaVersion: 5,
+    validationVersion: 5,
     issues,
     english,
     chinese,

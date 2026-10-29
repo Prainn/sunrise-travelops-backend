@@ -56,8 +56,10 @@ function itineraryContent(value: WebsiteItinerary) {
     // Key by vehicle type so repricing is a field change, not an array replacement.
     vehiclePrices: Object.fromEntries(
       value.vehiclePrices.map((price) => [
-        `${price.vehicleType}.${price.plan}`,
+        JSON.stringify([price.vehicleType, price.hotelTier]),
         {
+          vehicleType: price.vehicleType,
+          hotelTier: price.hotelTier,
           unitPrice: price.unitPrice,
           priceComponents: Object.fromEntries(
             (price.priceComponents ?? []).map((component) => [
@@ -118,8 +120,15 @@ export function websiteLogChanges(
         }
       }
     }
-    const vehicleType = change.path.match(/^vehiclePrices\.([^.]+)/)?.[1];
-    if (vehicleType) context.vehicleType = vehicleType;
+    const price = plans
+      .flatMap((plan) => plan.vehiclePrices)
+      .find((price) =>
+        change.path.startsWith(
+          `vehiclePrices.${JSON.stringify([price.vehicleType, price.hotelTier])}`,
+        ),
+      );
+    if (price?.vehicleType) context.vehicleType = price.vehicleType;
+    if (price?.hotelTier) context.hotelTier = price.hotelTier;
     return {
       path: change.path,
       kind: change.kind,

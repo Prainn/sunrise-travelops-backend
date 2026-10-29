@@ -146,6 +146,11 @@ describe('website draft save and explicit validation', () => {
         Promise.resolve({
           ...old,
           ...input,
+          vehiclePrices: input.vehiclePrices.map((price) => ({
+            ...price,
+            includesDriver: false,
+            includesGuide: false,
+          })),
         }),
       );
     return { service, plan, save };

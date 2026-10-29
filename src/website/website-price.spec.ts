@@ -38,7 +38,7 @@ describe('customer price components', () => {
     ).toThrow();
     const price = {
       vehicleType: '7_seat' as const,
-      plan: 'A' as const,
+      hotelTier: 'A' as const,
       includesDriver: false,
       includesGuide: false,
       unitPrice: '1',

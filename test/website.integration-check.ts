@@ -1115,10 +1115,8 @@ async function main() {
 
           vehiclePrices: [
             {
-              vehicleType: '7_seat',
-              plan: 'A',
-              includesDriver: true,
-              includesGuide: true,
+              vehicleType: null,
+              hotelTier: 'A',
               unitPrice: '1288.50',
             },
           ],

@@ -1,4 +1,8 @@
-import { normalizeVehiclePrice } from './website-price';
+import {
+  normalizeVehiclePrice,
+  websiteQuotationOptions,
+  quotationPriceKey,
+} from './website-price';
 import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -1286,9 +1290,9 @@ export class WebsiteService {
     if (
       duplicate(ids) ||
       duplicate(input.days.map((d) => String(d.dayNumber))) ||
-      duplicate(input.vehiclePrices.map((p) => `${p.vehicleType}:${p.plan}`))
+      duplicate(input.vehiclePrices.map(quotationPriceKey))
     )
-      invalid('行程明细ID、天数、车型方案不能重复');
+      invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
     const retainedCities = new Set(
       old?.days.flatMap((d) => [
         d.departCityId,
@@ -1402,6 +1406,16 @@ export class WebsiteService {
     if (validate && issues.length)
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
+    const options = websiteQuotationOptions(days);
+    if (
+      validate &&
+      input.vehiclePrices.some(
+        (price) =>
+          !options.vehicleTypes.includes(price.vehicleType) ||
+          !options.hotelTiers.includes(price.hotelTier),
+      )
+    )
+      invalid('报价车型与酒店档次必须来自当前活动行程，请调整已失效的报价组合');
     let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
     try {
       vehiclePrices = input.vehiclePrices.map(normalizeVehiclePrice);
@@ -1448,6 +1462,18 @@ export class WebsiteService {
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
     );
+    if (metadata.sourceId) {
+      await manager.query(
+        `INSERT INTO website_vehicle_prices(itinerary_id,vehicle_type,plan,includes_driver,includes_guide,unit_price)
+        SELECT $1,vehicle_type,plan,includes_driver,includes_guide,unit_price FROM website_vehicle_prices WHERE itinerary_id=$2`,
+        [id, metadata.sourceId],
+      );
+      await manager.query(
+        `INSERT INTO website_price_components(itinerary_id,vehicle_type,plan,category,unit_price,show_in_pdf)
+        SELECT $1,vehicle_type,plan,category,unit_price,show_in_pdf FROM website_price_components WHERE itinerary_id=$2`,
+        [id, metadata.sourceId],
+      );
+    }
     await saveWebsiteDetails(
       manager,
       id,
@@ -1714,9 +1740,15 @@ export class WebsiteService {
     await this.mutable(inquiry, this.db.manager);
     this.draft(itinerary);
     this.version(itinerary.version, input.version, true);
+    const options = websiteQuotationOptions(input.days);
     return this.previewData(this.db.manager, inquiry, {
       ...itinerary,
       ...input,
+      vehiclePrices: input.vehiclePrices.map((price) => ({
+        ...price,
+        includesDriver: options.includesDriver,
+        includesGuide: options.includesGuide,
+      })),
     });
   }
   private async previewData(
@@ -1735,7 +1767,16 @@ export class WebsiteService {
       inquiry.businessUnit,
       itinerary,
     );
-    itinerary = { ...itinerary, ...normalized };
+    const options = websiteQuotationOptions(normalized.days);
+    itinerary = {
+      ...itinerary,
+      ...normalized,
+      vehiclePrices: normalized.vehiclePrices.map((price) => ({
+        ...price,
+        includesDriver: options.includesDriver,
+        includesGuide: options.includesGuide,
+      })),
+    };
     const result = buildWebsitePreview(inquiry, itinerary, config);
     if (itinerary.reorderDraft)
       result.issues.push({

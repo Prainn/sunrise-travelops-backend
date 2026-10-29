@@ -77,10 +77,8 @@ async function main() {
       departureTime: '',
       vehiclePrices: [
         {
-          vehicleType: '7_seat',
-          plan: 'A',
-          includesDriver: true,
-          includesGuide: false,
+          vehicleType: null,
+          hotelTier: null,
           unitPrice: '123.45',
         },
       ],
@@ -108,6 +106,10 @@ async function main() {
       201,
     );
     // Reconstruct predecessor only inside the disposable database.
+    await h.db.query(
+      `INSERT INTO website_vehicle_prices(itinerary_id,vehicle_type,plan,includes_driver,includes_guide,unit_price) VALUES($1,'7_seat','A',true,false,123.45)`,
+      [plan.id],
+    );
     await h.db.query('DROP TABLE website_price_components');
     await h.db.query('DELETE FROM migrations WHERE name=$1', [
       'WebsitePriceComponents1794787200000',
@@ -129,6 +131,8 @@ async function main() {
       'GET',
       `/website/itineraries/${plan.id}`,
     );
+    assert.equal(plan.previousPlanPrices?.[0].unitPrice, '123.45');
+    assert.equal(plan.previousPlanPrices?.[0].plan, 'A');
     assert.equal(plan.vehiclePrices[0].unitPrice, '123.45');
     assert.deepEqual(plan.vehiclePrices[0].priceComponents, []);
     const [snapshot] = await h.db.query<{ snapshot: unknown }[]>(
@@ -241,7 +245,7 @@ async function main() {
       },
       201,
     );
-    assert.equal(quotation.schemaVersion, 4);
+    assert.equal(quotation.schemaVersion, 5);
     for (const output of [quotation.chinese, quotation.english]) {
       const row = output.quotation[0];
       assert.equal(row.unitPrice, '10000.00');
@@ -270,7 +274,7 @@ async function main() {
     );
     await assert.rejects(
       h.db.undoLastMigration(),
-      /Authored price components prevent rollback/,
+      /Hotel-tier quotation data prevents rollback/,
     );
     console.log(
       `Price components: fresh/repeated/legacy migrations, save/copy/freeze, visibility and isolation passed (${h.requests} API calls)`,
