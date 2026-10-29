@@ -110,7 +110,7 @@ describe('separate direct ledger entries', () => {
       'website-ledger',
     );
     const group = MENU_GROUPS.find((item) => item.key === 'data-ledgers')!;
-    expect(group.children.slice(-2).map((item) => item.routeName)).toEqual([
+    expect(group.children.slice(2, 4).map((item) => item.routeName)).toEqual([
       'DirectLedger',
       'WebsiteLedger',
     ]);

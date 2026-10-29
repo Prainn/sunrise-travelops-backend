@@ -28,7 +28,6 @@ import type {
   WebsiteBusinessUnit,
   FeeState,
   TransportMode,
-  VehicleType,
   ConfigStatus,
   WebsiteInquiryInput,
   WebsiteItineraryInput,
@@ -39,7 +38,8 @@ import type {
   WebsiteHotelStay,
   WebsiteMeal,
   WebsiteService,
-  WebsiteVehiclePrice,
+  WebsiteVehiclePriceInput,
+  WebsiteHotelTier,
   WebsiteCity,
   WebsiteAttraction,
   WebsiteConfigHotel,
@@ -58,13 +58,6 @@ const fees: FeeState[] = [
   'UNKNOWN',
 ];
 const modes: TransportMode[] = ['hsr', 'private_vehicle', 'flight', 'other'];
-const vehicles: VehicleType[] = [
-  '5_seat',
-  '7_seat',
-  '9_seat',
-  '14_seat',
-  '18_seat',
-];
 const statuses = ['new', 'planning', 'quoted', 'lost', 'archived'] as const;
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -256,6 +249,7 @@ export class WebsiteConfigListQuery extends PaginationQueryDto {
     string | undefined = undefined;
   @IsOptional() @IsUUID() cityId?: string;
   @IsOptional() @IsUUID() excludeId?: string;
+  @IsOptional() @IsIn(['enabled', 'disabled']) status?: ConfigStatus;
 }
 export class WebsiteConfigVersionDto {
   @IsInt() @Min(0) version: number;
@@ -277,6 +271,31 @@ export class WebsiteItemDto implements WebsiteItem {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteLegDto implements WebsiteLeg {
+  @ApiPropertyOptional({ nullable: true, maxLength: 100 })
+  @Transform(trim)
+  @ValidateIf((o: WebsiteLegDto) => o.vehicleType !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string | null = null;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: '公里；未知留空，非负，最多两位小数',
+  })
+  @ValidateIf((o: WebsiteLegDto) => o.distanceKm !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  distanceKm: string | null = null;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteLegDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+  @ApiPropertyOptional({ default: false })
+  @IsBoolean()
+  showInMileage = false;
+
   @IsUUID() id: string;
   @IsDefined()
   @ValidateIf((o: WebsiteLegDto) => o.routeId !== null)
@@ -291,7 +310,7 @@ export class WebsiteLegDto implements WebsiteLeg {
 }
 export class WebsiteHotelDto implements WebsiteHotelStay {
   @IsUUID() id: string;
-  @IsIn(['A', 'B']) tier: 'A' | 'B';
+  @IsIn(['A', 'B', 'C', 'D']) tier: 'A' | 'B' | 'C' | 'D';
   @IsUUID() cityId: string;
   @IsDefined()
   @ValidateIf((o: WebsiteHotelDto) => o.configHotelId !== null)
@@ -357,7 +376,7 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteLegDto)
   legs: WebsiteLegDto[];
   @IsArray()
-  @ArrayMaxSize(2)
+  @ArrayMaxSize(4)
   @ValidateNested({ each: true })
   @Type(() => WebsiteHotelDto)
   hotels: WebsiteHotelDto[];
@@ -373,8 +392,33 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteServiceDto)
   services: WebsiteServiceDto[];
 }
-export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
-  @IsIn(vehicles) vehicleType: VehicleType;
+export class WebsitePriceComponentDto {
+  @IsIn(['hotel', 'guide', 'vehicle', 'attraction', 'meal'])
+  category: 'hotel' | 'guide' | 'vehicle' | 'attraction' | 'meal';
+  @IsDefined()
+  @ValidateIf((o: WebsitePriceComponentDto) => o.unitPrice !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  unitPrice: string | null;
+  @IsBoolean() showInPdf: boolean;
+}
+export class WebsiteVehiclePriceDto implements WebsiteVehiclePriceInput {
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => WebsitePriceComponentDto)
+  priceComponents: WebsitePriceComponentDto[] = [];
+  @IsDefined()
+  @ValidateIf((o: WebsiteVehiclePriceDto) => o.hotelTier !== null)
+  @IsIn(['A', 'B', 'C', 'D'])
+  hotelTier: WebsiteHotelTier | null;
+  @IsDefined()
+  @Transform(trim)
+  @ValidateIf((o: WebsiteVehiclePriceDto) => o.vehicleType !== null)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string | null;
   @IsDefined()
   @ValidateIf((o: WebsiteVehiclePriceDto) => o.unitPrice !== null)
   @IsString()
@@ -435,6 +479,17 @@ class WebsiteBoardDeletedDto {
 class WebsiteReorderDraftDto implements WebsiteReorderDraft {
   @IsArray()
   @ArrayUnique()
+  @ArrayMaxSize(10000)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  removedItemIds: string[] = [];
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteLegDto)
+  transportCopies: WebsiteLegDto[] = [];
+  @IsArray()
+  @ArrayUnique()
   @ArrayMaxSize(365)
   @IsUUID(undefined, { each: true })
   dayIds: string[];
@@ -483,8 +538,6 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Min(1)
   @Max(10000)
   pax: number | null = null;
-  @IsString() @MaxLength(100) arrivalTime = '';
-  @IsString() @MaxLength(100) departureTime = '';
   @IsInt() @Min(0) configVersion: number;
   @IsArray()
   @ArrayMaxSize(365)
@@ -496,7 +549,7 @@ export class WebsiteItineraryDto implements WebsiteItineraryInput {
   @Type(() => DeletedWebsiteDayDto)
   deletedDays?: DeletedWebsiteDayDto[] = [];
   @IsArray()
-  @ArrayMaxSize(5)
+  @ArrayMaxSize(2000)
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
   vehiclePrices: WebsiteVehiclePriceDto[] = [];
@@ -573,7 +626,42 @@ export class WebsiteConfigHotelDto
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
   price: string;
 }
+export class WebsiteRouteVehicleOptionDto {
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  vehicleType: string;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteRouteVehicleOptionDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+}
 export class WebsiteRouteDto extends ConfigBaseDto implements WebsiteRoute {
+  @ApiPropertyOptional({ type: [WebsiteRouteVehicleOptionDto], maxItems: 100 })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ArrayUnique((option: WebsiteRouteVehicleOptionDto) => option?.vehicleType)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteRouteVehicleOptionDto)
+  vehicleOptions: WebsiteRouteVehicleOptionDto[] = [];
+  @ApiPropertyOptional({
+    nullable: true,
+    description: '公里；未知留空，非负，最多两位小数',
+  })
+  @ValidateIf((o: WebsiteLegDto) => o.distanceKm !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  distanceKm: string | null = null;
+  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
+  @ValidateIf((o: WebsiteLegDto) => o.durationMinutes !== null)
+  @IsInt()
+  @Min(1)
+  @Max(525600)
+  durationMinutes: number | null = null;
+
   @IsUUID() fromCityId: string;
   @IsUUID() toCityId: string;
   @IsIn(modes) mode: TransportMode;

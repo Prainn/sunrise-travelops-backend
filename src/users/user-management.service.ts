@@ -386,9 +386,9 @@ export class UserManagementService {
       `SELECT count(*)::int AS total,
         count(*) FILTER(WHERE status NOT IN ('lost','archived'))::int AS unfinished
        FROM (
-         SELECT status FROM inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
+         SELECT status FROM inquiries WHERE owner_id=$1 AND deleted_at IS NULL${scopes ? ' AND business_unit=ANY($2)' : ''}
          UNION ALL
-         SELECT status FROM website_inquiries WHERE owner_id=$1${scopes ? ' AND business_unit=ANY($2)' : ''}
+         SELECT status FROM website_inquiries WHERE owner_id=$1 AND deleted_at IS NULL${scopes ? ' AND business_unit=ANY($2)' : ''}
        ) owned_inquiries`,
       scopes ? [id, scopes] : [id],
     );

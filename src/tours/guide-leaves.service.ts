@@ -77,8 +77,9 @@ export class GuideLeavesService {
     if (!guide.length)
       fail(ErrorCode.RESOURCE_NOT_FOUND, '导游不存在', HttpStatus.NOT_FOUND);
     const busy = await manager.query<unknown[]>(
-      `SELECT 1 FROM tours WHERE guide_id = $1 AND status = 'active'
-       AND occupy_from <= $3 AND occupy_to >= $2 LIMIT 1`,
+      `SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
+       WHERE s.guide_id=$1 AND t.status='active' AND s.service_start_at < $3::date + INTERVAL '1 day'
+       AND s.service_end_at >= $2::date LIMIT 1`,
       [input.guidePersonId, input.startDate, input.endDate],
     );
     if (busy.length)

@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsArray,
   IsDefined,
   IsObject,
   MinLength,
@@ -71,6 +72,28 @@ export class ManualTourSourceDto {
   @IsInt() @Min(1) @Max(365) days: number;
 }
 
+export class GuideServiceTimeDto {
+  @ApiProperty({ example: '2026-10-27 09:00' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
+  serviceStartAt: string;
+  @ApiProperty({ example: '2026-10-27 18:00' })
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
+  serviceEndAt: string;
+}
+
+export class GuideBusyInputDto extends GuideServiceTimeDto {
+  @IsUUID() guideId: string;
+}
+
+export class TourGuideServiceInputDto extends GuideBusyInputDto {
+  @IsOptional() @IsUUID() id?: string;
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
+  @Transform(trim) @IsString() @MaxLength(2000) remark = '';
+  @IsOptional() @IsBoolean() confirmTime?: boolean;
+}
+
 export class TourInputDto extends TourScheduleDto {
   @IsUUID() operatorId: string;
   @IsInt() @Min(0) @Max(10000) adults: number;
@@ -78,7 +101,12 @@ export class TourInputDto extends TourScheduleDto {
   @IsInt() @Min(0) @Max(10000) leaders: number;
   @Transform(trim) @IsString() @MaxLength(100) language = '';
   @IsBoolean() shopping: boolean;
-  @IsOptional() @IsUUID() guideId?: string | null;
+  @ApiProperty({ type: [TourGuideServiceInputDto] })
+  @IsDefined()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TourGuideServiceInputDto)
+  guideServices: TourGuideServiceInputDto[];
   @Transform(trim) @IsString() @MaxLength(2000) remark = '';
 }
 
@@ -186,12 +214,15 @@ export class TourLanguageQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(100) declare keyword?: string;
 }
 
-export class TourGuideQueryDto extends TourScheduleDto {
+export class TourGuideQueryDto extends GuideServiceTimeDto {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
-  @IsDateString({ strict: true }) @Matches(DATE) startDate: string;
-  @Type(() => Number) @IsInt() @Min(1) @Max(365) days: number;
   @IsOptional() @IsUUID() excludeTourId?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GuideBusyInputDto)
+  otherServices?: GuideBusyInputDto[];
 }
 
 export class RatingScoreDto {

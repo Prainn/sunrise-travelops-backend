@@ -1,5 +1,7 @@
 import type { EntityManager } from 'typeorm';
+import { websiteQuotationOptions } from './website-price';
 import type {
+  WebsitePriceComponent,
   WebsiteDay,
   WebsiteHotelStay,
   WebsiteItem,
@@ -7,6 +9,8 @@ import type {
   WebsiteMeal,
   WebsiteService,
   WebsiteVehiclePrice,
+  WebsiteVehiclePriceInput,
+  WebsitePreviousPlanPrice,
 } from './website.types';
 
 type DayRow = Omit<
@@ -41,7 +45,8 @@ export async function loadWebsiteDetails(
   const legs = await manager.query<DetailRow<WebsiteLeg>[]>(
     `SELECT day_id AS "dayId",json_build_object(
       'id',id,'routeId',route_id,'fromCityId',from_city_id,'toCityId',to_city_id,'mode',mode,
-      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state
+      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state,
+      'vehicleType',vehicle_type,'distanceKm',distance_km::text,'durationMinutes',duration_minutes,'showInMileage',show_in_mileage
       ) AS value FROM website_legs WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
   );
@@ -64,12 +69,58 @@ export async function loadWebsiteDetails(
       ) AS value FROM website_services WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
   );
-  const vehiclePrices = await manager.query<WebsiteVehiclePrice[]>(
-    `SELECT vehicle_type AS "vehicleType",unit_price::text AS "unitPrice"
+  const previousPlanPrices = await manager.query<WebsitePreviousPlanPrice[]>(
+    `SELECT vehicle_type AS "vehicleType",plan,includes_driver AS "includesDriver",includes_guide AS "includesGuide",unit_price::text AS "unitPrice"
       FROM website_vehicle_prices WHERE itinerary_id=$1 ORDER BY CASE vehicle_type
-        WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END`,
+        WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END,plan`,
     [itineraryId],
   );
+  const components = await manager.query<
+    (WebsitePriceComponent & { vehicleType: string; plan: string })[]
+  >(
+    `SELECT vehicle_type AS "vehicleType", plan, category, unit_price::text AS "unitPrice", show_in_pdf AS "showInPdf"
+     FROM website_price_components WHERE itinerary_id=$1 ORDER BY category`,
+    [itineraryId],
+  );
+  for (const price of previousPlanPrices)
+    price.priceComponents = components
+      .filter(
+        (row) =>
+          row.vehicleType === price.vehicleType && row.plan === price.plan,
+      )
+      .map(({ category, unitPrice, showInPdf }) => ({
+        category,
+        unitPrice,
+        showInPdf,
+      }));
+  const vehiclePrices = await manager.query<WebsiteVehiclePrice[]>(
+    `SELECT NULLIF(vehicle_type,'') AS "vehicleType",NULLIF(hotel_tier,'') AS "hotelTier",unit_price::text AS "unitPrice"
+     FROM website_quotation_prices WHERE itinerary_id=$1 ORDER BY hotel_tier,CASE vehicle_type
+       WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 WHEN '18_seat' THEN 5 ELSE 6 END,vehicle_type`,
+    [itineraryId],
+  );
+  const priceComponents = await manager.query<
+    (WebsitePriceComponent & {
+      vehicleType: string | null;
+      hotelTier: string | null;
+    })[]
+  >(
+    `SELECT NULLIF(vehicle_type,'') AS "vehicleType",NULLIF(hotel_tier,'') AS "hotelTier",category,unit_price::text AS "unitPrice",show_in_pdf AS "showInPdf"
+     FROM website_quotation_price_components WHERE itinerary_id=$1 ORDER BY category`,
+    [itineraryId],
+  );
+  for (const price of vehiclePrices)
+    price.priceComponents = priceComponents
+      .filter(
+        (row) =>
+          row.vehicleType === price.vehicleType &&
+          row.hotelTier === price.hotelTier,
+      )
+      .map(({ category, unitPrice, showInPdf }) => ({
+        category,
+        unitPrice,
+        showInPdf,
+      }));
   const forDay = <T>(rows: DetailRow<T>[], id: string) =>
     rows.filter((r) => r.dayId === id).map((r) => r.value);
   const readDay = (day: DayRow): WebsiteDay => ({
@@ -86,8 +137,16 @@ export async function loadWebsiteDetails(
     meals: forDay(meals, day.id),
     services: forDay(services, day.id),
   });
+  const activeDays = days.filter((day) => !day.isDeleted).map(readDay);
+  const quotationOptions = websiteQuotationOptions(activeDays);
+  for (const price of vehiclePrices) {
+    price.includesDriver = quotationOptions.includesDriver;
+    price.includesGuide = quotationOptions.includesGuide;
+  }
   return {
-    days: days.filter((day) => !day.isDeleted).map(readDay),
+    days: activeDays,
+    quotationOptions,
+    previousPlanPrices,
     deletedDays: days
       .filter((day) => day.isDeleted)
       .map((day) => ({ day: readDay(day), originalDate: day.originalDate })),
@@ -122,7 +181,7 @@ export async function saveWebsiteDetails(
   manager: EntityManager,
   itineraryId: string,
   days: WebsiteDay[],
-  prices: WebsiteVehiclePrice[],
+  prices: WebsiteVehiclePriceInput[],
   deletedDays: { day: WebsiteDay; originalDate: string | null }[] = [],
 ) {
   const activeIds = new Set(days.map((day) => day.id));
@@ -134,7 +193,7 @@ export async function saveWebsiteDetails(
     itineraryId,
   ]);
   await manager.query(
-    'DELETE FROM website_vehicle_prices WHERE itinerary_id=$1',
+    'DELETE FROM website_quotation_prices WHERE itinerary_id=$1',
     [itineraryId],
   );
   await insertRows(
@@ -209,6 +268,10 @@ export async function saveWebsiteDetails(
       'name_zh',
       'name_en',
       'fee_state',
+      'vehicle_type',
+      'distance_km',
+      'duration_minutes',
+      'show_in_mileage',
     ],
     days.flatMap((d) =>
       d.legs.map((i, n) => [
@@ -222,6 +285,10 @@ export async function saveWebsiteDetails(
         i.nameZh,
         i.nameEn,
         i.feeState,
+        i.vehicleType ?? null,
+        i.distanceKm ?? null,
+        i.durationMinutes ?? null,
+        i.showInMileage ?? false,
       ]),
     ),
   );
@@ -301,8 +368,35 @@ export async function saveWebsiteDetails(
   );
   await insertRows(
     manager,
-    'website_vehicle_prices',
-    ['itinerary_id', 'vehicle_type', 'unit_price'],
-    prices.map((p) => [itineraryId, p.vehicleType, p.unitPrice]),
+    'website_quotation_prices',
+    ['itinerary_id', 'vehicle_type', 'hotel_tier', 'unit_price'],
+    prices.map((price) => [
+      itineraryId,
+      price.vehicleType ?? '',
+      price.hotelTier ?? '',
+      price.unitPrice,
+    ]),
+  );
+  await insertRows(
+    manager,
+    'website_quotation_price_components',
+    [
+      'itinerary_id',
+      'vehicle_type',
+      'hotel_tier',
+      'category',
+      'unit_price',
+      'show_in_pdf',
+    ],
+    prices.flatMap((price) =>
+      (price.priceComponents ?? []).map((component) => [
+        itineraryId,
+        price.vehicleType ?? '',
+        price.hotelTier ?? '',
+        component.category,
+        component.unitPrice,
+        component.showInPdf,
+      ]),
+    ),
   );
 }

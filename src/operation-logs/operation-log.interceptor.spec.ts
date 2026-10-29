@@ -85,6 +85,8 @@ describe('OperationLogInterceptor', () => {
   it('covers mutations and exports not audited within their business transaction', async () => {
     const excluded = new Set([
       'AuthController.refresh', // Token renewal is not a user operation.
+      'ToursController.availableGuides', // POST body is a read-only scheduling query.
+      'WebsiteController.validateItinerary', // Read-only validation does not record operation logs.
       'LynxController.register', // Public attribution collection, not an internal page.
       // These services save audit rows in their transaction; account-links.integration-check
       // verifies the committed audit alongside relation/session changes.
@@ -112,6 +114,113 @@ describe('OperationLogInterceptor', () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it.each([
+    ['InquiriesController', '删除询盘'],
+    ['WebsiteController', '删除独立站询盘'],
+  ])(
+    'records %s deletion after a 204 response and captures rejected versions',
+    async (controller, action) => {
+      const request = {
+        user: actor,
+        params: { id: 'inquiry-id' },
+        body: { version: 2 },
+        query: {},
+      };
+      await firstValueFrom(
+        interceptor.intercept(context(controller, 'delete', request), {
+          handle: () => of(undefined),
+        }),
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        category: 'inquiry',
+        action,
+        success: true,
+        detail: JSON.stringify({ recordId: 'inquiry-id' }),
+      });
+      const failure = new BusinessException({
+        code: ErrorCode.INQUIRY_VERSION_CONFLICT,
+        message: 'Conflict',
+        status: HttpStatus.CONFLICT,
+      });
+      await expect(
+        firstValueFrom(
+          interceptor.intercept(context(controller, 'delete', request), {
+            handle: () => throwError(() => failure),
+          }),
+        ),
+      ).rejects.toBe(failure);
+      expect(entries[1]).toMatchObject({
+        category: 'inquiry',
+        action,
+        success: false,
+      });
+    },
+  );
+
+  it('records service segment pointers and the composite rating target without request payloads', async () => {
+    const change = {
+      serviceIds: ['segment-a'],
+      guideIds: ['guide-a'],
+      removedServiceIds: ['segment-b'],
+      removedGuideIds: ['guide-b'],
+    };
+    await firstValueFrom(
+      interceptor.intercept(
+        context('ToursController', 'update', {
+          user: actor,
+          params: { id: 'tour-a' },
+          body: { remark: 'private' },
+          tourGuideServiceChange: change,
+        }),
+        { handle: () => of({ id: 'tour-a' }) },
+      ),
+    );
+    expect(JSON.parse(entries[0].detail)).toEqual({
+      recordId: 'tour-a',
+      ...change,
+    });
+    await firstValueFrom(
+      interceptor.intercept(
+        context('ToursController', 'saveRating', {
+          user: actor,
+          params: { id: 'tour-a', guideId: 'guide-a' },
+          body: { selfScore: 50 },
+        }),
+        { handle: () => of({ tourId: 'tour-a', guideId: 'guide-a' }) },
+      ),
+    );
+    expect(JSON.parse(entries[1].detail)).toEqual({
+      recordId: 'tour-a',
+      guideId: 'guide-a',
+    });
+    expect(JSON.stringify(entries)).not.toContain('private');
+  });
+
+  it.each([
+    ['ToursController', 'availableGuides'],
+    ['WebsiteController', 'validateItinerary'],
+  ])(
+    'does not audit read-only POST %s.%s, including failures',
+    async (controller, handler) => {
+      const request = { user: actor, params: {}, body: {} };
+      await firstValueFrom(
+        interceptor.intercept(context(controller, handler, request), {
+          handle: () => of([]),
+        }),
+      );
+      const failure = new Error('validation failed');
+      await expect(
+        firstValueFrom(
+          interceptor.intercept(context(controller, handler, request), {
+            handle: () => throwError(() => failure),
+          }),
+        ),
+      ).rejects.toBe(failure);
+      expect(entries).toHaveLength(0);
+    },
+  );
 
   it.each([
     ['ShengxuLedgersController', 'create', '新增盛旭台账'],
@@ -468,6 +577,9 @@ describe('OperationLogInterceptor', () => {
     ['ItinerariesController', 'downloadClick', 'quotation'],
     ['WebsiteController', 'generate', 'itinerary'],
     ['WebsiteController', 'saveConfig', 'website-config'],
+    ['WebsiteController', 'updateConfigRecord', 'website-config'],
+    ['WebsiteController', 'deleteConfigRecord', 'website-config'],
+    ['UserManagementController', 'testFeishu', 'user'],
     ['ToursController', 'cancel', 'tour'],
     ['ToursController', 'saveRating', 'guide-rating'],
     ['GuideLeavesController', 'update', 'guide-leave'],
@@ -491,6 +603,31 @@ describe('OperationLogInterceptor', () => {
       expect(JSON.stringify(entries)).not.toContain('private-');
     },
   );
+
+  it('logs the created website resource ID and group without business data', async () => {
+    const request = {
+      user: actor,
+      params: { group: 'routes' },
+      query: {},
+      body: { name: 'private-name' },
+    };
+    await firstValueFrom(
+      interceptor.intercept(
+        context('WebsiteController', 'createConfigRecord', request),
+        {
+          handle: () => of({ id: 'created-id', version: 2, group: 'routes' }),
+        } as CallHandler,
+      ),
+    );
+    expect(entries).toMatchObject([
+      { category: 'website-config', success: true },
+    ]);
+    expect(JSON.parse(entries[0].detail)).toEqual({
+      recordId: 'created-id',
+      group: 'routes',
+    });
+    expect(JSON.stringify(entries)).not.toContain('private-name');
+  });
 
   it('logs each failed batch-delete target and preserves the failure', async () => {
     const failure = new Error('rejected');

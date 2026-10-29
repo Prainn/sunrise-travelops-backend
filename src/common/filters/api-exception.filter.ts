@@ -92,16 +92,18 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
   private normalize(exception: unknown): NormalizedError {
     if (exception instanceof QueryFailedError) {
-      return this.normalizeQueryError(exception.driverError as unknown);
+      return normalizeDatabaseError(exception.driverError as unknown);
     }
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       if (
         exception instanceof BusinessException &&
-        [ErrorCode.FEISHU_NOT_CONFIGURED, ErrorCode.FEISHU_SEND_FAILED].some(
-          (code) => code === exception.code,
-        )
+        [
+          ErrorCode.FEISHU_NOT_CONFIGURED,
+          ErrorCode.FEISHU_SEND_FAILED,
+          ErrorCode.INSPECTION_ALERT_UNAVAILABLE,
+        ].some((code) => code === exception.code)
       ) {
         return {
           status,
@@ -144,57 +146,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       code: ErrorCode.INTERNAL_SERVER_ERROR,
       message: '服务器内部错误',
-      details: {},
-    };
-  }
-
-  private normalizeQueryError(driverErrorValue: unknown): NormalizedError {
-    const driverError = driverErrorValue as {
-      code?: unknown;
-      constraint?: unknown;
-    };
-    if (
-      driverError.code === '23505' &&
-      typeof driverError.constraint === 'string'
-    ) {
-      if (driverError.constraint === 'UQ_resource_guides_service')
-        return {
-          status: HttpStatus.CONFLICT,
-          code: 'GUIDE_SERVICE_EXISTS',
-          message: '该第二语种与进店组合的导游价格已存在',
-          details: {},
-        };
-      if (/^UQ_resource_.+_code$/.test(driverError.constraint)) {
-        return {
-          status: HttpStatus.CONFLICT,
-          code: ErrorCode.RESOURCE_CODE_EXISTS,
-          message: '资源编码已存在',
-          details: {},
-        };
-      }
-      if (
-        driverError.constraint === 'UQ_resource_agency_contacts_agency_name_key'
-      ) {
-        return {
-          status: HttpStatus.CONFLICT,
-          code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
-          message: '该旅行社下已存在同名联系人',
-          details: {},
-        };
-      }
-    }
-    const isConstraintViolation =
-      typeof driverError.code === 'string' && driverError.code.startsWith('23');
-    return {
-      status: isConstraintViolation
-        ? HttpStatus.CONFLICT
-        : HttpStatus.INTERNAL_SERVER_ERROR,
-      code: isConstraintViolation
-        ? ErrorCode.DATABASE_CONSTRAINT_VIOLATION
-        : ErrorCode.INTERNAL_SERVER_ERROR,
-      message: isConstraintViolation
-        ? '请求的数据与现有数据冲突'
-        : '服务器内部错误',
       details: {},
     };
   }
@@ -272,4 +223,57 @@ export class ApiExceptionFilter implements ExceptionFilter {
           : {}),
     };
   }
+}
+
+export function normalizeDatabaseError(
+  driverErrorValue: unknown,
+): NormalizedError {
+  const driverError = driverErrorValue as {
+    code?: unknown;
+    constraint?: unknown;
+  };
+  if (
+    driverError.code === '23505' &&
+    typeof driverError.constraint === 'string'
+  ) {
+    if (driverError.constraint === 'UQ_resource_guides_service')
+      return {
+        status: HttpStatus.CONFLICT,
+        code: 'GUIDE_SERVICE_EXISTS',
+        message: '该第二语种与进店组合的导游价格已存在',
+        details: {},
+      };
+    if (/^UQ_resource_.+_code$/.test(driverError.constraint)) {
+      return {
+        status: HttpStatus.CONFLICT,
+        code: ErrorCode.RESOURCE_CODE_EXISTS,
+        message: '资源编码已存在',
+        details: {},
+      };
+    }
+    if (
+      driverError.constraint === 'UQ_resource_agency_contacts_agency_name_key'
+    ) {
+      return {
+        status: HttpStatus.CONFLICT,
+        code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
+        message: '该旅行社下已存在同名联系人',
+        details: {},
+      };
+    }
+  }
+  const isConstraintViolation =
+    typeof driverError.code === 'string' && driverError.code.startsWith('23');
+  return {
+    status: isConstraintViolation
+      ? HttpStatus.CONFLICT
+      : HttpStatus.INTERNAL_SERVER_ERROR,
+    code: isConstraintViolation
+      ? ErrorCode.DATABASE_CONSTRAINT_VIOLATION
+      : ErrorCode.INTERNAL_SERVER_ERROR,
+    message: isConstraintViolation
+      ? '请求的数据与现有数据冲突'
+      : '服务器内部错误',
+    details: {},
+  };
 }

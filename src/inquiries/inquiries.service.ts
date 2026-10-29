@@ -6,6 +6,7 @@ import { saveItineraryData, loadItineraryData } from './structured-itinerary';
 import { recordPriceAdjustments } from './price-adjustments';
 import { saveFrozenDetails } from './structured-quotes';
 import { requireDictionaryItem } from '../common/dictionary-items';
+import { canDeleteInquiry } from '../common/inquiry-delete';
 import { assertNoActiveTour } from '../common/tour-lock';
 import { nextBusinessCode } from '../common/business-code';
 import { ResourceStatus } from '../resources/common/resource.constants';
@@ -131,10 +132,21 @@ export class InquiriesService {
         HttpStatus.CONFLICT,
       );
   }
-  private inquiryResponse(row: InquiryEntity, hasActiveTour = false) {
+  private inquiryResponse(
+    row: InquiryEntity,
+    actor?: Actor,
+    hasActiveTour = false,
+  ) {
     return {
       ...row.data,
       hasActiveTour,
+      ...(actor
+        ? {
+            canDelete:
+              !hasActiveTour &&
+              canDeleteInquiry(actor, row.ownerId, 'inquiry:delete'),
+          }
+        : {}),
       id: row.id,
       code: row.code,
       businessUnit: row.businessUnit,
@@ -223,7 +235,9 @@ export class InquiriesService {
     );
     const activeIds = new Set(active.map((row) => row.inquiry_id));
     return {
-      list: rows.map((row) => this.inquiryResponse(row, activeIds.has(row.id))),
+      list: rows.map((row) =>
+        this.inquiryResponse(row, actor, activeIds.has(row.id)),
+      ),
       total,
       page: query.page,
       pageSize: query.pageSize,
@@ -235,7 +249,7 @@ export class InquiriesService {
       `SELECT 1 FROM tours WHERE source_module='standard' AND inquiry_id=$1 AND status='active'`,
       [id],
     );
-    return this.inquiryResponse(row, active.length > 0);
+    return this.inquiryResponse(row, actor, active.length > 0);
   }
   async owners(actor: Actor, businessUnit?: BusinessUnit) {
     this.permission(actor, 'inquiry:list');
@@ -419,7 +433,7 @@ export class InquiriesService {
         undefined,
         diffChanges(undefined, row.data),
       );
-      return this.inquiryResponse(row);
+      return this.inquiryResponse(row, actor);
     });
   }
   async update(id: string, input: UpdateInquiryDto, actor: Actor) {
@@ -458,7 +472,7 @@ export class InquiriesService {
           status: nextStatus,
         },
       );
-      if (!changes.length) return this.inquiryResponse(row);
+      if (!changes.length) return this.inquiryResponse(row, actor);
       row.data = nextData;
       row.status = nextStatus;
       row.ownerId = owner.id;
@@ -474,7 +488,20 @@ export class InquiriesService {
         changes,
         { lostReason: row.data.lostReason },
       );
-      return this.inquiryResponse(saved);
+      return this.inquiryResponse(saved, actor);
+    });
+  }
+  async delete(id: string, version: number, actor: Actor): Promise<void> {
+    this.permission(actor, 'inquiry:delete');
+    await this.db.transaction(async (manager) => {
+      const row = await this.inquiry(id, actor, manager, true);
+      if (!canDeleteInquiry(actor, row.ownerId, 'inquiry:delete'))
+        fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
+      this.checkVersion(row.version, version);
+      await assertNoActiveTour(manager, 'standard', row.id);
+      row.deletedAt = new Date();
+      row.updatedBy = actor.id;
+      await manager.save(row);
     });
   }
   async archive(id: string, version: number, actor: Actor) {
@@ -496,7 +523,7 @@ export class InquiriesService {
         undefined,
         diffChanges(before, row.status, 'status'),
       );
-      return this.inquiryResponse(row);
+      return this.inquiryResponse(row, actor);
     });
   }
   async createContact(agencyId: string, input: ContactInput, actor: Actor) {
@@ -883,7 +910,7 @@ export class InquiriesService {
         ),
         { transferReason: input.reason.trim() },
       );
-      return this.inquiryResponse(row);
+      return this.inquiryResponse(row, actor);
     });
   }
   async transfers(id: string, actor: Actor) {

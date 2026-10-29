@@ -395,7 +395,17 @@ async function main() {
       shopping: false,
       pickupFlightId: shared,
       dropFlightId: shared,
-      guideId,
+      guideServices: guideId
+        ? [
+            {
+              guideId,
+              language: 'English',
+              serviceStartAt: '2026-09-05 09:00',
+              serviceEndAt: '2026-09-07 07:00',
+              remark: '',
+            },
+          ]
+        : [],
       remark: '',
     });
     const tours = new ToursService(db);
@@ -537,7 +547,7 @@ async function main() {
           (e) =>
             e instanceof BusinessException &&
             (e.getResponse() as { message: string }).message ===
-              '导游在该时段已有其他团期',
+              '导游在该服务时段已有安排',
         );
       },
     );
@@ -546,6 +556,7 @@ async function main() {
       async () => {
         const r = await tours.saveRating(
           t.id as string,
+          g,
           { version: 0, selfScore: 0, managerScore: 80 },
           web,
         );
@@ -559,7 +570,7 @@ async function main() {
           'CONFLICT',
         );
         await rejects(
-          tours.saveRating(t.id as string, { version: 1, praise: 61 }, web),
+          tours.saveRating(t.id as string, g, { version: 1, praise: 61 }, web),
           'VALIDATION_ERROR',
         );
       },
@@ -570,11 +581,13 @@ async function main() {
         const results = await Promise.allSettled([
           tours.saveRating(
             t.id as string,
+            g,
             { version: 1, collectScore: 90 },
             web,
           ),
           tours.saveRating(
             t.id as string,
+            g,
             { version: 1, operatorScore: 90 },
             manager,
           ),
@@ -583,6 +596,7 @@ async function main() {
         await rejects(
           tours.saveRating(
             t.id as string,
+            g,
             { version: 2, selfScore: 99 },
             stranger,
           ),
@@ -591,6 +605,7 @@ async function main() {
         await rejects(
           tours.saveRating(
             t.id as string,
+            g,
             { version: 2, selfScore: 99 },
             linxi,
           ),
@@ -622,10 +637,8 @@ async function main() {
           {
             businessUnit: 'website',
             language: 'English',
-            startDate: '2026-09-05',
-            days: 2,
-            pickupFlightId: shared,
-            dropFlightId: shared,
+            serviceStartAt: '2026-09-05 09:00',
+            serviceEndAt: '2026-09-07 07:00',
             excludeTourId: t.id as string,
           },
           web,
@@ -840,7 +853,12 @@ async function main() {
         );
         const nt = await create(ng, web);
         await rejects(
-          tours.saveRating(nt.id as string, { version: 0, selfScore: 0 }, web),
+          tours.saveRating(
+            nt.id as string,
+            g,
+            { version: 0, selfScore: 0 },
+            web,
+          ),
           'CONFLICT',
         );
         const list = await tours.list({ page: 1, pageSize: 1 }, web);
@@ -911,14 +929,17 @@ async function main() {
           );
           assert.equal(
             (
-              await fetch(`${endpoint}/api/tours/ratings/${t.id as string}`, {
-                method: 'PUT',
-                headers: {
-                  'content-type': 'application/json',
-                  'x-test-actor': 'readonly',
+              await fetch(
+                `${endpoint}/api/tours/${t.id as string}/ratings/${g}`,
+                {
+                  method: 'PUT',
+                  headers: {
+                    'content-type': 'application/json',
+                    'x-test-actor': 'readonly',
+                  },
+                  body: JSON.stringify({ version: 2, selfScore: 90 }),
                 },
-                body: JSON.stringify({ version: 2, selfScore: 90 }),
-              })
+              )
             ).status,
             403,
           );

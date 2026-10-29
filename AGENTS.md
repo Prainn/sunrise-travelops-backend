@@ -52,7 +52,7 @@
 
 ## Testing / Verification
 
-- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（已删除的单元测试不再执行；保留的e2e和数据库集成脚本不包含在此入口），与 CI 和 Docker build 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
+- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（现有单元测试、e2e和数据库集成脚本不包含在此入口，开发时按实际影响另行运行），与 CI 和 Docker build 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
 - 用户要求部署到生产时，发布前必须针对待发布的后端版本运行 `pnpm test:isolation`，通过后再执行生产发布；不能用其他版本或历史通过结果替代。使用一次性隔离 PostgreSQL，不连接业务库；失败或无法执行时报告原因并暂停生产发布。操作见[业务隔离自测](../docs/deployment/业务隔离自测.md)。这是 Agent 发布前门禁，不并入开发部署、`verify:release`、Docker build 或部署 workflow。
 - 修改 migration 时，除 CI 空库与重复执行，还必须用隔离数据库里的代表性旧结构/旧数据验证升级、约束及关键业务读取；不得对业务库直接试验。没有可用隔离环境时明确报告，不跳过后声称完成。
 

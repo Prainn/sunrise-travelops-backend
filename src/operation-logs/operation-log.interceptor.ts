@@ -1,3 +1,5 @@
+import { QueryFailedError } from 'typeorm';
+import { normalizeDatabaseError } from '../common/filters/api-exception.filter';
 import {
   CallHandler,
   ExecutionContext,
@@ -19,6 +21,7 @@ import {
 type AuditRequest = Request & {
   user?: AuthenticatedUser;
   menuPermissionChange?: unknown;
+  tourGuideServiceChange?: unknown;
 };
 type Action = {
   category: OperationCategory;
@@ -45,6 +48,8 @@ function actionFor(
   body: Record<string, unknown>,
   ledgerUnit?: unknown,
 ): Action | null {
+  if (controller === 'InspectionAlertController' && handler === 'report')
+    return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'MenuPermissionsController' && handler === 'save')
     return { category: 'system-category', label: '配置菜单权限' };
   if (controller === 'AuthController') {
@@ -96,6 +101,7 @@ function actionFor(
       update: { category: 'inquiry', label: '编辑询盘' },
       transfer: { category: 'inquiry', label: '转交询盘' },
       archive: { category: 'inquiry', label: '归档询盘' },
+      delete: { category: 'inquiry', label: '删除询盘' },
       parseDocument: { category: 'inquiry', label: '解析询盘文档' },
       contact: {
         category: 'resource',
@@ -133,6 +139,7 @@ function actionFor(
       update: { category: 'inquiry', label: '编辑独立站询盘' },
       transfer: { category: 'inquiry', label: '转交独立站询盘' },
       archive: { category: 'inquiry', label: '归档独立站询盘' },
+      delete: { category: 'inquiry', label: '删除独立站询盘' },
       createItinerary: {
         category: 'itinerary',
         label: '新增独立站行程',
@@ -140,7 +147,6 @@ function actionFor(
         resultId: true,
       },
       saveItinerary: { category: 'itinerary', label: '保存独立站行程' },
-      validateItinerary: { category: 'itinerary', label: '校验独立站行程' },
       copy: {
         category: 'itinerary',
         label: '复制独立站行程',
@@ -154,6 +160,7 @@ function actionFor(
       createConfigRecord: {
         category: 'website-config',
         label: '新增独立站配置',
+        resultId: true,
       },
       updateConfigRecord: {
         category: 'website-config',
@@ -330,13 +337,39 @@ export class OperationLogInterceptor implements NestInterceptor {
       const data: Record<string, string | number> = {};
       if (request.menuPermissionChange)
         return JSON.stringify(request.menuPermissionChange);
+      if (
+        controller === 'ToursController' &&
+        request.tourGuideServiceChange &&
+        error === undefined
+      )
+        return JSON.stringify({
+          recordId: id,
+          ...request.tourGuideServiceChange,
+        });
+      if (
+        controller === 'ToursController' &&
+        handler === 'saveRating' &&
+        typeof request.params.guideId === 'string'
+      )
+        data.guideId = request.params.guideId;
       if (typeof id === 'string') data.recordId = id.slice(0, 100);
       if (action.parentKey && request.params[action.parentKey] != null)
         data.parentId = String(request.params[action.parentKey]).slice(0, 100);
+      if (
+        controller === 'WebsiteController' &&
+        handler === 'createConfigRecord'
+      )
+        data.group = String(request.params.group ?? '');
       if (error !== undefined) {
         data.statusCode =
-          error instanceof HttpException ? error.getStatus() : 500;
+          error instanceof HttpException
+            ? error.getStatus()
+            : error instanceof QueryFailedError
+              ? normalizeDatabaseError(error.driverError).status
+              : 500;
         if (error instanceof BusinessException) data.errorCode = error.code;
+        else if (error instanceof QueryFailedError)
+          data.errorCode = normalizeDatabaseError(error.driverError).code;
       }
       return JSON.stringify(data);
     };
