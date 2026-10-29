@@ -1,3 +1,4 @@
+import { normalizeVehiclePrice } from './website-price';
 import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -1401,8 +1402,17 @@ export class WebsiteService {
     if (validate && issues.length)
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
+    let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
+    try {
+      vehiclePrices = input.vehiclePrices.map(normalizeVehiclePrice);
+    } catch {
+      invalid(
+        '报价须包含五个不重复的分项，金额须有效且人均合计不超过9999999999.99元',
+      );
+    }
     return {
       ...input,
+      vehiclePrices,
       days,
       deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
         ...entry,

@@ -59,6 +59,15 @@ function itineraryContent(value: WebsiteItinerary) {
         `${price.vehicleType}.${price.plan}`,
         {
           unitPrice: price.unitPrice,
+          priceComponents: Object.fromEntries(
+            (price.priceComponents ?? []).map((component) => [
+              component.category,
+              {
+                unitPrice: component.unitPrice,
+                showInPdf: component.showInPdf,
+              },
+            ]),
+          ),
           includesDriver: price.includesDriver,
           includesGuide: price.includesGuide,
         },

@@ -491,7 +491,7 @@ async function main() {
       },
       201,
     );
-    assert.equal(quote.schemaVersion, 3);
+    assert.equal(quote.schemaVersion, 4);
     assert.deepEqual(
       quote.english.quotation.map((q) => [q.plan, q.totalPrice]),
       [

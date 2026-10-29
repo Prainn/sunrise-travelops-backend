@@ -399,7 +399,22 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteServiceDto)
   services: WebsiteServiceDto[];
 }
+export class WebsitePriceComponentDto {
+  @IsIn(['hotel', 'guide', 'vehicle', 'attraction', 'meal'])
+  category: 'hotel' | 'guide' | 'vehicle' | 'attraction' | 'meal';
+  @IsDefined()
+  @ValidateIf((o: WebsitePriceComponentDto) => o.unitPrice !== null)
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  unitPrice: string | null;
+  @IsBoolean() showInPdf: boolean;
+}
 export class WebsiteVehiclePriceDto implements WebsiteVehiclePrice {
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => WebsitePriceComponentDto)
+  priceComponents: WebsitePriceComponentDto[] = [];
   @IsIn(['A', 'B']) plan: 'A' | 'B';
   @IsBoolean() includesDriver: boolean;
   @IsBoolean() includesGuide: boolean;

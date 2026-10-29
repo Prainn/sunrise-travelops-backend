@@ -1,5 +1,6 @@
 import type { EntityManager } from 'typeorm';
 import type {
+  WebsitePriceComponent,
   WebsiteDay,
   WebsiteHotelStay,
   WebsiteItem,
@@ -71,6 +72,24 @@ export async function loadWebsiteDetails(
         WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END,plan`,
     [itineraryId],
   );
+  const components = await manager.query<
+    (WebsitePriceComponent & { vehicleType: string; plan: string })[]
+  >(
+    `SELECT vehicle_type AS "vehicleType", plan, category, unit_price::text AS "unitPrice", show_in_pdf AS "showInPdf"
+     FROM website_price_components WHERE itinerary_id=$1 ORDER BY category`,
+    [itineraryId],
+  );
+  for (const price of vehiclePrices)
+    price.priceComponents = components
+      .filter(
+        (row) =>
+          row.vehicleType === price.vehicleType && row.plan === price.plan,
+      )
+      .map(({ category, unitPrice, showInPdf }) => ({
+        category,
+        unitPrice,
+        showInPdf,
+      }));
   const forDay = <T>(rows: DetailRow<T>[], id: string) =>
     rows.filter((r) => r.dayId === id).map((r) => r.value);
   const readDay = (day: DayRow): WebsiteDay => ({
@@ -327,5 +346,27 @@ export async function saveWebsiteDetails(
       p.includesGuide,
       p.unitPrice,
     ]),
+  );
+  await insertRows(
+    manager,
+    'website_price_components',
+    [
+      'itinerary_id',
+      'vehicle_type',
+      'plan',
+      'category',
+      'unit_price',
+      'show_in_pdf',
+    ],
+    prices.flatMap((price) =>
+      (price.priceComponents ?? []).map((component) => [
+        itineraryId,
+        price.vehicleType,
+        price.plan,
+        component.category,
+        component.unitPrice,
+        component.showInPdf,
+      ]),
+    ),
   );
 }

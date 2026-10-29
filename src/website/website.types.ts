@@ -185,7 +185,15 @@ export interface WebsiteDay {
   guideLanguage: string;
   services: WebsiteService[];
 }
+export type WebsitePriceCategory =
+  'hotel' | 'guide' | 'vehicle' | 'attraction' | 'meal';
+export interface WebsitePriceComponent {
+  category: WebsitePriceCategory;
+  unitPrice: string | null;
+  showInPdf: boolean;
+}
 export interface WebsiteVehiclePrice {
+  priceComponents?: WebsitePriceComponent[];
   plan: 'A' | 'B';
   includesDriver: boolean;
   includesGuide: boolean;
@@ -252,6 +260,10 @@ export interface WebsiteOutput {
     pax?: number | null;
     unitPrice?: string;
     totalPrice?: string | null;
+    priceComponents?: Array<{
+      category: WebsitePriceCategory;
+      unitPrice: string;
+    }>;
   }>;
   teamStandard?: Array<{
     category: 'hotel' | 'meal' | 'entry' | 'service' | 'transport';
@@ -271,8 +283,8 @@ export interface WebsitePreview {
   sourceVersion: number;
   inquiryVersion: number;
   configVersion: number;
-  schemaVersion: 1 | 2 | 3;
-  validationVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
+  validationVersion: 1 | 2 | 3 | 4;
   issues: WebsiteValidation[];
   english: WebsiteOutput;
   chinese: WebsiteOutput;

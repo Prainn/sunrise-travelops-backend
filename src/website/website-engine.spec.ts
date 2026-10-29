@@ -641,3 +641,25 @@ describe('website report plans and mileage', () => {
     ).toHaveLength(1);
   });
 });
+
+it('freezes the complete sum but exposes only selected component prices in both languages', () => {
+  const { inquiry, itinerary, config } = fixture();
+  itinerary.vehiclePrices[0].priceComponents = [
+    { category: 'hotel', unitPrice: '2000', showInPdf: true },
+    { category: 'guide', unitPrice: '1000', showInPdf: false },
+    { category: 'vehicle', unitPrice: '3000', showInPdf: false },
+    { category: 'attraction', unitPrice: '2000', showInPdf: true },
+    { category: 'meal', unitPrice: '2000', showInPdf: false },
+  ];
+  itinerary.vehiclePrices[0].unitPrice = '1'; // The service and engine do not trust a submitted total.
+  const preview = buildWebsitePreview(inquiry, itinerary, config);
+  expect(preview.schemaVersion).toBe(4);
+  for (const output of [preview.chinese, preview.english]) {
+    expect(output.quotation[0].unitPrice).toBe('10000.00');
+    expect(output.quotation[0].totalPrice).toBe('30000.00');
+    expect(output.quotation[0].priceComponents).toEqual([
+      { category: 'hotel', unitPrice: '2000.00' },
+      { category: 'attraction', unitPrice: '2000.00' },
+    ]);
+  }
+});

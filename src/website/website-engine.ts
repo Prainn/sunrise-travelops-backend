@@ -1,3 +1,4 @@
+import { normalizeVehiclePrice } from './website-price';
 import { toCents } from '../inquiries/money';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
@@ -283,6 +284,10 @@ export function buildWebsitePreview(
   itinerary: WebsiteItinerary,
   config: WebsiteConfig,
 ): WebsitePreview {
+  itinerary = {
+    ...itinerary,
+    vehiclePrices: itinerary.vehiclePrices.map(normalizeVehiclePrice),
+  };
   const issues: WebsiteValidation[] = [];
   function issue(
     code: string,
@@ -892,6 +897,15 @@ export function buildWebsitePreview(
           includesGuide: price.includesGuide,
           pax: itinerary.pax,
           unitPrice,
+          priceComponents: (price.priceComponents ?? [])
+            .filter(
+              (component) =>
+                component.showInPdf && component.unitPrice !== null,
+            )
+            .map((component) => ({
+              category: component.category,
+              unitPrice: money(BigInt(toCents(Number(component.unitPrice)))),
+            })),
           totalPrice:
             itinerary.pax === null
               ? null
@@ -940,8 +954,8 @@ export function buildWebsitePreview(
     sourceVersion: itinerary.version,
     inquiryVersion: inquiry.version,
     configVersion: config.version,
-    schemaVersion: 3,
-    validationVersion: 3,
+    schemaVersion: 4,
+    validationVersion: 4,
     issues,
     english,
     chinese,
