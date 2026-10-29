@@ -306,13 +306,15 @@ export interface WebsiteOutput {
   }>;
   quotationServices?: WebsiteQuotationOptions;
   notes: string[];
+  /** Schema 6: separate statement below NOTES; absent in historical snapshots. */
+  noShopping?: string;
 }
 export interface WebsitePreview {
   itineraryId: string;
   sourceVersion: number;
   inquiryVersion: number;
   configVersion: number;
-  schemaVersion: 1 | 2 | 3 | 4 | 5;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
   validationVersion: 1 | 2 | 3 | 4 | 5;
   issues: WebsiteValidation[];
   english: WebsiteOutput;

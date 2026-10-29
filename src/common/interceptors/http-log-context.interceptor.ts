@@ -19,7 +19,10 @@ export class HttpLogContextInterceptor implements NestInterceptor {
         handler: context.getHandler().name,
         params: request.params,
         query: request.query,
-        body: request.body as unknown,
+        body:
+          context.getClass().name === 'InspectionAlertController'
+            ? undefined
+            : (request.body as unknown),
       };
     }
 

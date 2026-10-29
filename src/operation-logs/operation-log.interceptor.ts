@@ -48,6 +48,8 @@ function actionFor(
   body: Record<string, unknown>,
   ledgerUnit?: unknown,
 ): Action | null {
+  if (controller === 'InspectionAlertController' && handler === 'report')
+    return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'MenuPermissionsController' && handler === 'save')
     return { category: 'system-category', label: '配置菜单权限' };
   if (controller === 'AuthController') {

@@ -1,7 +1,6 @@
 import {
   normalizeVehiclePrice,
   websiteQuotationOptions,
-  WEBSITE_HOTEL_TIERS,
 } from './website-price';
 import { toCents } from '../inquiries/money';
 import { randomUUID } from 'node:crypto';
@@ -610,9 +609,15 @@ export function buildWebsitePreview(
       inclusions.add(line);
       standards.get(category)!.add(line);
     }
-    const hotelLabel = (tier: keyof typeof WEBSITE_HOTEL_TIERS | null) =>
+    const hotelLabels = {
+      A: { en: '5-star', zh: '五星' },
+      B: { en: '4-star', zh: '四星' },
+      C: { en: '3-star', zh: '三星' },
+      D: { en: '2-star and below', zh: '二星及以下' },
+    };
+    const hotelLabel = (tier: keyof typeof hotelLabels | null) =>
       tier
-        ? WEBSITE_HOTEL_TIERS[tier][language]
+        ? hotelLabels[tier][language]
         : language === 'en'
           ? 'No accommodation'
           : '不住宿';
@@ -657,65 +662,27 @@ export function buildWebsitePreview(
         return values[key];
       });
     }
-    function serviceLine(
+    function includeService(
       name: string,
       state: FeeState,
       category: Category = 'service',
-    ): string {
-      if (state === 'INCLUDED') {
-        const line = template('included-service', { service: name });
-        include(line, category);
-        return line;
-      }
-      if (state === 'UNKNOWN') return '';
-      const labels: Record<
-        Exclude<FeeState, 'INCLUDED' | 'UNKNOWN'>,
-        string
-      > = language === 'en'
-        ? {
-            EXCLUDED: 'not included',
-            OPTIONAL: 'optional, not included',
-            RECOMMENDED: 'recommended, not included',
-            SELF_PAY: 'self-pay',
-          }
-        : {
-            EXCLUDED: '不含费用',
-            OPTIONAL: '可选，不含费用',
-            RECOMMENDED: '推荐，不含费用',
-            SELF_PAY: '费用自理',
-          };
-      return `${name} (${labels[state]})`;
+    ) {
+      if (state === 'INCLUDED')
+        include(template('included-service', { service: name }), category);
     }
     const hotelOptions: WebsiteOutput['hotelOptions'] = [];
     const hotelStays = new Map<string, WebsiteOutput['hotelOptions'][number]>();
     const itineraryRows: WebsiteOutput['itinerary'] = [];
     for (const day of itinerary.days) {
-      const sightseeing: string[] = [];
-      const events = new Map<string, string>();
-      const intro =
-        day.dayNumber === 1
-          ? template('arrival-basic', { city: city(day.endCityId) })
-          : '';
-      const outro = [
-        day.overnightCityId
-          ? template('overnight', { city: city(day.overnightCityId) })
-          : '',
-        day.dayNumber === itinerary.duration
-          ? template('departure-basic', { city: city(day.endCityId) })
-          : '',
-      ];
-      if (day.dayNumber === 1)
-        sightseeing.push(
-          template('arrival-basic', { city: city(day.endCityId) }),
-        );
+      const attractionsById = new Map<string, string>();
       for (const item of day.items) {
-        const offset = sightseeing.length;
         const name = language === 'en' ? item.nameEn : item.nameZh;
         if (item.appears) {
           const attraction = item.attractionId
             ? attractions.get(item.attractionId)
             : undefined;
-          sightseeing.push(
+          attractionsById.set(
+            item.id,
             attraction
               ? interpolate(
                   language === 'en' ? item.descriptionEn : item.descriptionZh,
@@ -726,10 +693,7 @@ export function buildWebsitePreview(
                 ? item.descriptionEn
                 : item.descriptionZh,
           );
-          if (item.feeState !== 'INCLUDED')
-            sightseeing.push(serviceLine(name, item.feeState));
         }
-        events.set(item.id, sightseeing.slice(offset).join('\n'));
         if (item.feeState === 'INCLUDED') {
           const attraction = item.attractionId
             ? attractions.get(item.attractionId)
@@ -738,7 +702,7 @@ export function buildWebsitePreview(
             const line = template('first-entry-ticket', { attraction: name });
             include(line, 'entry');
           } else {
-            serviceLine(name, item.feeState, 'entry');
+            includeService(name, item.feeState, 'entry');
           }
         }
       }
@@ -748,46 +712,42 @@ export function buildWebsitePreview(
             ? `D${day.dayNumber}: Tour guide (${day.guideLanguage.trim()}) included.`
             : `第${day.dayNumber}天：包含${day.guideLanguage.trim()}导游服务。`;
         include(line, 'service');
-        sightseeing.push(line);
-        events.set(`${day.id}-guide`, line);
       }
       for (const service of day.services) {
-        const line = serviceLine(
+        includeService(
           language === 'en' ? service.nameEn : service.nameZh,
           service.feeState,
         );
-        if (service.appears) {
-          sightseeing.push(line);
-          events.set(service.id, line);
-        }
       }
-      if (day.overnightCityId)
-        sightseeing.push(
-          template('overnight', { city: city(day.overnightCityId) }),
-        );
-      if (day.dayNumber === itinerary.duration)
-        sightseeing.push(
-          template('departure-basic', { city: city(day.endCityId) }),
-        );
-      const transportation = day.legs.map((leg) => {
-        const name = language === 'en' ? leg.nameEn : leg.nameZh;
-        let line = serviceLine(name, leg.feeState, 'transport');
-        if (leg.feeState === 'INCLUDED' && leg.mode === 'hsr') {
-          const included = template('hsr-second-class', {
-            city: city(leg.toCityId),
-          });
-          include(included, 'transport');
-        }
-        if (leg.feeState === 'INCLUDED') line = name;
-        const text = `${city(leg.fromCityId)} → ${city(leg.toCityId)}: ${line}`;
-        events.set(leg.id, text);
-        return text;
+      const orderedLegs = [...day.legs].sort((a, b) => {
+        const order = day.eventOrder ?? [];
+        const position = (id: string) => {
+          const index = order.indexOf(id);
+          return index < 0 ? order.length : index;
+        };
+        return position(a.id) - position(b.id);
       });
-      const hotels: string[] = [];
-      for (const hotel of day.hotels) {
+      const transportation = orderedLegs.map((leg) => {
+        includeService(
+          language === 'en' ? leg.nameEn : leg.nameZh,
+          leg.feeState,
+          'transport',
+        );
+        if (leg.feeState === 'INCLUDED' && leg.mode === 'hsr') {
+          include(
+            template('hsr-second-class', { city: city(leg.toCityId) }),
+            'transport',
+          );
+        }
+        return {
+          hsr: language === 'en' ? 'High-speed train' : '高铁',
+          private_vehicle: language === 'en' ? 'Private vehicle' : '包车',
+          flight: language === 'en' ? 'Flight' : '航班',
+          other: language === 'en' ? 'Other' : '其他',
+        }[leg.mode];
+      });
+      for (const hotel of day.overnightCityId ? day.hotels : []) {
         const name = language === 'en' ? hotel.nameEn : hotel.nameZh;
-        hotels.push(`${hotelLabel(hotel.tier)}: ${name}`);
-        events.set(hotel.id, `${hotelLabel(hotel.tier)}: ${name}`);
         const hotelOption = {
           tier: hotel.tier,
           city: city(hotel.cityId),
@@ -821,31 +781,39 @@ export function buildWebsitePreview(
         if (hotel.breakfastIncluded) {
           const hotelLine = template('hotel-breakfast', { hotel: name });
           include(hotelLine, 'hotel');
-        } else serviceLine(name, 'INCLUDED', 'hotel');
+        } else includeService(name, 'INCLUDED', 'hotel');
       }
       const mealLabels =
         language === 'en'
           ? { breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner' }
           : { breakfast: '早餐', lunch: '午餐', dinner: '晚餐' };
-      const meals = day.meals.map((meal) => {
+      for (const meal of day.meals) {
         const restaurant =
           language === 'en' ? meal.restaurantEn : meal.restaurantZh;
         const label = mealLabels[meal.slot];
-        let recommendation = '';
-        if (restaurant && meal.feeState === 'RECOMMENDED') {
-          recommendation = template('restaurant-recommendation', {
-            restaurant_or_meal: restaurant,
-          });
-          if (recommendation) sightseeing.push(recommendation);
-        }
-        const line = serviceLine(
+        includeService(
           restaurant ? `${label}: ${restaurant}` : label,
           meal.feeState,
           'meal',
         );
-        events.set(meal.id, [line, recommendation].filter(Boolean).join('\n'));
-        return line;
-      });
+      }
+      const includedMeals = new Set(
+        day.meals
+          .filter((meal) => meal.feeState === 'INCLUDED')
+          .map((meal) => meal.slot),
+      );
+      if (
+        day.overnightCityId &&
+        day.hotels.some((hotel) => hotel.breakfastIncluded)
+      )
+        includedMeals.add('breakfast');
+      const meals = (['breakfast', 'lunch', 'dinner'] as const)
+        .filter((slot) => includedMeals.has(slot))
+        .map((slot) =>
+          language === 'en'
+            ? { breakfast: 'B', lunch: 'L', dinner: 'D' }[slot]
+            : mealLabels[slot],
+        );
       const date = itinerary.startDate
         ? new Date(
             Date.parse(`${itinerary.startDate}T00:00:00Z`) +
@@ -854,23 +822,20 @@ export function buildWebsitePreview(
             .toISOString()
             .substring(0, 10)
         : `D${day.dayNumber}`;
-      const orderedNarration = (day.eventOrder ?? []).flatMap((id) => {
-        const text = events.get(id);
-        events.delete(id);
-        return text ? [text] : [];
+      const orderedDescriptions = (day.eventOrder ?? []).flatMap((id) => {
+        const description = attractionsById.get(id);
+        attractionsById.delete(id);
+        return description ? [description] : [];
       });
       itineraryRows.push({
         day: date,
         depart: city(day.departCityId),
-        transportation: transportation.filter(Boolean).join('\n'),
-        sightseeing: (day.eventOrder?.length
-          ? [intro, ...orderedNarration, ...events.values(), ...outro]
-          : sightseeing
-        )
+        transportation: [...new Set(transportation)].join('\n'),
+        sightseeing: [...orderedDescriptions, ...attractionsById.values()]
           .filter(Boolean)
           .join('\n'),
-        hotel: hotels.join('\n'),
-        meal: meals.filter(Boolean).join('\n'),
+        hotel: day.overnightCityId ? city(day.overnightCityId) : '',
+        meal: meals.join(' / '),
       });
     }
     if (quotationOptions.includesDriver) {
@@ -1006,11 +971,10 @@ export function buildWebsitePreview(
             ]
           : [],
       ),
-      notes: [
-        template('peak-season'),
-        template('hotel-substitution'),
-        template('no-shopping'),
-      ].filter(Boolean),
+      notes: [template('peak-season'), template('hotel-substitution')].filter(
+        Boolean,
+      ),
+      noShopping: template('no-shopping'),
     };
   }
   const english = output('en');
@@ -1020,7 +984,7 @@ export function buildWebsitePreview(
     sourceVersion: itinerary.version,
     inquiryVersion: inquiry.version,
     configVersion: config.version,
-    schemaVersion: 5,
+    schemaVersion: 6,
     validationVersion: 5,
     issues,
     english,
