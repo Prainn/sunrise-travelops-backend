@@ -1,6 +1,7 @@
 import {
   Column,
   CreateDateColumn,
+  DeleteDateColumn,
   Entity,
   Index,
   PrimaryGeneratedColumn,
@@ -34,6 +35,8 @@ export interface InquiryData {
 @Entity('inquiries')
 @Index('IDX_inquiries_owner_created', ['ownerId', 'createdAt'])
 export class InquiryEntity extends AuditedEntity {
+  @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
   @Column({ unique: true }) code: string;
   @Column({ name: 'owner_id', type: 'uuid' }) ownerId: string;
   @Column() owner: string;

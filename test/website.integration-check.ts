@@ -464,6 +464,7 @@ async function main() {
       version: 1001,
       cities: [],
       attractions: [],
+
       routes: [],
       patterns: [],
       skeletons: [],
@@ -782,6 +783,7 @@ async function main() {
             recommendedMonths: [],
           },
         ],
+
         routes: [],
         patterns: [],
         skeletons: [
@@ -1105,12 +1107,17 @@ async function main() {
           title: '独立站人工报价',
           duration: 2,
           startDate: null,
-          pax: null,
-          arrivalTime: '',
-          departureTime: '',
+          pax: 3,
           configVersion: config.version,
           days,
-          vehiclePrices: [{ vehicleType: '7_seat', unitPrice: '1288.50' }],
+
+          vehiclePrices: [
+            {
+              vehicleType: null,
+              hotelTier: 'A',
+              unitPrice: '1288.50',
+            },
+          ],
         };
       };
       const createPlan = async (input: WebsiteItineraryInput) => {
@@ -1291,10 +1298,6 @@ async function main() {
         if (warningCode === 'VAL-W01')
           input.days[1].items = [attractionFixture()];
         if (warningCode === 'VAL-W02') input.startDate = '2026-10-07';
-        if (warningCode !== 'VAL-W03') {
-          input.arrivalTime = '09:00';
-          input.departureTime = '18:00';
-        }
         const warningPlan = await createPlan(input);
         const result = await preview(warningPlan.id);
         assert(
@@ -1357,7 +1360,7 @@ async function main() {
         }),
       );
       assert.equal(itinerary.startDate, null);
-      assert.equal(itinerary.pax, null);
+      assert.equal(itinerary.pax, 3);
       assert.equal(
         itinerary.days[0].items[0].id,
         savedInput.days[0].items[0].id,
@@ -1449,9 +1452,13 @@ async function main() {
         output.english.itinerary.map((day) => day.day),
         ['D1', 'D2'],
       );
-      assert.deepEqual(output.english.quotation, [
-        { vehicle: '7-seat vehicle', price: 'RMB 1288.50 PP' },
-      ]);
+      assert.deepEqual(
+        output.english.quotation.map(({ vehicle, price }) => ({
+          vehicle,
+          price,
+        })),
+        [{ vehicle: '7-seat vehicle', price: 'RMB 1288.50 PP' }],
+      );
       assert(
         output.english.inclusions.some((line) => line.includes('Test Lake')),
       );
@@ -1493,8 +1500,6 @@ async function main() {
       );
       const monthBoundaryPlan = structuredClone(itinerary);
       monthBoundaryPlan.startDate = '2026-02-28';
-      monthBoundaryPlan.arrivalTime = '09:00';
-      monthBoundaryPlan.departureTime = '18:00';
       monthBoundaryPlan.days[0].items = [];
       monthBoundaryPlan.days[1].items = [attractionFixture()];
       const monthBoundaryConfig = structuredClone(config);

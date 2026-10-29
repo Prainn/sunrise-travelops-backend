@@ -32,6 +32,7 @@ function fixture() {
       },
     ],
     attractions: [],
+
     routes: [],
     patterns: [],
     hotels: [],
@@ -78,6 +79,7 @@ function fixture() {
     })),
   };
   const inquiry: WebsiteInquiry = {
+    canDelete: false,
     businessUnit: 'website',
     hasActiveTour: false,
     id: randomUUID(),
@@ -115,15 +117,22 @@ function fixture() {
     title: 'UAT regression',
     duration: 2,
     startDate: null,
-    pax: null,
-    arrivalTime: '',
-    departureTime: '',
+    pax: 3,
     configVersion: config.version,
     status: 'draft',
     version: 1,
     createdAt: '',
     updatedAt: '',
-    vehiclePrices: [{ vehicleType: '7_seat', unitPrice: '8800.00' }],
+
+    vehiclePrices: [
+      {
+        vehicleType: null,
+        hotelTier: 'A',
+        includesDriver: false,
+        includesGuide: false,
+        unitPrice: '8800.00',
+      },
+    ],
     days: [1, 2].map((dayNumber) => ({
       id: randomUUID(),
       dayNumber,
@@ -177,6 +186,38 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it('renders economy and two-star hotel alternatives in both language outputs', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const original = itinerary.days[0].hotels[0];
+    itinerary.days[0].hotels = (['C', 'D'] as const).map((tier) => ({
+      ...original,
+      id: randomUUID(),
+      tier,
+      nameZh: `酒店${tier}`,
+      nameEn: `Hotel ${tier}`,
+    }));
+    itinerary.vehiclePrices = (['C', 'D'] as const).map((hotelTier) => ({
+      ...itinerary.vehiclePrices[0],
+      hotelTier,
+    }));
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.issues.filter((issue) => issue.severity === 'ERROR'),
+    ).toEqual([]);
+    expect(
+      preview.chinese.hotelOptions.map((hotel) => [hotel.tier, hotel.hotel]),
+    ).toEqual([
+      ['C', '酒店C'],
+      ['D', '酒店D'],
+    ]);
+    expect(
+      preview.english.hotelOptions.map((hotel) => [hotel.tier, hotel.hotel]),
+    ).toEqual([
+      ['C', 'Hotel C'],
+      ['D', 'Hotel D'],
+    ]);
+  });
+
   it('renders each HSR leg destination in both languages and accepts a manual hotel without costs', () => {
     const { config, inquiry, itinerary } = fixture();
     validateWebsiteConfig(config);
@@ -198,7 +239,13 @@ describe('website UAT output', () => {
     );
     expect(preview.english.hotelOptions[0].hotel).toBe('Manual Hotel');
     expect(preview.english.quotation).toEqual([
-      { vehicle: '7-seat vehicle', price: 'RMB 8800.00 PP' },
+      expect.objectContaining({
+        vehicle: 'No private vehicle',
+        price: 'RMB 8800.00 PP',
+        hotelTier: 'A',
+        pax: 3,
+        totalPrice: '26400.00',
+      }),
     ]);
   });
 
@@ -256,6 +303,12 @@ describe('website UAT output', () => {
       const invalid = structuredClone(config);
       invalid.templates.find((template) => template.code === code)![language] =
         copy;
+      expect(() => validateWebsiteConfig(invalid)).toThrow(
+        /中英文变量必须一致/,
+      );
+      const template = invalid.templates.find((item) => item.code === code)!;
+      template.zh = copy;
+      template.en = copy;
       expect(() => validateWebsiteConfig(invalid)).toThrow(/未支持的变量/);
     }
   });
@@ -281,7 +334,7 @@ describe('website UAT output', () => {
 });
 
 describe('sequence and relaxed timing', () => {
-  it('renders mixed events in order without arrival/departure warnings', () => {
+  it('keeps only attraction descriptions in event order without arrival/departure warnings', () => {
     const { config, inquiry, itinerary } = fixture();
     const day = itinerary.days[0];
     day.items = [
@@ -306,16 +359,54 @@ describe('sequence and relaxed timing', () => {
     const result = buildWebsitePreview(inquiry, itinerary, config);
     expect(result.issues.some((issue) => issue.code === 'VAL-W03')).toBe(false);
     const text = result.english.itinerary[0].sightseeing;
-    expect(text).toContain('Arrival in Kunming.');
-    expect(text).toContain('Overnight in Kunming.');
-    expect(text.indexOf('Kunming → Dali')).toBeLessThan(
-      text.indexOf('Visit sight'),
+    expect(text).toBe('Visit sight');
+    expect(result.chinese.itinerary[0].sightseeing).toBe('参观景点');
+  });
+  it('requires a choice for multiple resource vehicles and keeps PDF visibility on the itinerary', () => {
+    const { config, itinerary } = fixture();
+    config.routes = [
+      {
+        id: randomUUID(),
+        status: 'enabled',
+        fromCityId: config.cities[0].id,
+        toCityId: config.cities[1].id,
+        mode: 'private_vehicle',
+        nameZh: '路线',
+        nameEn: 'Route',
+        feeState: 'INCLUDED',
+        vehicleOptions: [
+          { vehicleType: '5_seat', durationMinutes: 180 },
+          { vehicleType: '7_seat', durationMinutes: 210 },
+        ],
+      },
+    ];
+    config.skeletons = [
+      {
+        id: randomUUID(),
+        status: 'enabled',
+        nameZh: '骨架',
+        nameEn: 'Skeleton',
+        days: config.cities.map((city) => ({
+          cityId: city.id,
+          patternId: null,
+        })),
+      },
+    ];
+    let generated = generateWebsiteDraft(
+      itinerary,
+      config,
+      config.skeletons[0].id,
     );
-    expect(text.indexOf('Visit sight')).toBeLessThan(text.indexOf('Lunch'));
-    expect(text.indexOf('Lunch')).toBeLessThan(text.indexOf('Dali → Kunming'));
-    expect(text.indexOf('Dali → Kunming')).toBeLessThan(
-      text.indexOf('Manual Hotel'),
-    );
+    expect(generated.days[1].legs[0].vehicleType).toBeNull();
+    expect(generated.days[1].legs[0].durationMinutes).toBeNull();
+    expect(generated.days[1].legs[0].showInMileage).toBe(false);
+    config.routes[0].vehicleOptions = [
+      { vehicleType: '定制22座车', durationMinutes: 230 },
+    ];
+    generated = generateWebsiteDraft(itinerary, config, config.skeletons[0].id);
+    expect(generated.days[1].legs[0].vehicleType).toBe('定制22座车');
+    expect(generated.days[1].legs[0].durationMinutes).toBe(230);
+    expect(generated.days[1].legs[0].showInMileage).toBe(false);
   });
   it('accepts same-city transport configuration', () => {
     const { config } = fixture();
@@ -325,6 +416,10 @@ describe('sequence and relaxed timing', () => {
       fromCityId: config.cities[0].id,
       toCityId: config.cities[0].id,
       mode: 'private_vehicle',
+      vehicleOptions: [
+        { vehicleType: '5_seat', durationMinutes: 180 },
+        { vehicleType: '7_seat', durationMinutes: 210 },
+      ],
       nameZh: '市内交通',
       nameEn: 'City transfer',
       feeState: 'INCLUDED',
@@ -373,4 +468,351 @@ it('generates first and last day attractions without confirmed travel times', ()
   expect(
     generated.days.map((day) => day.items.map((item) => item.attractionId)),
   ).toEqual([[attractionId], [attractionId]]);
+});
+
+describe('website report plans and mileage', () => {
+  it('prices vehicle × hotel tiers and derives service scope from active days', () => {
+    const { inquiry, itinerary, config } = fixture();
+    itinerary.days[0].legs = ['5_seat', '7_seat'].map((vehicleType) => ({
+      id: randomUUID(),
+      routeId: null,
+      fromCityId: config.cities[0].id,
+      toCityId: config.cities[0].id,
+      mode: 'private_vehicle',
+      vehicleType,
+      nameZh: '专车',
+      nameEn: 'Private vehicle',
+      feeState: 'INCLUDED',
+    }));
+    itinerary.days[0].hotels.push({
+      ...itinerary.days[0].hotels[0],
+      id: randomUUID(),
+      tier: 'B',
+    });
+    itinerary.days[0].guideLanguage = 'English';
+    itinerary.vehiclePrices = ['5_seat', '7_seat'].flatMap((vehicleType) =>
+      (['A', 'B'] as const).map((hotelTier) => ({
+        vehicleType,
+        hotelTier,
+        includesDriver: false,
+        includesGuide: false,
+        unitPrice: hotelTier === 'A' ? '8641' : '6921',
+      })),
+    );
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.schemaVersion).toBe(6);
+    expect(
+      preview.english.quotation.map((row) => [
+        row.vehicleType,
+        row.hotelTier,
+        row.totalPrice,
+      ]),
+    ).toEqual([
+      ['5_seat', 'A', '25923.00'],
+      ['7_seat', 'A', '25923.00'],
+      ['5_seat', 'B', '20763.00'],
+      ['7_seat', 'B', '20763.00'],
+    ]);
+    expect(
+      preview.english.quotation.every(
+        (row) =>
+          row.includesDriver && row.includesGuide && row.plan === undefined,
+      ),
+    ).toBe(true);
+    expect(preview.english.inclusions).toContain(
+      'D1: Tour guide (English) included.',
+    );
+    expect(
+      preview.english.inclusions.some((line) =>
+        line.includes('Private driver included on D1.'),
+      ),
+    ).toBe(true);
+    expect(preview.chinese.quotation[0].hotelCategory).toBe('五星');
+    expect(preview.english.hotelOptions[0]).toMatchObject({
+      startDay: 1,
+      endDay: 1,
+      nights: 1,
+      breakfastIncluded: true,
+    });
+    itinerary.days[0].guideLanguage = '';
+    itinerary.deletedDays = [
+      {
+        day: {
+          ...structuredClone(itinerary.days[0]),
+          guideLanguage: 'English',
+        },
+        originalDate: null,
+      },
+    ];
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.quotation.every(
+        (row) => row.includesGuide === false,
+      ),
+    ).toBe(true);
+    itinerary.days[1].overnightCityId = config.cities[0].id;
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues.some(
+        (issue) => issue.code === 'VAL-E09' && issue.dayNumber === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps zero, null pax and maximum-precision totals distinct', () => {
+    const { inquiry, itinerary, config } = fixture();
+    itinerary.vehiclePrices[0].unitPrice = '0';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.quotation[0]
+        .totalPrice,
+    ).toBe('0.00');
+    itinerary.pax = null;
+    const pending = buildWebsitePreview(inquiry, itinerary, config);
+    expect(pending.issues).toContainEqual(
+      expect.objectContaining({ code: 'VAL-E08', severity: 'ERROR' }),
+    );
+    expect(pending.english.quotation[0].totalPrice).toBeNull();
+    itinerary.pax = 10000;
+    itinerary.vehiclePrices[0].unitPrice = '9999999999.99';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.quotation[0]
+        .totalPrice,
+    ).toBe('99999999999900.00');
+    itinerary.pax = 3;
+    itinerary.vehiclePrices[0].unitPrice = '0.29';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.quotation[0]
+        .totalPrice,
+    ).toBe('0.87');
+  });
+
+  it('uses day/event order, vehicle types and authored values for mileage, preserving unknowns', () => {
+    const { inquiry, itinerary, config } = fixture();
+    const day = itinerary.days[0];
+    day.legs = [80, 190, 0].map((distance, index) => ({
+      id: randomUUID(),
+      routeId: null,
+      fromCityId: config.cities[0].id,
+      toCityId: config.cities[0].id,
+      mode: 'private_vehicle',
+      vehicleType: index === 0 ? '5_seat' : '7_seat',
+      nameZh: '包车',
+      nameEn: 'Private vehicle',
+      feeState: 'INCLUDED',
+      distanceKm: String(distance),
+      durationMinutes: index === 1 ? null : 90,
+      showInMileage: index !== 2,
+    }));
+    day.eventOrder = [day.legs[1].id, day.legs[0].id];
+    itinerary.days[1].legs = [
+      { ...day.legs[0], id: randomUUID(), distanceKm: null },
+    ];
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.english.mileage?.map((row) => row.distanceKm)).toEqual([
+      '190',
+      '80',
+      null,
+    ]);
+    expect(preview.chinese.mileage?.map((row) => row.vehicleType)).toEqual([
+      '7_seat',
+      '5_seat',
+      '5_seat',
+    ]);
+    expect(preview.english.mileage?.[0].durationMinutes).toBeNull();
+    expect(preview.chinese.mileage?.[0].transport).toContain('7');
+    day.legs[0].distanceKm = '999';
+    expect(preview.chinese.mileage?.[1].distanceKm).toBe('80');
+    day.legs[0].vehicleType = null;
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues,
+    ).toContainEqual(expect.objectContaining({ code: 'ITINERARY_INVALID' }));
+    config.cities[0].status = 'disabled';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues,
+    ).toContainEqual(expect.objectContaining({ code: 'CONFIG_NOT_READY' }));
+  });
+
+  it('renders each authored Chinese and English attraction once without sample filler', () => {
+    const { inquiry, itinerary, config } = fixture();
+    itinerary.days[0].items = [
+      {
+        id: randomUUID(),
+        attractionId: null,
+        nameZh: '石林',
+        nameEn: 'Stone Forest',
+        descriptionZh: '游览石林，乘景区观光车。',
+        descriptionEn: 'Visit Stone Forest by shuttle.',
+        appears: true,
+        feeState: 'INCLUDED',
+      },
+    ];
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.chinese.itinerary[0].sightseeing.match(/游览石林/g),
+    ).toHaveLength(1);
+    expect(
+      preview.english.itinerary[0].sightseeing.match(/Visit Stone Forest/g),
+    ).toHaveLength(1);
+  });
+});
+
+it('freezes the complete sum but exposes only selected component prices in both languages', () => {
+  const { inquiry, itinerary, config } = fixture();
+  itinerary.vehiclePrices[0].priceComponents = [
+    { category: 'hotel', unitPrice: '2000', showInPdf: true },
+    { category: 'guide', unitPrice: '1000', showInPdf: false },
+    { category: 'vehicle', unitPrice: '3000', showInPdf: false },
+    { category: 'attraction', unitPrice: '2000', showInPdf: true },
+    { category: 'meal', unitPrice: '2000', showInPdf: false },
+  ];
+  itinerary.vehiclePrices[0].unitPrice = '1'; // The service and engine do not trust a submitted total.
+  const preview = buildWebsitePreview(inquiry, itinerary, config);
+  expect(preview.schemaVersion).toBe(6);
+  for (const output of [preview.chinese, preview.english]) {
+    expect(output.quotation[0].unitPrice).toBe('10000.00');
+    expect(output.quotation[0].totalPrice).toBe('30000.00');
+    expect(output.quotation[0].priceComponents).toEqual([
+      { category: 'hotel', unitPrice: '2000.00' },
+      { category: 'attraction', unitPrice: '2000.00' },
+    ]);
+  }
+});
+
+describe('compact bilingual customer itinerary', () => {
+  it('uses actual daily modes, visible attraction descriptions and the overnight city only', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.legs.push({
+      ...day.legs[0],
+      id: randomUUID(),
+      mode: 'flight',
+      feeState: 'SELF_PAY',
+    });
+    day.items = ['First', 'Second', 'Hidden'].map((name, index) => ({
+      id: randomUUID(),
+      attractionId: null,
+      nameZh: name,
+      nameEn: name,
+      descriptionZh: `景点${index + 1}描述`,
+      descriptionEn: `${name} attraction description.`,
+      appears: index !== 2,
+      feeState: 'INCLUDED',
+    }));
+    day.services = [
+      {
+        id: randomUUID(),
+        nameZh: '接待',
+        nameEn: 'Reception',
+        appears: true,
+        feeState: 'INCLUDED',
+      },
+    ];
+    day.guideLanguage = 'English';
+    day.eventOrder = [
+      day.legs[2].id,
+      day.items[1].id,
+      day.hotels[0].id,
+      day.legs[0].id,
+      day.meals[0].id,
+      day.items[0].id,
+    ];
+    const before = structuredClone(itinerary);
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.english.itinerary[0]).toMatchObject({
+      transportation: 'Flight\nHigh-speed train',
+      sightseeing:
+        'Second attraction description.\nFirst attraction description.',
+      hotel: 'Kunming',
+      meal: 'B',
+    });
+    expect(preview.chinese.itinerary[0]).toMatchObject({
+      transportation: '航班\n高铁',
+      sightseeing: '景点2描述\n景点1描述',
+      hotel: '昆明',
+      meal: '早餐',
+    });
+    expect(preview.english.inclusions).toEqual(
+      expect.arrayContaining([
+        'Reception included.',
+        'D1: Tour guide (English) included.',
+        'Hotel Manual Hotel with breakfast included.',
+      ]),
+    );
+    expect(preview.english.itinerary[1]).toMatchObject({
+      transportation: '',
+      sightseeing: '',
+      hotel: '',
+      meal: '',
+    });
+    expect(itinerary).toEqual(before);
+  });
+
+  it('shows breakfast for any included hotel breakfast and lists only included meals in meal order', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.hotels.push({
+      ...day.hotels[0],
+      id: randomUUID(),
+      tier: 'B',
+      breakfastIncluded: false,
+    });
+    day.meals.unshift({
+      ...day.meals[0],
+      id: randomUUID(),
+      slot: 'breakfast',
+      feeState: 'SELF_PAY',
+    });
+    day.meals[1].feeState = 'INCLUDED';
+    const mixed = buildWebsitePreview(inquiry, itinerary, config);
+    expect(mixed.english.itinerary[0].meal).toBe('B / L');
+    expect(mixed.chinese.itinerary[0].meal).toBe('早餐 / 午餐');
+    expect(
+      mixed.english.hotelOptions.map((hotel) => hotel.breakfastIncluded),
+    ).toEqual([true, false]);
+    day.hotels[0].breakfastIncluded = false;
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.itinerary[0].meal,
+    ).toBe('L');
+    day.meals[0].feeState = 'INCLUDED';
+    day.meals[2].feeState = 'INCLUDED';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.itinerary[0].meal,
+    ).toBe('B / L / D');
+    day.overnightCityId = null;
+    day.hotels[0].breakfastIncluded = true;
+    day.meals.forEach((meal) => {
+      meal.feeState = 'SELF_PAY';
+    });
+    const noStay = buildWebsitePreview(inquiry, itinerary, config);
+    expect(noStay.english.itinerary[0]).toMatchObject({ hotel: '', meal: '' });
+    expect(noStay.english.hotelOptions).toEqual([]);
+    expect(noStay.english.inclusions.join(' ')).not.toContain('Manual Hotel');
+  });
+
+  it('freezes concise hotel categories and a separate configured no-shopping statement', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.hotels = (['A', 'B', 'C', 'D'] as const).map((tier) => ({
+      ...day.hotels[0],
+      id: randomUUID(),
+      tier,
+    }));
+    itinerary.vehiclePrices = day.hotels.map((hotel) => ({
+      ...itinerary.vehiclePrices[0],
+      hotelTier: hotel.tier,
+    }));
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.english.quotation.map((quote) => quote.hotelCategory),
+    ).toEqual(['5-star', '4-star', '3-star', '2-star and below']);
+    expect(
+      preview.chinese.hotelOptions.map((hotel) => hotel.tierLabel),
+    ).toEqual(['五星', '四星', '三星', '二星及以下']);
+    expect(
+      preview.english.hotelOptions.map((hotel) => hotel.tierLabel),
+    ).toEqual(['5-star', '4-star', '3-star', '2-star and below']);
+    expect(preview.english.notes).toHaveLength(2);
+    expect(preview.english.notes).not.toContain('NO SHOPPING.');
+    expect(preview.english.noShopping).toBe('NO SHOPPING.');
+    expect(preview.chinese.noShopping).toBe('无购物。');
+    expect(preview.validationVersion).toBe(5);
+  });
 });

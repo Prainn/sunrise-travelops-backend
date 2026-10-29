@@ -1,5 +1,9 @@
+import {
+  normalizeVehiclePrice,
+  websiteQuotationOptions,
+  quotationPriceKey,
+} from './website-price';
 import type { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { pickTourNumber, tourNumberBase } from '../tours/tour-rules';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
@@ -9,6 +13,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { ErrorCodeValue } from '../common/constants/error-code';
+import { canDeleteInquiry } from '../common/inquiry-delete';
 import { assertNoActiveTour } from '../common/tour-lock';
 import { requireDictionaryItem } from '../common/dictionary-items';
 import { nextBusinessCode } from '../common/business-code';
@@ -52,6 +57,7 @@ import {
   WebsiteTemplateDto,
 } from './website.dto';
 import {
+  websiteTransportVehicleLabel,
   buildWebsitePreview,
   generateWebsiteDraft,
   validateWebsiteConfig,
@@ -123,7 +129,7 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
-  arrival_time AS "arrivalTime",departure_time AS "departureTime",config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
+  config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 function fail(
@@ -217,12 +223,23 @@ export class WebsiteService {
       scope += ` AND i.owner_id=$${params.push(user.id)}`;
     const rows = await manager.query<WebsiteInquiry[]>(
       `SELECT ${inquiryColumns} FROM website_inquiries i
-      WHERE i.id=$1${scope}${lock ? ' FOR UPDATE OF i' : ''}`,
+      WHERE i.deleted_at IS NULL AND i.id=$1${scope}${lock ? ' FOR UPDATE OF i' : ''}`,
       params,
     );
     if (!rows[0])
       fail('INQUIRY_NOT_FOUND', '独立站询盘不存在', HttpStatus.NOT_FOUND);
-    return rows[0];
+    return this.inquiryResponse(rows[0], user);
+  }
+  private inquiryResponse(
+    row: WebsiteInquiry,
+    user: AuthenticatedUser,
+  ): WebsiteInquiry {
+    return {
+      ...row,
+      canDelete:
+        !row.hasActiveTour &&
+        canDeleteInquiry(user, row.ownerId, 'website:inquiry:delete'),
+    };
   }
   private async itinerary(
     id: string,
@@ -314,9 +331,11 @@ export class WebsiteService {
       ), matches AS (
         SELECT item,ordinality FROM snapshot,
           jsonb_array_elements(config->($3::text)) WITH ORDINALITY AS entry(item,ordinality)
-        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code')),lower($4))>0)
+        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code',CASE WHEN $3='routes' THEN concat_ws(' ',item->>'mode',item->>'vehicleOptions') END,
+          CASE WHEN $3='routes' THEN (SELECT string_agg(concat_ws(' ',c->>'nameZh',c->>'nameEn'),' ') FROM jsonb_array_elements(config->'cities') c WHERE c->>'id' IN (item->>'fromCityId',item->>'toCityId')) END)),lower($4))>0)
           AND ($5::text IS NULL OR item->>'cityId'=$5)
           AND ($6::text IS NULL OR item->>'id'<>$6)
+          AND ($9::text IS NULL OR item->>'status'=$9)
       ), page AS (
         SELECT item,ordinality FROM matches ORDER BY ordinality LIMIT $7 OFFSET $8
       )
@@ -332,6 +351,7 @@ export class WebsiteService {
         query.excludeId ?? null,
         query.pageSize,
         (query.page - 1) * query.pageSize,
+        query.status ?? null,
       ],
     );
     if (!result)
@@ -343,13 +363,21 @@ export class WebsiteService {
     query: WebsiteConfigListQuery,
     user: AuthenticatedUser,
   ) {
-    const result = await this.configPage(group, query, user);
+    const result = await this.configRecords(group, query, user);
     return {
-      ...result,
+      version: result.version,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
       list: result.list.map((item) => ({
         id: item.id,
         value: 'code' in item ? item.code : item.id,
-        label: 'code' in item ? item.code : item.nameZh,
+        label:
+          'code' in item
+            ? item.code
+            : 'vehicleOptions' in item && item.vehicleOptions.length
+              ? `${item.nameZh} · ${item.vehicleOptions.map((option) => websiteTransportVehicleLabel(option.vehicleType, 'zh')).join(' / ')}`
+              : item.nameZh,
       })),
     };
   }
@@ -454,7 +482,7 @@ export class WebsiteService {
         user,
         businessUnit,
       );
-      return { version: saved.version };
+      return { version: saved.version, id: record?.id ?? id, group };
     });
   }
   private configReferences(config: WebsiteConfig): ResourceReference[] {
@@ -681,7 +709,7 @@ export class WebsiteService {
     businessUnit?: WebsiteBusinessUnit,
   ) {
     this.permission(user, 'website:inquiry:list');
-    const clauses: string[] = [];
+    const clauses: string[] = ['i.deleted_at IS NULL'];
     if (user.scope !== 'headquarters' || businessUnit)
       clauses.push(
         `i.business_unit=$${params.push(this.businessUnit(user, businessUnit))}`,
@@ -745,7 +773,7 @@ export class WebsiteService {
       paging,
     );
     return {
-      list,
+      list: list.map((row) => this.inquiryResponse(row, user)),
       total: Number(count[0].total),
       page: query.page,
       pageSize: query.pageSize,
@@ -840,48 +868,7 @@ export class WebsiteService {
         'country-region',
         input.countryItemId,
       );
-      const [creator] = await manager.query<{ tourCode: string | null }[]>(
-        'SELECT tour_code AS "tourCode" FROM users WHERE id=$1 FOR SHARE',
-        [user.id],
-      );
-      if (!creator?.tourCode)
-        fail(
-          'VALIDATION_ERROR',
-          '当前账号未设置团号标识',
-          HttpStatus.BAD_REQUEST,
-        );
-      const [day] = await manager.query<{ date: string }[]>(
-        `SELECT (now() AT TIME ZONE 'Asia/Shanghai')::date::text AS date`,
-      );
-      // Reserve the rendered code independently of the business row: deletion
-      // cannot reuse it. One daily lock also covers ambiguous digit-ending markers.
-      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        `website-inquiry-number:${day.date}`,
-      ]);
-      const [counter] = await manager.query<{ next: number }[]>(
-        `SELECT (coalesce(max(sequence),0)+1)::integer AS next
-         FROM website_inquiry_numbers WHERE creator_code=$1 AND creation_date=$2`,
-        [creator.tourCode, day.date],
-      );
-      const base = tourNumberBase(
-        businessUnit === 'website' ? 'LYNX-INQ' : 'KMLX-WIQ',
-        day.date,
-        creator.tourCode,
-        country.code,
-      );
-      const taken = await manager.query<{ code: string }[]>(
-        'SELECT code FROM website_inquiry_numbers WHERE creation_date=$1',
-        [day.date],
-      );
-      const code = pickTourNumber(
-        base,
-        counter.next,
-        new Set(taken.map((row) => row.code)),
-      );
-      await manager.query(
-        `INSERT INTO website_inquiry_numbers(code,creator_code,creation_date,sequence) VALUES($1,$2,$3,$4)`,
-        [code, creator.tourCode, day.date, counter.next],
-      );
+      const code = await nextBusinessCode(manager, 'INQ');
       const id = randomUUID();
       await manager.query(
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
@@ -1041,6 +1028,28 @@ export class WebsiteService {
         },
       );
       return updated;
+    });
+  }
+  async delete(
+    id: string,
+    version: number,
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    this.permission(user, 'website:inquiry:delete');
+    await this.db.transaction(async (manager) => {
+      const row = await this.inquiry(id, user, manager, true);
+      if (!canDeleteInquiry(user, row.ownerId, 'website:inquiry:delete'))
+        fail(
+          'AUTH_FORBIDDEN',
+          '只能删除当前本人负责的询盘',
+          HttpStatus.FORBIDDEN,
+        );
+      this.version(row.version, version);
+      await assertNoActiveTour(manager, 'website', id);
+      await manager.query(
+        'UPDATE website_inquiries SET deleted_at=now(),version=version+1,updated_at=now() WHERE id=$1',
+        [id],
+      );
     });
   }
   async archive(id: string, version: number, user: AuthenticatedUser) {
@@ -1239,9 +1248,9 @@ export class WebsiteService {
     if (
       duplicate(ids) ||
       duplicate(input.days.map((d) => String(d.dayNumber))) ||
-      duplicate(input.vehiclePrices.map((p) => p.vehicleType))
+      duplicate(input.vehiclePrices.map(quotationPriceKey))
     )
-      invalid('行程明细ID、天数或车型不能重复');
+      invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
     const retainedCities = new Set(
       old?.days.flatMap((d) => [
         d.departCityId,
@@ -1297,6 +1306,8 @@ export class WebsiteService {
           });
       });
       day.legs.forEach((leg) => {
+        if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
+          invalid('非包车交通段不能填写车型');
         city(leg.fromCityId);
         city(leg.toCityId);
         if (leg.routeId) {
@@ -1353,8 +1364,27 @@ export class WebsiteService {
     if (validate && issues.length)
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
+    const options = websiteQuotationOptions(days);
+    if (
+      validate &&
+      input.vehiclePrices.some(
+        (price) =>
+          !options.vehicleTypes.includes(price.vehicleType) ||
+          !options.hotelTiers.includes(price.hotelTier),
+      )
+    )
+      invalid('报价车型与酒店档次必须来自当前活动行程，请调整已失效的报价组合');
+    let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
+    try {
+      vehiclePrices = input.vehiclePrices.map(normalizeVehiclePrice);
+    } catch {
+      invalid(
+        '报价须包含五个不重复的分项，金额须有效且人均合计不超过9999999999.99元',
+      );
+    }
     return {
       ...input,
+      vehiclePrices,
       days,
       deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
         ...entry,
@@ -1374,8 +1404,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,arrival_time,departure_time,config_version,reorder_draft,business_unit)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
       [
         id,
         inquiryId,
@@ -1384,12 +1414,22 @@ export class WebsiteService {
         input.duration,
         input.startDate,
         input.pax,
-        input.arrivalTime,
-        input.departureTime,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
     );
+    if (metadata.sourceId) {
+      await manager.query(
+        `INSERT INTO website_vehicle_prices(itinerary_id,vehicle_type,plan,includes_driver,includes_guide,unit_price)
+        SELECT $1,vehicle_type,plan,includes_driver,includes_guide,unit_price FROM website_vehicle_prices WHERE itinerary_id=$2`,
+        [id, metadata.sourceId],
+      );
+      await manager.query(
+        `INSERT INTO website_price_components(itinerary_id,vehicle_type,plan,category,unit_price,show_in_pdf)
+        SELECT $1,vehicle_type,plan,category,unit_price,show_in_pdf FROM website_price_components WHERE itinerary_id=$2`,
+        [id, metadata.sourceId],
+      );
+    }
     await saveWebsiteDetails(
       manager,
       id,
@@ -1440,16 +1480,14 @@ export class WebsiteService {
     action: WebsiteLogAction = 'itinerary_saved',
   ) {
     await manager.query(
-      `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,arrival_time=$6,departure_time=$7,
-      config_version=$8,reorder_draft=$9,version=version+1,updated_at=now() WHERE id=$1`,
+      `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,
+      config_version=$6,reorder_draft=$7,version=version+1,updated_at=now() WHERE id=$1`,
       [
         itinerary.id,
         input.title,
         input.duration,
         input.startDate,
         input.pax,
-        input.arrivalTime,
-        input.departureTime,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
@@ -1537,6 +1575,11 @@ export class WebsiteService {
         })),
         reorderDraft: draft
           ? {
+              removedItemIds: (draft.removedItemIds ?? []).map(remapId),
+              transportCopies: (draft.transportCopies ?? []).map((leg) => ({
+                ...leg,
+                id: remapId(leg.id),
+              })),
               dayIds: draft.dayIds.map(remapId),
               addedDayIds: draft.addedDayIds.map(remapId),
               deletedDays: draft.deletedDays.map((entry) => ({
@@ -1651,9 +1694,15 @@ export class WebsiteService {
     await this.mutable(inquiry, this.db.manager);
     this.draft(itinerary);
     this.version(itinerary.version, input.version, true);
+    const options = websiteQuotationOptions(input.days);
     return this.previewData(this.db.manager, inquiry, {
       ...itinerary,
       ...input,
+      vehiclePrices: input.vehiclePrices.map((price) => ({
+        ...price,
+        includesDriver: options.includesDriver,
+        includesGuide: options.includesGuide,
+      })),
     });
   }
   private async previewData(
@@ -1672,7 +1721,16 @@ export class WebsiteService {
       inquiry.businessUnit,
       itinerary,
     );
-    itinerary = { ...itinerary, ...normalized };
+    const options = websiteQuotationOptions(normalized.days);
+    itinerary = {
+      ...itinerary,
+      ...normalized,
+      vehiclePrices: normalized.vehiclePrices.map((price) => ({
+        ...price,
+        includesDriver: options.includesDriver,
+        includesGuide: options.includesGuide,
+      })),
+    };
     const result = buildWebsitePreview(inquiry, itinerary, config);
     if (itinerary.reorderDraft)
       result.issues.push({

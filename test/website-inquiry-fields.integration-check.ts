@@ -360,11 +360,10 @@ async function run() {
       day: '2-digit',
     })
       .format(new Date(created.createdAt))
-      .replaceAll('-', '')
-      .slice(2);
-    assert.equal(created.code, `KMLX-WIQ-${date}AS1-MYS`);
+      .replaceAll('-', '');
+    assert.equal(created.code, `INQ-${date}-01`);
     const lx = await call('linxi', 'POST', 'inquiries', input, 201);
-    assert.equal(lx.code, `KMLX-WIQ-${date}AS2-MYS`);
+    assert.equal(lx.code, `INQ-${date}-02`);
     assert.equal(lx.businessUnit, 'linxi');
     assert.equal(lx.contactInfo, '');
     assert.equal(lx.receivedAt, null);
@@ -389,8 +388,6 @@ async function run() {
     for (const patch of [
       { phone: '' },
       { email: '' },
-      { arrivalTime: '' },
-      { departureTime: '' },
       { updatedAt: created.updatedAt },
       { code: 'client' },
       { receivedAt: '2026-02-30 12:00' },
@@ -452,7 +449,7 @@ async function run() {
     );
     assert.equal(transferred.code, created.code);
     assert.equal(transferred.ownerId, actors.other.id);
-    const plan = await call<WebsiteItinerary>(
+    await call<WebsiteItinerary>(
       'linxi',
       'POST',
       `inquiries/${lx.id}/itineraries`,
@@ -461,13 +458,9 @@ async function run() {
         duration: 1,
         configVersion: 1,
         inquiryVersion: lx.version,
-        arrivalTime: '12:00',
-        departureTime: '19:00',
       },
       201,
     );
-    assert.equal(plan.arrivalTime, '12:00');
-    assert.equal(plan.departureTime, '19:00');
     const concurrent = await Promise.all(
       Array.from({ length: 8 }, () =>
         call('web', 'POST', 'inquiries', input, 201),
@@ -475,11 +468,14 @@ async function run() {
     );
     assert.equal(new Set(concurrent.map((r) => r.code)).size, 8);
     const digit = await call('digits', 'POST', 'inquiries', input, 201);
-    assert.equal(digit.code, `KMLX-WIQ-${date}AS11-MYS`);
+    assert.match(digit.code, new RegExp(`^INQ-${date}-[0-9]{2,}$`));
     await db.query('DELETE FROM website_logs WHERE inquiry_id=$1', [digit.id]);
     await db.query('DELETE FROM website_inquiries WHERE id=$1', [digit.id]);
     const collision = await call('web', 'POST', 'inquiries', input, 201);
-    assert.equal(collision.code, `KMLX-WIQ-${date}AS(1)11-MYS`);
+    assert.equal(
+      Number(collision.code.split('-').at(-1)),
+      Number(digit.code.split('-').at(-1)) + 1,
+    );
     const withUnknown = await call(
       'web',
       'POST',
@@ -487,7 +483,7 @@ async function run() {
       { ...input, countryItemId: unknown.id, receivedAt: null },
       201,
     );
-    assert.match(withUnknown.code, /-UNKNOWN$/);
+    assert.match(withUnknown.code, /^INQ-[0-9]{8}-[0-9]{2,}$/);
     assert.equal(withUnknown.receivedAt, null);
     type VisitList = {
       total: number;

@@ -10,7 +10,6 @@ import {
 import { SummaryQueryDto, SummaryReport } from './ledger-summaries.dto';
 
 export interface SummaryRow {
-  firstFollowUp: string;
   id: string;
   name: string;
   quotedCount: number;
@@ -81,10 +80,9 @@ export class LedgerSummariesService {
       );
       const list = await manager.query<SummaryRow[]>(
         `${cte}
-        SELECT g.*,coalesce(n.first_follow_up,'') AS "firstFollowUp"
-        FROM grouped g LEFT JOIN ledger_summary_notes n ON n.report_key=$${params.length + 1} AND n.row_id::text=g.id
-        ${where} ORDER BY g.name,g.id LIMIT $${params.length + 2} OFFSET $${params.length + 3}`,
-        [...params, report, query.pageSize, (query.page - 1) * query.pageSize],
+        SELECT g.* FROM grouped g
+        ${where} ORDER BY g.name,g.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, query.pageSize, (query.page - 1) * query.pageSize],
       );
       return {
         list,

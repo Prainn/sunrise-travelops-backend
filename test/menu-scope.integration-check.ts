@@ -712,7 +712,7 @@ async function main() {
       shopping: false,
       pickupFlightId: pickup.id,
       dropFlightId: drop.id,
-      guideId: null,
+      guideServices: [],
       remark: '',
     };
     await assert.rejects(

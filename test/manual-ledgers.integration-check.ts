@@ -1274,37 +1274,34 @@ async function run() {
     );
     assert.deepEqual(secondLanguages.list, [{ id: 'French', name: 'French' }]);
     await call('resource', 'GET', '/tours/guide-languages', undefined, 403);
-    const guideQuery =
-      'businessUnit=shengxu&startDate=2026-12-01&days=1&scheduleMode=manual&pickupAt=2026-12-01%2009:00&dropAt=2026-12-01%2018:00';
+    const guideQuery = {
+      businessUnit: 'shengxu',
+      serviceStartAt: '2026-12-01 09:00',
+      serviceEndAt: '2026-12-01 18:00',
+    };
     const candidates = await call<{ id: string }[]>(
       'sx1',
-      'GET',
-      `/tours/available-guides?${guideQuery}&language=English`,
+      'POST',
+      '/tours/available-guides',
+      { ...guideQuery, language: 'English' },
     );
     assert.deepEqual(
       candidates.map((r) => r.id),
       [english],
     );
     assert.deepEqual(
-      await call(
-        'sx1',
-        'GET',
-        `/tours/available-guides?${guideQuery}&language=Eng`,
-      ),
+      await call('sx1', 'POST', '/tours/available-guides', {
+        ...guideQuery,
+        language: 'Eng',
+      }),
       [],
     );
-    await call(
-      'sx1',
-      'GET',
-      `/tours/available-guides?${guideQuery}`,
-      undefined,
-      400,
-    );
+    await call('sx1', 'POST', '/tours/available-guides', guideQuery, 400);
     await call(
       'web',
-      'GET',
-      `/tours/available-guides?${guideQuery}&language=English`,
-      undefined,
+      'POST',
+      '/tours/available-guides',
+      { ...guideQuery, language: 'English' },
       403,
     );
     const manualInput = {
@@ -1318,7 +1315,15 @@ async function run() {
       shopping: false,
       pickupAt: '2026-12-01 09:00',
       dropAt: '2026-12-01 18:00',
-      guideId: english,
+      guideServices: [
+        {
+          guideId: english,
+          language: 'English',
+          serviceStartAt: guideQuery.serviceStartAt,
+          serviceEndAt: guideQuery.serviceEndAt,
+          remark: '',
+        },
+      ],
       manualSource: {
         businessUnit: 'shengxu',
         countryItemId: country.id,
@@ -1336,7 +1341,14 @@ async function run() {
       agencyId: string | null;
       agencyName: string;
       language: string;
-      guideId: string | null;
+      guideServices: Array<{
+        id: string;
+        guideId: string;
+        language: string;
+        serviceStartAt: string;
+        serviceEndAt: string;
+        remark: string;
+      }>;
     };
     for (const agencyId of [
       undefined,
@@ -1376,15 +1388,17 @@ async function run() {
       'sx1',
       'POST',
       '/tours',
-      { ...manualInput, guideId: french },
+      {
+        ...manualInput,
+        guideServices: [{ ...manualInput.guideServices[0], guideId: french }],
+      },
       400,
     );
-    await call('sx1', 'POST', '/tours', { ...manualInput, language: '' }, 400);
     await call(
       'sx1',
       'POST',
       '/tours',
-      { ...manualInput, language: 'Invented', guideId: null },
+      { ...manualInput, language: 'Invented', guideServices: [] },
       400,
     );
     let editorTour = await call<EditorTour>(
@@ -1397,29 +1411,38 @@ async function run() {
     assert.equal(editorTour.agencyId, newAgency.agencyId);
     assert.equal(editorTour.agencyName, '可选盛旭组团社');
     assert.deepEqual(
-      await call(
-        'sx1',
-        'GET',
-        `/tours/available-guides?${guideQuery}&language=English`,
-      ),
+      await call('sx1', 'POST', '/tours/available-guides', {
+        ...guideQuery,
+        language: 'English',
+      }),
       [],
     ); // occupied
     assert.equal(
       (
-        await call<{ id: string }[]>(
-          'sx1',
-          'GET',
-          `/tours/available-guides?${guideQuery}&language=English&excludeTourId=${editorTour.id}`,
-        )
+        await call<{ id: string }[]>('sx1', 'POST', '/tours/available-guides', {
+          ...guideQuery,
+          language: 'English',
+          excludeTourId: editorTour.id,
+        })
       )[0].id,
       english,
     );
-    const updateEditor = { ...manualInput, sourceModule: undefined };
+    const updateEditor = {
+      ...manualInput,
+      sourceModule: undefined,
+      guideServices: editorTour.guideServices,
+    };
     await call(
       'sx1',
       'PUT',
       `/tours/${editorTour.id}`,
-      { ...updateEditor, language: 'French', version: editorTour.version },
+      {
+        ...updateEditor,
+        guideServices: [
+          { ...updateEditor.guideServices[0], language: 'French' },
+        ],
+        version: editorTour.version,
+      },
       400,
     );
     // Retain IDs/snapshots after resources are disabled, then require matching language on any new allocation.
@@ -1444,7 +1467,12 @@ async function run() {
       `/tours/${editorTour.id}`,
       {
         ...updateEditor,
-        pickupAt: '2026-12-01 10:00',
+        guideServices: [
+          {
+            ...updateEditor.guideServices[0],
+            serviceStartAt: '2026-12-01 10:00',
+          },
+        ],
         version: editorTour.version,
       },
       400,
@@ -1456,11 +1484,19 @@ async function run() {
       {
         ...updateEditor,
         language: 'French',
-        guideId: french,
+        guideServices: [
+          {
+            guideId: french,
+            language: 'French',
+            serviceStartAt: guideQuery.serviceStartAt,
+            serviceEndAt: guideQuery.serviceEndAt,
+            remark: '',
+          },
+        ],
         version: editorTour.version,
       },
     );
-    assert.equal(editorTour.guideId, french);
+    assert.equal(editorTour.guideServices[0].guideId, french);
     assert.equal(editorTour.language, 'French');
     for (const [actorName, businessUnit, platform] of [
       ['lx1', 'linxi', '霖熹'],
@@ -1468,7 +1504,7 @@ async function run() {
     ] as const) {
       const directInput = {
         ...manualInput,
-        guideId: null,
+        guideServices: [],
         language: '',
         operatorId: actors[actorName].id,
         manualSource: {

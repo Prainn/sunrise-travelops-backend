@@ -183,14 +183,15 @@ export class GuidePeopleService {
     id: string,
   ): Promise<void> {
     const rows = await manager.query<unknown[]>(
-      `SELECT 1 FROM tours WHERE guide_id=$1 AND status='active'
-       AND occupy_to >= (now() AT TIME ZONE 'Asia/Shanghai')::date LIMIT 1`,
+      `SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
+       WHERE s.guide_id=$1 AND t.status='active'
+       AND s.service_end_at >= (now() AT TIME ZONE 'Asia/Shanghai') LIMIT 1`,
       [id],
     );
     if (rows.length)
       throw new BusinessException({
         code: ErrorCode.CONFLICT,
-        message: '导游仍有尚未结束的旅行团，请先调整排团',
+        message: '导游仍有尚未结束的服务，请先调整安排',
         status: HttpStatus.CONFLICT,
       });
   }

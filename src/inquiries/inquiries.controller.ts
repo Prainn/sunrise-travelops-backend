@@ -3,6 +3,7 @@ import { TransferInquiryDto } from './inquiry.dto';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -144,6 +145,21 @@ export class InquiriesController {
   ) {
     const actor = await this.service.actor(user, req);
     return moneyResponse(await this.service.update(id, input, actor));
+  }
+  @Delete(':id')
+  @HttpCode(204)
+  @Permissions('inquiry:delete')
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: VersionDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    await this.service.delete(
+      id,
+      input.version,
+      await this.service.actor(user, req),
+    );
   }
   @Post(':id/archive')
   @Permissions('inquiry:archive')

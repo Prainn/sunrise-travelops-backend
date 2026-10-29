@@ -27,6 +27,7 @@ import { WebsiteModule } from './website/website.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 
 import { LedgersModule } from './ledgers/ledgers.module';
+import { InspectionAlertModule } from './inspection-alert/inspection-alert.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { LedgersModule } from './ledgers/ledgers.module';
     SystemModule,
     HealthModule,
     LynxModule,
+    InspectionAlertModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

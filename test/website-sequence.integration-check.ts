@@ -211,8 +211,6 @@ async function main() {
         duration: 1,
         startDate: null,
         pax: null,
-        arrivalTime: '',
-        departureTime: '',
         configVersion: 0,
         days: [day],
         deletedDays: [],

@@ -51,9 +51,8 @@ describe('website draft save and explicit validation', () => {
       duration: 1,
       startDate: null,
       pax: null,
-      arrivalTime: '',
-      departureTime: '',
       configVersion: 1,
+
       vehiclePrices: [],
       days: [
         {
@@ -73,6 +72,8 @@ describe('website draft save and explicit validation', () => {
       ],
       deletedDays: [],
       reorderDraft: {
+        removedItemIds: [],
+        transportCopies: [],
         dayIds: ['day'],
         addedDayIds: [],
         deletedDays: [],
@@ -92,6 +93,7 @@ describe('website draft save and explicit validation', () => {
     jest.spyOn(internal, 'itinerary').mockImplementation(() =>
       Promise.resolve({
         inquiry: {
+          canDelete: false,
           businessUnit: 'website',
           destinations: [],
           version: 1,
@@ -129,6 +131,7 @@ describe('website draft save and explicit validation', () => {
       version: 1,
       cities: [],
       attractions: [],
+
       routes: [],
       hotels: [],
       patterns: [],
@@ -141,6 +144,11 @@ describe('website draft save and explicit validation', () => {
         Promise.resolve({
           ...old,
           ...input,
+          vehiclePrices: input.vehiclePrices.map((price) => ({
+            ...price,
+            includesDriver: false,
+            includesGuide: false,
+          })),
         }),
       );
     return { service, plan, save };

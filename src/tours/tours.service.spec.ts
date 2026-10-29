@@ -43,6 +43,7 @@ const input = (): CreateTourDto =>
     leaders: 0,
     shopping: false,
     language: 'English',
+    guideServices: [],
     pickupAt: '2026-10-25 09:00',
     dropAt: '2026-10-28 08:00',
     manualSource: {
@@ -67,7 +68,24 @@ function setup(
       await Promise.resolve();
       if (sql.includes('FOR UPDATE') && sql.includes('FROM tours'))
         return tour ? [tour] : [];
-      if (sql.includes('FROM tour_ratings')) return rating ? [rating] : [];
+      if (sql.includes('FROM tour_ratings'))
+        return rating ? [{ guide_id: other, ...rating }] : [];
+      if (sql.includes('FROM tour_guide_services WHERE tour_id'))
+        return tour
+          ? [
+              {
+                id: other,
+                guide_id: other,
+                guide_name: 'Booked name',
+                guide_code: 'GPR-001',
+                language: 'English',
+                service_start_at: '2026-10-25 09:00',
+                service_end_at: '2026-10-28 08:00',
+                remark: '',
+                time_source: 'legacy',
+              },
+            ]
+          : [];
       if (sql.includes('FROM users u'))
         return [{ id: params?.[0], name: 'Coordinator' }];
       if (sql.includes('FROM system_business_dictionary_items'))
@@ -84,6 +102,8 @@ function setup(
             name: 'Current name',
             code: 'GPR-001',
             language: 'English',
+            status: 'enabled',
+            deleted_at: null,
           },
         ];
       if (sql.includes('SELECT count(*)')) return [{ count: '1' }];
@@ -146,7 +166,16 @@ const updateInput = (): UpdateTourDto => {
   delete values.sourceModule;
   return Object.assign(new UpdateTourDto(), values, {
     version: 1,
-    guideId: other,
+    guideServices: [
+      {
+        id: other,
+        guideId: other,
+        language: 'English',
+        serviceStartAt: '2026-10-25 09:00',
+        serviceEndAt: '2026-10-28 08:00',
+        remark: '',
+      },
+    ],
   });
 };
 
@@ -276,23 +305,26 @@ describe('manual tour contract and scope', () => {
       ),
     ).toBe(true);
   });
-  it('preserves booked guide labels without requiring enabled master data for unchanged allocation', async () => {
+  it('preserves booked guide labels under the shared guide lock without reassigning unchanged services', async () => {
     const { service, query } = setup(savedTour());
     await service.update(other, updateInput(), user);
     expect(
+      query.mock.calls.some(
+        ([sql]) =>
+          sql.includes('FROM resource_guide_people') &&
+          sql.includes('FOR UPDATE'),
+      ),
+    ).toBe(true);
+    expect(
       query.mock.calls.some(([sql]) =>
-        sql.includes('FROM resource_guide_people'),
+        sql.includes('INSERT INTO tour_guide_services'),
       ),
     ).toBe(false);
-    const write = query.mock.calls.find(([sql]) =>
-      sql.startsWith('UPDATE tours'),
-    )!;
-    expect(write[1]?.slice(21, 23)).toEqual(['Booked name', 'GPR-001']);
   });
   it('still forbids clearing a rated guide when its score is zero', async () => {
     const { service } = setup(savedTour(), { self_score: 0 });
     await expect(
-      service.update(other, { ...updateInput(), guideId: null }, user),
+      service.update(other, { ...updateInput(), guideServices: [] }, user),
     ).rejects.toMatchObject({ status: 409 });
   });
   it('gives headquarters ROOT write access and canEdit while rejecting ADMIN', async () => {
@@ -304,10 +336,11 @@ describe('manual tour contract and scope', () => {
       roles: ['ROOT'],
     };
     await expect(
-      service.saveRating(other, { version: 0, selfScore: 0 }, root),
+      service.saveRating(other, other, { version: 0, selfScore: 0 }, root),
     ).resolves.toMatchObject({ canEdit: true, guideName: 'Booked name' });
     await expect(
       service.saveRating(
+        other,
         other,
         { version: 0, selfScore: 0 },
         { ...root, roles: ['ADMIN'] },
@@ -394,7 +427,12 @@ describe('tour and independent rating access', () => {
         service.ratings(new RatingQueryDto(), current),
       ).resolves.toMatchObject({ total: 1 });
       await expect(
-        service.saveRating(other, { version: 0, collectScore: 88 }, current),
+        service.saveRating(
+          other,
+          other,
+          { version: 0, collectScore: 88 },
+          current,
+        ),
       ).resolves.toMatchObject({ canEdit: true });
       expect(
         query.mock.calls.some(([sql]) =>
@@ -443,7 +481,12 @@ describe('tour and independent rating access', () => {
         Object.assign(savedTour(), { business_unit: 'linxi' }, patch),
       );
       await expect(
-        service.saveRating(other, { version: 0, collectScore: 88 }, current),
+        service.saveRating(
+          other,
+          other,
+          { version: 0, collectScore: 88 },
+          current,
+        ),
       ).rejects.toMatchObject({ status });
     }
   });

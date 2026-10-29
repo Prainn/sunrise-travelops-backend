@@ -1,4 +1,14 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import {
+  guideServicesJson,
+  lockServiceGuides,
+  prepareGuideServices,
+  saveGuideServices,
+} from './tour-guide-services';
+import type {
+  TourGuideService,
+  GuideServiceChangeHandler,
+} from './tour-guide-services';
 import { DataSource, EntityManager } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
@@ -40,6 +50,7 @@ import {
   manualTourSchedule,
   tourNumberBase,
   tourSchedule,
+  validateServiceTimes,
 } from './tour-rules';
 
 type Unit = 'shengxu' | 'linxi' | 'website';
@@ -96,7 +107,7 @@ const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModu
   t.language, t.shopping, t.pickup_flight_id AS "pickupFlightId", t.drop_flight_id AS "dropFlightId",
   t.pickup_flight AS "pickupFlight", t.drop_flight AS "dropFlight",
   t.schedule_mode AS "scheduleMode", t.itinerary_summary AS "itinerarySummary",
-  t.guide_id AS "guideId", t.guide_name AS "guideName", t.guide_code AS "guideCode", t.remark, t.status,
+  ${guideServicesJson('t')} AS "guideServices", t.remark, t.status,
   t.cancelled_at AS "cancelledAt", t.cancel_reason AS "cancelReason", t.version,
   t.created_at AS "createdAt", t.updated_at AS "updatedAt"`;
 const TOUR_FROM = `tours t`;
@@ -230,7 +241,7 @@ export class ToursService {
       const rows = await manager.query<MapTourRow[]>(
         `SELECT t.id,t.tour_no AS "tourNo",t.business_unit AS "businessUnit",t.source_module AS "sourceModule",
           t.adults,t.children,t.leaders,(t.adults+t.children+t.leaders) AS "totalPeople",t.days,
-          t.guide_name AS "guideName",t.collect_coordinator_name AS "collectCoordinatorName",t.operator_name AS "operatorName",
+          ${guideServicesJson('t')} AS "guideServices",t.collect_coordinator_name AS "collectCoordinatorName",t.operator_name AS "operatorName",
           to_char(t.pickup_at,'YYYY-MM-DD HH24:MI') AS "pickupAt",to_char(t.drop_at,'YYYY-MM-DD HH24:MI') AS "dropAt",
           t.pickup_flight AS "pickupFlight",t.drop_flight AS "dropFlight"
          FROM tours t WHERE ${where} ORDER BY t.start_date,t.tour_no,t.id`,
@@ -243,6 +254,13 @@ export class ToursService {
         manager,
         rows.map((row) => row.id),
       );
+      for (const row of rows) {
+        row.todayGuideServices = row.guideServices.filter(
+          (service) =>
+            service.serviceStartAt.slice(0, 10) <= date &&
+            service.serviceEndAt.slice(0, 10) >= date,
+        );
+      }
       return buildTourMap(date, unit, canSelect, rows, cities, plans);
     });
   }
@@ -338,7 +356,7 @@ export class ToursService {
       where += ` AND t.agency_name=$${params.push(query.agencyName)}`;
     if (query.status) where += ` AND t.status = $${params.push(query.status)}`;
     if (query.guideId)
-      where += ` AND t.guide_id = $${params.push(query.guideId)}`;
+      where += ` AND EXISTS (SELECT 1 FROM tour_guide_services sg WHERE sg.tour_id=t.id AND sg.guide_id=$${params.push(query.guideId)})`;
     if (query.from) where += ` AND t.start_date >= $${params.push(query.from)}`;
     if (query.to) where += ` AND t.start_date <= $${params.push(query.to)}`;
     const keyword = query.keyword?.trim();
@@ -398,7 +416,7 @@ export class ToursService {
          JOIN LATERAL (SELECT wq.* FROM website_quotations wq JOIN website_itineraries wi ON wi.id = wq.itinerary_id
            WHERE wi.inquiry_id = i.id ORDER BY wq.confirmed_at DESC, wq.id DESC LIMIT 1) q ON true
          JOIN website_itineraries it ON it.id = q.itinerary_id
-         WHERE i.status NOT IN ('lost','archived')${scope}
+         WHERE i.deleted_at IS NULL AND i.status NOT IN ('lost','archived')${scope}
            AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='website' AND t.inquiry_id=i.id AND t.status='active')
            ${like ? `AND (i.code ILIKE ${like} OR i.customer_name ILIKE ${like})` : ''}
          ORDER BY q.confirmed_at DESC LIMIT 50`,
@@ -419,7 +437,7 @@ export class ToursService {
         (q.snapshot->'itinerary'->>'days')::int AS days, (q.first_downloaded_at IS NOT NULL) AS downloaded
        FROM inquiries i
        JOIN LATERAL (SELECT * FROM itinerary_quotes WHERE inquiry_id = i.id ORDER BY created_at DESC, id DESC LIMIT 1) q ON true
-       WHERE i.status NOT IN ('lost','archived')${scope}
+       WHERE i.deleted_at IS NULL AND i.status NOT IN ('lost','archived')${scope}
          AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='standard' AND t.inquiry_id=i.id AND t.status='active')
          ${like ? `AND (i.code ILIKE ${like} OR i.agency_name ILIKE ${like} OR i.contact_name ILIKE ${like})` : ''}
        ORDER BY q.created_at DESC LIMIT 50`,
@@ -507,7 +525,7 @@ export class ToursService {
     };
   }
 
-  /** Guides matching the language and free for the whole occupancy window. */
+  /** Advisory availability for one independent service interval and its unsaved siblings. */
   async availableGuides(query: TourGuideQueryDto, user: AuthenticatedUser) {
     this.require(user, 'tour:list');
     if (!this.unitAllowed(user, query.businessUnit)) forbidden();
@@ -515,26 +533,37 @@ export class ToursService {
       ? await this.get(query.excludeTourId, user)
       : null;
     if (existing && existing.businessUnit !== query.businessUnit) forbidden();
-    const { schedule: s } = await this.booking(
-      this.db.manager,
-      query,
-      existing && existing.sourceModule !== 'manual'
-        ? (existing.startDate as string)
-        : query.startDate,
-      existing && existing.sourceModule !== 'manual'
-        ? (existing.days as number)
-        : query.days,
-      existing,
-    );
+    try {
+      validateServiceTimes(query.serviceStartAt, query.serviceEndAt);
+      for (const other of query.otherServices ?? [])
+        validateServiceTimes(other.serviceStartAt, other.serviceEndAt, true);
+    } catch {
+      invalid('服务起止时间无效');
+    }
+    const blocked = (query.otherServices ?? [])
+      .filter(
+        (other) =>
+          other.serviceStartAt <= query.serviceEndAt &&
+          other.serviceEndAt >= query.serviceStartAt,
+      )
+      .map((other) => other.guideId);
     return this.db.query<Row[]>(
-      `SELECT g.id, g.code, g.name, g.language FROM resource_guide_people g
-       WHERE g.status = 'enabled' AND g.deleted_at IS NULL AND btrim(g.language)=$4
-         AND NOT EXISTS (SELECT 1 FROM resource_guide_leaves l WHERE l.guide_person_id = g.id AND l.deleted_at IS NULL
-           AND l.start_date <= $2 AND l.end_date >= $1)
-         AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.guide_id = g.id AND t.status = 'active'
-           AND t.occupy_from <= $2 AND t.occupy_to >= $1 AND ($3::uuid IS NULL OR t.id <> $3))
-       ORDER BY g.code, g.id`,
-      [s.occupyFrom, s.occupyTo, query.excludeTourId ?? null, query.language],
+      `SELECT g.id,g.code,g.name,g.language FROM resource_guide_people g
+       WHERE g.status='enabled' AND g.deleted_at IS NULL AND btrim(g.language)=$4
+       AND NOT (g.id=ANY($5::uuid[]))
+       AND NOT EXISTS (SELECT 1 FROM resource_guide_leaves l WHERE l.guide_person_id=g.id AND l.deleted_at IS NULL
+         AND l.start_date <= $2::timestamp::date AND l.end_date >= $1::timestamp::date)
+       AND NOT EXISTS (SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
+         WHERE s.guide_id=g.id AND t.status='active' AND s.service_start_at <= $2::timestamp
+         AND s.service_end_at >= $1::timestamp AND ($3::uuid IS NULL OR t.id<>$3))
+       ORDER BY g.code,g.id`,
+      [
+        query.serviceStartAt,
+        query.serviceEndAt,
+        query.excludeTourId ?? null,
+        query.language,
+        blocked,
+      ],
     );
   }
 
@@ -743,41 +772,6 @@ export class ToursService {
     if (!rows.length) invalid('请选择已有导游的语种');
   }
 
-  /** Locks the guide and rejects leave or tour overlap without naming other tours. */
-  private async lockGuide(
-    manager: EntityManager,
-    guideId: string,
-    unit: Unit,
-    from: string,
-    to: string,
-    excludeTourId: string | null,
-    language: string,
-  ) {
-    const guide = await manager.query<
-      { id: string; name: string; code: string; language: string | null }[]
-    >(
-      `SELECT id, name, code, language FROM resource_guide_people WHERE id = $1 AND status = 'enabled'
-       AND deleted_at IS NULL FOR UPDATE`,
-      [guideId],
-    );
-    if (!guide[0]) invalid('导游不可选');
-    if (!language || guide[0].language?.trim() !== language)
-      invalid('导游语种与所选语种不匹配');
-    const leave = await manager.query<unknown[]>(
-      `SELECT 1 FROM resource_guide_leaves WHERE guide_person_id = $1 AND deleted_at IS NULL
-       AND start_date <= $3 AND end_date >= $2 LIMIT 1`,
-      [guideId, from, to],
-    );
-    if (leave.length) conflict('导游在该时段已请假');
-    const busy = await manager.query<unknown[]>(
-      `SELECT 1 FROM tours WHERE guide_id = $1 AND status = 'active'
-       AND occupy_from <= $3 AND occupy_to >= $2 AND ($4::uuid IS NULL OR id <> $4) LIMIT 1`,
-      [guideId, from, to, excludeTourId],
-    );
-    if (busy.length) conflict('导游在该时段已有其他团期');
-    return guide[0];
-  }
-
   /** Resolves inquiry, its latest frozen quote and download state under a row lock. */
   private async resolve(
     manager: EntityManager,
@@ -790,7 +784,7 @@ export class ToursService {
         forbidden();
       const rows = await manager.query<Row[]>(
         `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.customer_name, i.country_item_id, i.country_code,
-           i.country_or_region, i.business_unit FROM website_inquiries i WHERE i.id = $1 FOR UPDATE`,
+           i.country_or_region, i.business_unit FROM website_inquiries i WHERE i.id = $1 AND i.deleted_at IS NULL FOR UPDATE`,
         [inquiryId],
       );
       const i = rows[0];
@@ -820,7 +814,7 @@ export class ToursService {
     }
     const rows = await manager.query<Row[]>(
       `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.business_unit, i.agency_name, i.contact_name,
-         i.country_item_id, i.country_code, i.country_or_region FROM inquiries i WHERE i.id = $1 FOR UPDATE`,
+         i.country_item_id, i.country_code, i.country_or_region FROM inquiries i WHERE i.id = $1 AND i.deleted_at IS NULL FOR UPDATE`,
       [inquiryId],
     );
     const i = rows[0];
@@ -893,7 +887,11 @@ export class ToursService {
     };
   }
 
-  async create(input: CreateTourDto, user: AuthenticatedUser): Promise<Row> {
+  async create(
+    input: CreateTourDto,
+    user: AuthenticatedUser,
+    onChange?: GuideServiceChangeHandler,
+  ): Promise<Row> {
     this.require(user, 'tour:create');
     const id = await this.db.transaction(async (manager) => {
       let src: Resolved;
@@ -954,17 +952,12 @@ export class ToursService {
         src.businessUnit,
       );
       await this.validateLanguage(manager, input.language);
-      const guide = input.guideId
-        ? await this.lockGuide(
-            manager,
-            input.guideId,
-            src.businessUnit,
-            s.occupyFrom,
-            s.occupyTo,
-            null,
-            input.language,
-          )
-        : null;
+      const services = await prepareGuideServices(
+        manager,
+        null,
+        input.guideServices,
+        onChange,
+      );
 
       // Per creator and pickup date; gaps from cancelled tours are never reused.
       const counter = await manager.query<{ last_value: number }[]>(
@@ -1002,9 +995,9 @@ export class ToursService {
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
-          guide_id, remark, created_by, updated_by, schedule_mode, itinerary_summary, guide_name, guide_code, agency_id)
+          remark, created_by, updated_by, schedule_mode, itinerary_summary, agency_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$38,$21,$21,$39,$40,$41,$42,$43) RETURNING id`,
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$21,$21,$38,$39,$40) RETURNING id`,
         [
           tourNo,
           src.module,
@@ -1042,15 +1035,13 @@ export class ToursService {
           input.dropFlightId ?? null,
           pickup ? JSON.stringify(pickup) : null,
           drop ? JSON.stringify(drop) : null,
-          input.guideId ?? null,
           input.remark,
           input.scheduleMode ?? 'flight',
           src.itinerarySummary ?? '',
-          guide?.name ?? null,
-          guide?.code ?? null,
           src.agencyId ?? null,
         ],
       );
+      await saveGuideServices(manager, inserted[0].id, services, user.id);
       return inserted[0].id;
     });
     return this.get(id, user);
@@ -1092,14 +1083,11 @@ export class ToursService {
         currentVersion: current,
       });
   }
-  private hasRatingValues(row: Row | undefined) {
-    return !!row && RATING_FIELDS.some((f) => row[RATING_COLUMNS[f]] != null);
-  }
-
   async update(
     id: string,
     input: UpdateTourDto,
     user: AuthenticatedUser,
+    onChange?: GuideServiceChangeHandler,
   ): Promise<Row> {
     this.require(user, 'tour:update');
     await this.db.transaction(async (manager) => {
@@ -1136,40 +1124,20 @@ export class ToursService {
           dropFlight: tour.drop_flight,
         },
       );
-      const newGuide = input.guideId ?? null;
-      if (newGuide !== tour.guide_id) {
-        const rating = await manager.query<Row[]>(
-          'SELECT * FROM tour_ratings WHERE tour_id = $1',
-          [id],
-        );
-        if (this.hasRatingValues(rating[0]))
-          conflict('已录入评分，不能更换或清空导游');
-      }
       await this.validateLanguage(manager, input.language, tour);
-      const retainedGuideSchedule =
-        newGuide === tour.guide_id &&
-        input.language === tour.language &&
-        s.pickupAt === tour.pickup_at &&
-        s.dropAt === tour.drop_at;
-      const guide =
-        newGuide && !retainedGuideSchedule
-          ? await this.lockGuide(
-              manager,
-              newGuide,
-              unit,
-              s.occupyFrom,
-              s.occupyTo,
-              id,
-              input.language,
-            )
-          : null;
+      const services = await prepareGuideServices(
+        manager,
+        id,
+        input.guideServices,
+        onChange,
+      );
       await manager.query(
         `UPDATE tours SET operator_id=$2, operator_name=$3, adults=$4, children=$5, leaders=$6, language=$7, shopping=$8,
           pickup_flight_id=$9, drop_flight_id=$10, pickup_flight=$11::jsonb, drop_flight=$12::jsonb,
-          pickup_at=$13, drop_at=$14, occupy_from=$15, occupy_to=$16, guide_id=$17, remark=$18,
-          schedule_mode=$20, itinerary_summary=$21, guide_name=$22, guide_code=$23,
-          agency_name=$24, contact_name=$25, start_date=$26, days=$27, collect_coordinator_id=$28, collect_coordinator_name=$29, agency_id=$30,
-          version=version+1, updated_at=now(), updated_by=$19 WHERE id=$1`,
+          pickup_at=$13, drop_at=$14, occupy_from=$15, occupy_to=$16, remark=$17,
+          schedule_mode=$19, itinerary_summary=$20,
+          agency_name=$21, contact_name=$22, start_date=$23, days=$24, collect_coordinator_id=$25, collect_coordinator_name=$26, agency_id=$27,
+          version=version+1, updated_at=now(), updated_by=$18 WHERE id=$1`,
         [
           id,
           operator.id,
@@ -1189,13 +1157,10 @@ export class ToursService {
           s.dropAt,
           s.occupyFrom,
           s.occupyTo,
-          newGuide,
           input.remark,
           user.id,
           input.scheduleMode ?? 'flight',
           src?.itinerarySummary ?? tour.itinerary_summary,
-          newGuide === tour.guide_id ? tour.guide_name : (guide?.name ?? null),
-          newGuide === tour.guide_id ? tour.guide_code : (guide?.code ?? null),
           src?.agencyName ?? tour.agency_name,
           src?.contactName ?? tour.contact_name,
           src?.startDate ?? tour.start_date,
@@ -1205,6 +1170,7 @@ export class ToursService {
           src ? (src.agencyId ?? null) : tour.agency_id,
         ],
       );
+      await saveGuideServices(manager, id, services, user.id);
     });
     return this.get(id, user);
   }
@@ -1220,6 +1186,14 @@ export class ToursService {
       if (!this.canManage(user, tour)) forbidden();
       if (tour.status !== 'active') conflict('旅行团已撤销');
       this.versionCheck(tour.version, input.version);
+      const guides = await manager.query<{ guide_id: string }[]>(
+        'SELECT guide_id FROM tour_guide_services WHERE tour_id=$1',
+        [id],
+      );
+      await lockServiceGuides(
+        manager,
+        guides.map((g) => g.guide_id),
+      );
       await manager.query(
         `UPDATE tours SET status='cancelled', cancelled_at=now(), cancelled_by=$2, cancel_reason=$3,
          version=version+1, updated_at=now(), updated_by=$2 WHERE id=$1`,
@@ -1251,6 +1225,8 @@ export class ToursService {
       startDate: row.startDate,
       guideId: row.guideId,
       guideName: row.guideName,
+      guideCode: row.guideCode,
+      guideServices: row.guideServices as TourGuideService[],
       collectCoordinatorName: row.collectCoordinatorName,
       operatorName: row.operatorName,
       ...values,
@@ -1267,8 +1243,14 @@ export class ToursService {
     };
   }
 
-  private ratingSelect = `SELECT ${TOUR_SELECT}, ${RATING_SELECT}, r.version AS "ratingVersion"
-    FROM ${TOUR_FROM} LEFT JOIN tour_ratings r ON r.tour_id = t.id`;
+  private ratingFrom = `tours t JOIN LATERAL (
+    SELECT DISTINCT ON (sg.guide_id) sg.guide_id,sg.guide_name,sg.guide_code
+    FROM tour_guide_services sg WHERE sg.tour_id=t.id
+    ORDER BY sg.guide_id,sg.created_at,sg.id
+  ) g ON true LEFT JOIN tour_ratings r ON r.tour_id=t.id AND r.guide_id=g.guide_id`;
+  private ratingSelect = `SELECT ${TOUR_SELECT},g.guide_id AS "guideId",g.guide_name AS "guideName",g.guide_code AS "guideCode",
+    ${guideServicesJson('t', 'g.guide_id')} AS "guideServices",${RATING_SELECT},r.version AS "ratingVersion"
+    FROM ${this.ratingFrom}`;
 
   async ratings(
     query: RatingQueryDto,
@@ -1276,20 +1258,20 @@ export class ToursService {
   ): Promise<PageResult<Row>> {
     this.require(user, 'tour:rating:list');
     const params: unknown[] = [];
-    let where = `WHERE t.guide_id IS NOT NULL${this.visible(user, params)}`;
+    let where = `WHERE true${this.visible(user, params)}`;
     if (query.guideId)
-      where += ` AND t.guide_id = $${params.push(query.guideId)}`;
+      where += ` AND g.guide_id = $${params.push(query.guideId)}`;
     const keyword = query.keyword?.trim();
     if (keyword) {
       const p = `$${params.push(`%${keyword}%`)}`;
-      where += ` AND (t.tour_no ILIKE ${p} OR t.guide_name ILIKE ${p})`;
+      where += ` AND (t.tour_no ILIKE ${p} OR g.guide_name ILIKE ${p})`;
     }
     const total = await this.db.query<{ count: string }[]>(
-      `SELECT count(*) FROM ${TOUR_FROM} ${where}`,
+      `SELECT count(*) FROM ${this.ratingFrom} ${where}`,
       params,
     );
     const rows = await this.db.query<Row[]>(
-      `${this.ratingSelect} ${where} ORDER BY t.start_date DESC, t.created_at DESC, t.id
+      `${this.ratingSelect} ${where} ORDER BY t.start_date DESC, t.created_at DESC, t.id,g.guide_id
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
@@ -1303,6 +1285,7 @@ export class ToursService {
 
   async saveRating(
     id: string,
+    guideId: string,
     input: RatingScoreDto,
     user: AuthenticatedUser,
   ): Promise<Row> {
@@ -1318,11 +1301,15 @@ export class ToursService {
       const root = user.scope === 'headquarters' && user.roles.includes('ROOT');
       if (!own && !manages && !root) forbidden();
       if (tour.status !== 'active') conflict('已撤销的旅行团不能修改评分');
-      if (!tour.guide_id) conflict('未分配导游的团不能评分');
+      const associated = await manager.query<unknown[]>(
+        'SELECT 1 FROM tour_guide_services WHERE tour_id=$1 AND guide_id=$2 LIMIT 1',
+        [id, guideId],
+      );
+      if (!associated.length) conflict('该导游在团内没有服务段，不能评分');
       const existing = (
         await manager.query<Row[]>(
-          'SELECT * FROM tour_ratings WHERE tour_id = $1',
-          [id],
+          'SELECT * FROM tour_ratings WHERE tour_id = $1 AND guide_id=$2',
+          [id, guideId],
         )
       )[0];
       this.versionCheck(existing ? existing.version : 0, input.version);
@@ -1346,20 +1333,20 @@ export class ToursService {
       if (existing) {
         await manager.query(
           `UPDATE tour_ratings SET guide_id = $2, ${RATING_FIELDS.map((f, i) => `${RATING_COLUMNS[f]} = $${i + 3}`).join(', ')},
-           version = version + 1, updated_at = now(), updated_by = $${RATING_FIELDS.length + 3} WHERE tour_id = $1`,
-          [id, tour.guide_id, ...values, user.id],
+           version = version + 1, updated_at = now(), updated_by = $${RATING_FIELDS.length + 3} WHERE tour_id = $1 AND guide_id=$2`,
+          [id, guideId, ...values, user.id],
         );
       } else {
         await manager.query(
           `INSERT INTO tour_ratings (tour_id, guide_id, ${RATING_FIELDS.map((f) => RATING_COLUMNS[f]).join(', ')}, created_by, updated_by)
            VALUES ($1, $2, ${RATING_FIELDS.map((_f, i) => `$${i + 3}`).join(', ')}, $${RATING_FIELDS.length + 3}, $${RATING_FIELDS.length + 3})`,
-          [id, tour.guide_id, ...values, user.id],
+          [id, guideId, ...values, user.id],
         );
       }
     });
-    const params: unknown[] = [id];
+    const params: unknown[] = [id, guideId];
     const rows = await this.db.query<Row[]>(
-      `${this.ratingSelect} WHERE t.id = $1${this.visible(user, params)}`,
+      `${this.ratingSelect} WHERE t.id = $1 AND g.guide_id=$2${this.visible(user, params)}`,
       params,
     );
     return rows[0] ? this.ratingRow(rows[0], user) : notFound();
