@@ -136,10 +136,15 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
       invalid('独立站价格必须为非负金额，最多两位小数');
   }
   for (const route of config.routes) {
-    if (route.mode !== 'private_vehicle' && route.vehicleOptions.length > 0)
-      invalid('非包车交通段不能填写车型');
-    if (route.mode === 'private_vehicle' && route.durationMinutes != null)
-      invalid('包车预计耗时必须按车型填写');
+    if (route.mode !== 'private_vehicle' && route.vehicleOptions !== undefined)
+      invalid('非专车交通段不能填写车型');
+    if (route.mode === 'private_vehicle' && route.durationMinutes !== undefined)
+      invalid('专车预计耗时必须按车型填写');
+    if (
+      route.mode === 'private_vehicle' &&
+      !Array.isArray(route.vehicleOptions)
+    )
+      invalid('专车必须提供车型时长列表');
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
       invalid('路线的起点和终点必须为已有独立站城市');
   }
@@ -236,13 +241,14 @@ export function generateWebsiteDraft(
                 id: randomUUID(),
                 routeId: route.id,
                 vehicleType:
-                  route.vehicleOptions.length === 1
+                  route.mode === 'private_vehicle' &&
+                  route.vehicleOptions?.length === 1
                     ? route.vehicleOptions[0].vehicleType
                     : null,
                 distanceKm: route.distanceKm ?? null,
                 durationMinutes:
                   route.mode === 'private_vehicle'
-                    ? route.vehicleOptions.length === 1
+                    ? route.vehicleOptions?.length === 1
                       ? route.vehicleOptions[0].durationMinutes
                       : null
                     : (route.durationMinutes ?? null),
@@ -461,14 +467,14 @@ export function buildWebsitePreview(
         issue(
           'ITINERARY_INVALID',
           'ERROR',
-          '请明确包车交通段车型（例如5座或7座）',
+          '请明确专车交通段车型（例如5座或7座）',
           day.dayNumber,
         );
       if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
         issue(
           'ITINERARY_INVALID',
           'ERROR',
-          '非包车交通段不能填写车型',
+          '非专车交通段不能填写车型',
           day.dayNumber,
         );
       if (leg.fromCityId !== legCity)
@@ -741,7 +747,7 @@ export function buildWebsitePreview(
         }
         return {
           hsr: language === 'en' ? 'High-speed train' : '高铁',
-          private_vehicle: language === 'en' ? 'Private vehicle' : '包车',
+          private_vehicle: language === 'en' ? 'Private vehicle' : '专车',
           flight: language === 'en' ? 'Flight' : '航班',
           other: language === 'en' ? 'Other' : '其他',
         }[leg.mode];
@@ -963,7 +969,7 @@ export function buildWebsitePreview(
                     ? websiteTransportVehicleLabel(row.vehicleType, language)
                     : language === 'en'
                       ? 'Private vehicle'
-                      : '包车',
+                      : '专车',
                   flight: language === 'en' ? 'Flight' : '航班',
                   other: language === 'en' ? 'Other' : '其他',
                 }[row.mode],

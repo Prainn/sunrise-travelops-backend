@@ -248,6 +248,10 @@ export class WebsiteConfigListQuery extends PaginationQueryDto {
   @IsOptional() @Transform(trim) @IsString() @MaxLength(100) keyword:
     string | undefined = undefined;
   @IsOptional() @IsUUID() cityId?: string;
+  @IsOptional() @IsUUID() fromCityId?: string;
+  @IsOptional() @IsUUID() toCityId?: string;
+  @IsOptional() @IsIn(['hsr', 'private_vehicle', 'flight', 'other']) mode?:
+    'hsr' | 'private_vehicle' | 'flight' | 'other';
   @IsOptional() @IsUUID() excludeId?: string;
   @IsOptional() @IsIn(['enabled', 'disabled']) status?: ConfigStatus;
 }
@@ -640,13 +644,21 @@ export class WebsiteRouteVehicleOptionDto {
   durationMinutes: number | null = null;
 }
 export class WebsiteRouteDto extends ConfigBaseDto implements WebsiteRoute {
-  @ApiPropertyOptional({ type: [WebsiteRouteVehicleOptionDto], maxItems: 100 })
+  @ApiPropertyOptional({
+    type: [WebsiteRouteVehicleOptionDto],
+    maxItems: 100,
+    description: '专车必传；其他交通方式禁止传入',
+  })
+  @ValidateIf(
+    (o: WebsiteRouteDto) =>
+      o.mode === 'private_vehicle' || o.vehicleOptions !== undefined,
+  )
   @IsArray()
   @ArrayMaxSize(100)
   @ArrayUnique((option: WebsiteRouteVehicleOptionDto) => option?.vehicleType)
   @ValidateNested({ each: true })
   @Type(() => WebsiteRouteVehicleOptionDto)
-  vehicleOptions: WebsiteRouteVehicleOptionDto[] = [];
+  vehicleOptions?: WebsiteRouteVehicleOptionDto[];
   @ApiPropertyOptional({
     nullable: true,
     description: '公里；未知留空，非负，最多两位小数',
@@ -655,12 +667,20 @@ export class WebsiteRouteDto extends ConfigBaseDto implements WebsiteRoute {
   @IsString()
   @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
   distanceKm: string | null = null;
-  @ApiPropertyOptional({ nullable: true, minimum: 1, maximum: 525600 })
-  @ValidateIf((o: WebsiteLegDto) => o.durationMinutes !== null)
+  @ApiPropertyOptional({
+    nullable: true,
+    minimum: 1,
+    maximum: 525600,
+    description: '非专车路线时长；专车禁止传入',
+  })
+  @ValidateIf(
+    (o: WebsiteRouteDto) =>
+      o.durationMinutes !== undefined && o.durationMinutes !== null,
+  )
   @IsInt()
   @Min(1)
   @Max(525600)
-  durationMinutes: number | null = null;
+  durationMinutes?: number | null;
 
   @IsUUID() fromCityId: string;
   @IsUUID() toCityId: string;

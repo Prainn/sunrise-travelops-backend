@@ -26,22 +26,26 @@ export class AgencyQueryDto extends ResourceQueryDto {
     'shengxu' | 'linxi' | 'website';
 }
 
-export class CreateAgencyDto extends ResourceInputDto {
+class AgencyInputDto extends ResourceInputDto {
   @IsOptional() @IsUUID('all') parentId?: string | null;
   @IsIn(['shengxu', 'linxi', 'website'])
   businessUnit: 'shengxu' | 'linxi' | 'website';
   @IsUUID() coordinatorId: string;
   @optionalTrimmedString @IsString() @MaxLength(100) city: string;
-  @IsOptional() @IsUUID() countryItemId?: string | null;
   @optionalTrimmedString
-  @ValidateIf((_input: CreateAgencyDto, value: unknown) => value !== '')
+  @ValidateIf((_input: AgencyInputDto, value: unknown) => value !== '')
   @IsEmail()
   @MaxLength(254)
   email: string;
   @optionalTrimmedString @IsString() remark: string;
 }
 
-export class UpdateAgencyDto extends CreateAgencyDto {
+export class CreateAgencyDto extends AgencyInputDto {
+  @IsUUID() countryItemId: string;
+}
+
+export class UpdateAgencyDto extends AgencyInputDto {
+  @IsOptional() @IsUUID() countryItemId?: string | null;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 
