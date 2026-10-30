@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
 import { BusinessException } from '../../common/exceptions/business.exception';
-import { catalogFor, matchCatalog } from './dictionary-catalogs';
 import { BusinessDictionaryItemEntity } from './business-dictionary-item.entity';
 import { BusinessDictionaryTypeEntity } from './business-dictionary-type.entity';
 import {
@@ -146,7 +145,6 @@ export class SystemBusinessDictionariesService {
   ): Promise<BusinessDictionaryItemResponse> {
     const type = await this.requireTypeByCode(typeCode);
     this.validateResourceTypes(typeCode, input.resourceTypes);
-    this.validateCatalogItem(typeCode, input);
     await this.ensureItemCodeAvailable(type.id, input.code);
     const entity = this.dictionaryItems.create({
       typeId: type.id,
@@ -172,7 +170,6 @@ export class SystemBusinessDictionariesService {
     const type = await this.requireTypeByCode(typeCode);
     const entity = await this.requireItem(id, type.id);
     this.validateResourceTypes(typeCode, input.resourceTypes);
-    this.validateCatalogItem(typeCode, input);
     await this.ensureItemCodeAvailable(type.id, input.code, id);
     if (
       (entity.code !== input.code ||
@@ -242,48 +239,6 @@ export class SystemBusinessDictionariesService {
     });
   }
 
-  getCatalog(typeCode: string, keyword?: string) {
-    const catalog = catalogFor(typeCode);
-    if (!catalog)
-      throw new BusinessException({
-        code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
-        message: 'Business dictionary type has no catalog',
-        status: HttpStatus.NOT_FOUND,
-      });
-    const word = keyword?.trim().toLowerCase();
-    return word
-      ? catalog.filter((entry) =>
-          [entry.code, entry.name, entry.englishName].some((value) =>
-            value.toLowerCase().includes(word),
-          ),
-        )
-      : catalog;
-  }
-
-  /** Catalog-backed types only accept a catalog code with its English name. */
-  private validateCatalogItem(
-    typeCode: string,
-    input: BusinessDictionaryItemInputDto,
-  ) {
-    if (catalogFor(typeCode)) {
-      if (
-        matchCatalog(typeCode, input.code, input.englishName)?.name !==
-        input.name
-      )
-        throw new BusinessException({
-          code: ErrorCode.VALIDATION_ERROR,
-          message: 'Code and English name must match the standard catalog',
-          status: HttpStatus.BAD_REQUEST,
-        });
-    } else if (!/^[a-z]/.test(input.code)) {
-      throw new BusinessException({
-        code: ErrorCode.VALIDATION_ERROR,
-        message: 'Item code must start with a lowercase letter',
-        status: HttpStatus.BAD_REQUEST,
-      });
-    }
-  }
-
   private referenced(message: string) {
     return new BusinessException({
       code: ErrorCode.CONFLICT,
@@ -305,7 +260,7 @@ export class SystemBusinessDictionariesService {
         'SELECT country_item_id FROM tours',
       ],
       'city-airport': [
-        'SELECT departure_airport_id FROM resource_flights',
+        'SELECT departure_airport_id AS id FROM resource_flights',
         'SELECT arrival_airport_id FROM resource_flights',
       ],
     };

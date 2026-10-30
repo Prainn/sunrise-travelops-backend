@@ -488,3 +488,42 @@ describe('calculateItineraryQuote', () => {
     },
   );
 });
+
+describe('half-cent cost allocation', () => {
+  it('keeps hotel, meal and per-pax allocations on the same decimal rule', () => {
+    const result = calculateItineraryQuote(
+      quoteInput({
+        hotelPlans: [
+          { tier: 4, hotels: [{ destination: '测试', unitCost: 20.15 }] },
+        ],
+        guidePlans: [{ dailyPrice: 20.15, serviceDays: 1 }],
+        vehiclePlans: [{ tier: 'standard', totalPrice: 20.15 }],
+        dailyPlans: [
+          {
+            dayNumber: 1,
+            overnightDestination: '测试',
+            items: [
+              {
+                type: 'restaurant',
+                resourceName: '测试',
+                unit: 'table',
+                unitCost: 20.15,
+                quantity: 1,
+                dinerCount: 2,
+              },
+            ],
+          },
+        ],
+        quote: { staffRoomCosts: [{ destination: '测试', total: 20.15 }] },
+      }),
+    );
+    expect(result.mealCost).toBe(10.08);
+    expect(result.options[0].hotelUnitCost).toBe(10.08);
+    expect(result.options[0].hotelCityCosts![0].totalCost).toBe(10.08);
+    expect(result.options[0].paxPrices[0]).toMatchObject({
+      vehicleUnitCost: 10.08,
+      guideServiceUnitCost: 10.08,
+      staffRoomUnitCost: 10.08,
+    });
+  });
+});

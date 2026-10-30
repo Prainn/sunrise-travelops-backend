@@ -527,12 +527,35 @@ export class InquiriesService {
     });
   }
   async createContact(agencyId: string, input: ContactInput, actor: Actor) {
+    this.permission(actor, 'inquiry:create');
     this.permission(actor, 'inquiry:update');
-    return this.agencies.createContact(
-      agencyId,
-      { name: input.name.trim(), phone: input.phone.trim() },
-      actor.id,
-    );
+    if (!['headquarters', 'shengxu'].includes(actor.scope))
+      fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
+    return this.db.transaction(async (manager) => {
+      const inquiry = input.inquiryId
+        ? await this.inquiry(input.inquiryId, actor, manager, true)
+        : null;
+      if (inquiry) this.writable(inquiry, actor);
+      const agency = await manager.findOne(AgencyEntity, {
+        where: { id: agencyId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const retained = inquiry?.data.agencyId === agencyId;
+      if (
+        !agency ||
+        agency.status !== ResourceStatus.Enabled ||
+        (!retained &&
+          actor.scope !== 'headquarters' &&
+          agency.businessUnit !== actor.scope)
+      )
+        fail('INQUIRY_CONTACT_INVALID', HttpStatus.BAD_REQUEST);
+      return this.agencies.createContact(
+        agencyId,
+        { name: input.name.trim(), phone: input.phone.trim() },
+        actor.id,
+        manager,
+      );
+    });
   }
   async itineraries(id: string, actor: Actor) {
     await this.inquiry(id, actor);

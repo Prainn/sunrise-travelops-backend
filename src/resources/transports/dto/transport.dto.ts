@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsUUID,
   IsInt,
   IsIn,
   IsOptional,
@@ -29,6 +30,7 @@ export class CreateTransportDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() remark: string;
 }
 export class UpdateTransportDto extends CreateTransportDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class TransportResponse implements ResourceAuditResponse {

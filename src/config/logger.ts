@@ -31,6 +31,8 @@ const SENSITIVE_FIELD_PARTS = [
   'credential',
   'apikey',
   'privatekey',
+  'identitynumber',
+  'certificateno',
 ];
 
 const MAX_LOG_VALUE_DEPTH = 6;
@@ -144,6 +146,14 @@ function hasLogValue(value: unknown): boolean {
 function requestLogDetails(
   source: HttpLogSource | undefined,
 ): Record<string, unknown> {
+  // Certificate searches are free text; field-name redaction alone cannot protect them.
+  if (source?.context === 'GuidePeopleController') {
+    return {
+      ...(hasLogValue(source.params)
+        ? { params: sanitizeLogValue(source.params) }
+        : {}),
+    };
+  }
   return {
     ...(hasLogValue(source?.params)
       ? { params: sanitizeLogValue(source?.params) }

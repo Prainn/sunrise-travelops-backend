@@ -1681,15 +1681,18 @@ export class WebsiteService {
     if (!['headquarters', 'linxi', 'website'].includes(user.scope))
       fail('AUTH_FORBIDDEN', '无独立站访问权限', HttpStatus.FORBIDDEN);
     const params = [`%${(query.keyword ?? '').trim()}%`];
-    const source = `FROM (SELECT DISTINCT btrim(language) AS name FROM resource_guide_people
-      WHERE status='enabled' AND deleted_at IS NULL AND length(btrim(language)) BETWEEN 1 AND 100) languages
-      WHERE name ILIKE $1`;
+    const source = `FROM system_business_dictionary_items i
+      JOIN system_business_dictionary_types t ON t.id=i.type_id AND t.deleted_at IS NULL
+      WHERE t.code='guide-language' AND i.status='enabled' AND i.deleted_at IS NULL
+      AND (i.name ILIKE $1 OR i.english_name ILIKE $1 OR i.code ILIKE $1)`;
     const count = await this.db.query<{ total: string }[]>(
       `SELECT count(*) AS total ${source}`,
       params,
     );
-    const list = await this.db.query<{ id: string; name: string }[]>(
-      `SELECT name AS id,name ${source} ORDER BY name LIMIT $2 OFFSET $3`,
+    const list = await this.db.query<
+      { id: string; name: string; englishName: string }[]
+    >(
+      `SELECT i.name AS id,i.name,i.english_name AS "englishName" ${source} ORDER BY i.created_at,i.id LIMIT $2 OFFSET $3`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
@@ -1746,7 +1749,18 @@ export class WebsiteService {
         includesGuide: options.includesGuide,
       })),
     };
-    const result = buildWebsitePreview(inquiry, itinerary, config);
+    const labels = await manager.query<
+      { type: string; code: string; name: string; englishName: string }[]
+    >(
+      `SELECT t.code AS type,i.code,i.name,i.english_name AS "englishName"
+       FROM system_business_dictionary_items i
+       JOIN system_business_dictionary_types t ON t.id=i.type_id AND t.deleted_at IS NULL
+       WHERE t.code IN ('guide-language','vehicle-type') AND i.deleted_at IS NULL`,
+    );
+    const result = buildWebsitePreview(inquiry, itinerary, config, {
+      languages: labels.filter((item) => item.type === 'guide-language'),
+      vehicles: labels.filter((item) => item.type === 'vehicle-type'),
+    });
     if (itinerary.reorderDraft)
       result.issues.push({
         code: 'REORDER_PENDING',

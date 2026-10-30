@@ -294,10 +294,16 @@ export function generateWebsiteDraft(
 /**
  * Produce both language projections from the same saved business facts.
  */
+export interface WebsiteReportDictionaries {
+  languages: { code: string; name: string; englishName: string }[];
+  vehicles: { code: string; name: string; englishName: string }[];
+}
+
 export function buildWebsitePreview(
   inquiry: WebsiteInquiry,
   itinerary: WebsiteItinerary,
   config: WebsiteConfig,
+  dictionaries: WebsiteReportDictionaries = { languages: [], vehicles: [] },
 ): WebsitePreview {
   const quotationOptions = websiteQuotationOptions(itinerary.days);
   itinerary = {
@@ -627,9 +633,37 @@ export function buildWebsitePreview(
         : language === 'en'
           ? 'No accommodation'
           : '不住宿';
+    function dictionaryLabel(
+      value: string,
+      kind: 'languages' | 'vehicles',
+    ): string {
+      const text = value.trim();
+      const fixedVehicle =
+        kind === 'vehicles' && Object.hasOwn(WEBSITE_VEHICLES, text)
+          ? WEBSITE_VEHICLES[text as VehicleType]
+          : null;
+      const item = dictionaries[kind].find(
+        (entry) =>
+          [entry.code, entry.name, entry.englishName].includes(text) ||
+          Boolean(fixedVehicle && entry.code === `seat${fixedVehicle.seats}`),
+      );
+      if (item) return language === 'en' ? item.englishName : item.name;
+      if (fixedVehicle) return fixedVehicle[language];
+      if (language === 'en' && /[\u3400-\u9fff]/u.test(text)) {
+        issue(
+          'CONFIG_NOT_READY',
+          'ERROR',
+          `请在业务分类中维护${kind === 'languages' ? '语言' : '车型'}“${text}”的中英文值`,
+        );
+        return kind === 'languages'
+          ? 'Language translation required'
+          : 'Vehicle translation required';
+      }
+      return text;
+    }
     const vehicleLabel = (vehicle: string | null) =>
       vehicle
-        ? websiteTransportVehicleLabel(vehicle, language)
+        ? dictionaryLabel(vehicle, 'vehicles')
         : language === 'en'
           ? 'No private vehicle'
           : '无专车';
@@ -715,8 +749,8 @@ export function buildWebsitePreview(
       if (day.guideLanguage.trim()) {
         const line =
           language === 'en'
-            ? `D${day.dayNumber}: Tour guide (${day.guideLanguage.trim()}) included.`
-            : `第${day.dayNumber}天：包含${day.guideLanguage.trim()}导游服务。`;
+            ? `D${day.dayNumber}: Tour guide (${dictionaryLabel(day.guideLanguage, 'languages')}) included.`
+            : `第${day.dayNumber}天：包含${dictionaryLabel(day.guideLanguage, 'languages')}导游服务。`;
         include(line, 'service');
       }
       for (const service of day.services) {
@@ -784,10 +818,12 @@ export function buildWebsitePreview(
             hotelStays.set(stayKey, hotelOption);
           }
         }
-        if (hotel.breakfastIncluded) {
-          const hotelLine = template('hotel-breakfast', { hotel: name });
-          include(hotelLine, 'hotel');
-        } else includeService(name, 'INCLUDED', 'hotel');
+        // 酒店名未确认时由 VAL-E06 报错，不输出空酒店名句；早餐句属于餐食标准。
+        if (name.trim()) {
+          includeService(name, 'INCLUDED', 'hotel');
+          if (hotel.breakfastIncluded)
+            include(template('hotel-breakfast', { hotel: name }), 'meal');
+        }
       }
       const mealLabels =
         language === 'en'
@@ -966,7 +1002,7 @@ export function buildWebsitePreview(
                 transport: {
                   hsr: language === 'en' ? 'High-speed train' : '高铁',
                   private_vehicle: row.vehicleType
-                    ? websiteTransportVehicleLabel(row.vehicleType, language)
+                    ? dictionaryLabel(row.vehicleType, 'vehicles')
                     : language === 'en'
                       ? 'Private vehicle'
                       : '专车',

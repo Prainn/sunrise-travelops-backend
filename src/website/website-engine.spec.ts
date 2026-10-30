@@ -196,6 +196,10 @@ describe('website UAT output', () => {
       nameZh: `酒店${tier}`,
       nameEn: `Hotel ${tier}`,
     }));
+    itinerary.vehiclePrices = (['C', 'D'] as const).map((hotelTier) => ({
+      ...itinerary.vehiclePrices[0],
+      hotelTier,
+    }));
     const preview = buildWebsitePreview(inquiry, itinerary, config);
     expect(
       preview.issues.filter((issue) => issue.severity === 'ERROR'),
@@ -299,6 +303,12 @@ describe('website UAT output', () => {
       const invalid = structuredClone(config);
       invalid.templates.find((template) => template.code === code)![language] =
         copy;
+      expect(() => validateWebsiteConfig(invalid)).toThrow(
+        /中英文变量必须一致/,
+      );
+      const template = invalid.templates.find((entry) => entry.code === code)!;
+      template.zh = copy;
+      template.en = copy;
       expect(() => validateWebsiteConfig(invalid)).toThrow(/未支持的变量/);
     }
   });
@@ -461,6 +471,78 @@ it('generates first and last day attractions without confirmed travel times', ()
 });
 
 describe('website report plans and mileage', () => {
+  it('uses business dictionary translations for authored language and vehicle values throughout reports', () => {
+    const { inquiry, itinerary, config } = fixture();
+    itinerary.days[0].guideLanguage = '英文';
+    itinerary.days[0].legs = [
+      {
+        id: randomUUID(),
+        routeId: null,
+        fromCityId: config.cities[0].id,
+        toCityId: config.cities[0].id,
+        mode: 'private_vehicle',
+        vehicleType: '9座',
+        nameZh: '专车',
+        nameEn: 'Private vehicle',
+        feeState: 'INCLUDED',
+        distanceKm: '100',
+        durationMinutes: 120,
+        showInMileage: true,
+      },
+    ];
+    itinerary.vehiclePrices = [
+      {
+        vehicleType: '9座',
+        hotelTier: 'A',
+        unitPrice: '1000',
+        includesDriver: true,
+        includesGuide: true,
+      },
+    ];
+    const dictionaries = {
+      languages: [{ code: 'english', name: '英文', englishName: 'English' }],
+      vehicles: [{ code: 'seat9', name: '9座', englishName: '9-seat vehicle' }],
+    };
+    const preview = buildWebsitePreview(
+      inquiry,
+      itinerary,
+      config,
+      dictionaries,
+    );
+    expect(preview.english.inclusions).toContain(
+      'D1: Tour guide (English) included.',
+    );
+    expect(preview.english.inclusions).toContain(
+      'Vehicle options: 9-seat vehicle; see the selected quotation option.',
+    );
+    expect(preview.english.quotation[0].vehicle).toBe('9-seat vehicle');
+    expect(preview.english.mileage?.[0].transport).toBe('9-seat vehicle');
+    expect(preview.chinese.inclusions).toContain('第1天：包含英文导游服务。');
+    expect(preview.chinese.quotation[0].vehicle).toBe('9座');
+    expect(
+      preview.issues.some((issue) => issue.code === 'CONFIG_NOT_READY'),
+    ).toBe(false);
+    const missing = buildWebsitePreview(inquiry, itinerary, config);
+    for (const value of ['英文', '9座']) {
+      expect(
+        missing.issues.some(
+          (issue) =>
+            issue.code === 'CONFIG_NOT_READY' &&
+            issue.severity === 'ERROR' &&
+            issue.message.includes(value),
+        ),
+      ).toBe(true);
+    }
+    expect(missing.english.inclusions.join(' ')).not.toMatch(/英文|9座/);
+    itinerary.days[0].legs[0].vehicleType = '9_seat';
+    itinerary.vehiclePrices[0].vehicleType = '9_seat';
+    dictionaries.vehicles[0].englishName = '9-seat minibus';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config, dictionaries).english
+        .quotation[0].vehicle,
+    ).toBe('9-seat minibus');
+  });
+
   it('prices vehicle × hotel tiers and derives service scope from active days', () => {
     const { inquiry, itinerary, config } = fixture();
     itinerary.days[0].legs = ['5_seat', '7_seat'].map((vehicleType) => ({
@@ -776,6 +858,30 @@ describe('compact bilingual customer itinerary', () => {
     expect(noStay.english.itinerary[0]).toMatchObject({ hotel: '', meal: '' });
     expect(noStay.english.hotelOptions).toEqual([]);
     expect(noStay.english.inclusions.join(' ')).not.toContain('Manual Hotel');
+  });
+
+  it('lists hotel breakfast under meals and skips unconfirmed hotel names', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.hotels.push({
+      ...day.hotels[0],
+      id: randomUUID(),
+      tier: 'B',
+      nameEn: '',
+      nameZh: '',
+    });
+    const standard = (category: string) =>
+      buildWebsitePreview(
+        inquiry,
+        itinerary,
+        config,
+      ).english.teamStandard?.find((row) => row.category === category)
+        ?.included;
+    expect(standard('hotel')).toEqual(['Manual Hotel included.']);
+    expect(standard('meal')).toContain(
+      'Hotel Manual Hotel with breakfast included.',
+    );
+    expect(standard('meal')?.join(' ')).not.toContain('Hotel  with');
   });
 
   it('freezes concise hotel categories and a separate configured no-shopping statement', () => {

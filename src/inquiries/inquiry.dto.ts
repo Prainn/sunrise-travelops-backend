@@ -88,6 +88,7 @@ export class LogQuery extends PaginationQueryDto {
   @IsOptional() @IsDateString({ strict: true }) @MaxLength(10) to?: string;
 }
 export class ContactInput {
+  @IsOptional() @IsUUID() inquiryId?: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )

@@ -45,12 +45,12 @@ export class CreateAgencyDto extends AgencyInputDto {
 }
 
 export class UpdateAgencyDto extends AgencyInputDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @IsOptional() @IsUUID() countryItemId?: string | null;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 
 export class CreateAgencyContactDto {
-  @IsOptional() @IsUUID('all') id?: string;
   @optionalTrimmedString
   @IsString()
   @MinLength(1)
@@ -60,6 +60,7 @@ export class CreateAgencyContactDto {
 }
 
 export class UpdateAgencyContactDto extends CreateAgencyContactDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 

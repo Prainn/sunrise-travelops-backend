@@ -37,6 +37,7 @@ jobs:
           cache: pnpm
       - run: python3 scripts/test_deploy.py
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec jest --runInBand
       - run: pnpm verify:release
       - name: Empty database migrations and repeat execution
         run: |
@@ -47,3 +48,8 @@ jobs:
           ISOLATION_PG_PORT: '5432'
           ISOLATION_PG_PASSWORD: ci-only
         run: pnpm test:isolation
+      - name: Backend review regressions (disposable database)
+        env:
+          ISOLATION_PG_PORT: '5432'
+          ISOLATION_PG_PASSWORD: ci-only
+        run: pnpm exec ts-node test/backend-review.integration-check.ts

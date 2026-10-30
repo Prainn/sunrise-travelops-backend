@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsUUID,
   IsBoolean,
   IsIn,
   IsInt,
@@ -56,6 +57,7 @@ export class CreateAttractionDto extends ResourceInputDto {
   @IsOptional() @optionalTrimmedString @IsString() remark?: string;
 }
 export class UpdateAttractionDto extends CreateAttractionDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class AttractionResponse implements ResourceAuditResponse {

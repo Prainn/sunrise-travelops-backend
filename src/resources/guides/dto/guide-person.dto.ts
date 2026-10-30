@@ -22,7 +22,6 @@ import { ResourceStatus } from '../../common/resource.constants';
 export class GuidePersonQueryDto extends ResourceQueryDto {}
 
 export class CreateGuidePersonDto {
-  @IsOptional() @IsUUID('all') id?: string;
   @optionalTrimmedString
   @IsString()
   @MinLength(1)
@@ -73,6 +72,7 @@ export class CreateGuidePersonDto {
 }
 
 export class UpdateGuidePersonDto extends CreateGuidePersonDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 

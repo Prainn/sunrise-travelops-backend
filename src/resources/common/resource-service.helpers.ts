@@ -1,8 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { FindOptionsWhere, In, Not, ObjectLiteral, Repository } from 'typeorm';
 import { ErrorCode, ErrorCodeValue } from '../../common/constants/error-code';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { assertAllFound } from './resource-errors';
+
+/** Resource creation never updates an existing primary key. */
+export async function insertResource<T extends ObjectLiteral & { id: string }>(
+  repository: Repository<T>,
+  entity: T,
+): Promise<T> {
+  entity.id = randomUUID();
+  await repository.insert(entity);
+  return repository.findOneByOrFail({ id: entity.id } as FindOptionsWhere<T>);
+}
 
 export async function ensureCodeAvailable<
   T extends ObjectLiteral & { id: string; code: string },

@@ -16,6 +16,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 import { ResourceValidationService } from '../common/resource-validation.service';
 import { AttractionEntity } from './attraction.entity';
@@ -96,7 +97,8 @@ export class AttractionsService {
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'ATT'));
       await ensureCodeAvailable(repository, code);
-      const entity = await repository.save(
+      const entity = await insertResource(
+        repository,
         repository.create({
           ...this.fields(input),
           code,

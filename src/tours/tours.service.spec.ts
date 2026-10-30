@@ -206,19 +206,22 @@ describe('manual tour contract and scope', () => {
       ),
     ).toBe(false);
   });
-  it('persists UNKNOWN and keeps the complete country suffix for a manual tour', async () => {
-    const { service, query } = setup(undefined, undefined, {
-      code: 'UNKNOWN',
-      name: '未知/待确认',
-    });
-    await service.create(input(), user);
-    const write = query.mock.calls.find(([sql]) =>
-      sql.includes('INSERT INTO tours'),
-    )!;
-    expect(write[1]).toContain('UNKNOWN');
-    expect(write[1]).toContain('未知/待确认');
-    expect(write[1]?.[0]).toMatch(/-UNKNOWN$/);
-  });
+  it.each(['UNKNOWN', 'custom-region-123', 'C'.repeat(100)])(
+    'persists %s and keeps the complete country suffix for a manual tour',
+    async (code) => {
+      const { service, query } = setup(undefined, undefined, {
+        code,
+        name: '未知/待确认',
+      });
+      await service.create(input(), user);
+      const write = query.mock.calls.find(([sql]) =>
+        sql.includes('INSERT INTO tours'),
+      )!;
+      expect(write[1]).toContain(code);
+      expect(write[1]).toContain('未知/待确认');
+      expect(String(write[1]?.[0]).endsWith(`-${code}`)).toBe(true);
+    },
+  );
   it.each(['inquiryId', 'quoteId'])(
     'rejects a hidden %s on manual creation',
     async (field) => {

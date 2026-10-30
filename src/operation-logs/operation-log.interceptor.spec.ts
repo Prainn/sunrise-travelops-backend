@@ -587,10 +587,16 @@ describe('OperationLogInterceptor', () => {
   ])(
     'logs %s.%s without serializing business data',
     async (controller, handler, category) => {
-      const result = { quotation: { customer: 'private-customer' } };
+      const result =
+        handler === 'createConfigRecord'
+          ? { id: 'object-id', group: 'hotels', version: 2 }
+          : { quotation: { customer: 'private-customer' } };
       const request = {
         user: actor,
-        params: { id: 'object-id' },
+        params:
+          handler === 'createConfigRecord'
+            ? { group: 'hotels' }
+            : { id: 'object-id' },
         query: {},
         body: { comment: 'private-comment' },
       };
@@ -600,7 +606,11 @@ describe('OperationLogInterceptor', () => {
         } as CallHandler),
       );
       expect(entries).toMatchObject([{ category, success: true }]);
-      expect(JSON.parse(entries[0].detail)).toEqual({ recordId: 'object-id' });
+      expect(JSON.parse(entries[0].detail)).toEqual(
+        handler === 'createConfigRecord'
+          ? { recordId: 'object-id', group: 'hotels' }
+          : { recordId: 'object-id' },
+      );
       expect(JSON.stringify(entries)).not.toContain('private-');
     },
   );

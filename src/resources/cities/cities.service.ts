@@ -25,6 +25,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 
 @Injectable()
@@ -90,7 +91,7 @@ export class CitiesService {
       createdBy: actorId,
       updatedBy: actorId,
     });
-    return this.toResponse(await this.cities.save(entity));
+    return this.toResponse(await insertResource(this.cities, entity));
   }
   async update(
     id: string,

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsUUID,
   IsInt,
   IsIn,
   IsOptional,
@@ -49,6 +50,7 @@ export class CreateHotelDto extends ResourceInputDto {
   @optionalTrimmedString @IsString() @MaxLength(100) unit: string;
 }
 export class UpdateHotelDto extends CreateHotelDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class HotelResponse implements ResourceAuditResponse {

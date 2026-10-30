@@ -233,6 +233,7 @@ async function fixtures() {
         children: 0,
         leaders: 0,
         shopping: false,
+        guideServices: [],
         scheduleMode: 'manual',
         pickupAt: '2030-01-01 08:00',
         dropAt: '2030-01-01 18:00',
