@@ -136,10 +136,15 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
       invalid('独立站价格必须为非负金额，最多两位小数');
   }
   for (const route of config.routes) {
-    if (route.mode !== 'private_vehicle' && route.vehicleOptions.length > 0)
+    if (route.mode !== 'private_vehicle' && route.vehicleOptions !== undefined)
       invalid('非专车交通段不能填写车型');
-    if (route.mode === 'private_vehicle' && route.durationMinutes != null)
+    if (route.mode === 'private_vehicle' && route.durationMinutes !== undefined)
       invalid('专车预计耗时必须按车型填写');
+    if (
+      route.mode === 'private_vehicle' &&
+      !Array.isArray(route.vehicleOptions)
+    )
+      invalid('专车必须提供车型时长列表');
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
       invalid('路线的起点和终点必须为已有独立站城市');
   }
@@ -236,13 +241,14 @@ export function generateWebsiteDraft(
                 id: randomUUID(),
                 routeId: route.id,
                 vehicleType:
-                  route.vehicleOptions.length === 1
+                  route.mode === 'private_vehicle' &&
+                  route.vehicleOptions?.length === 1
                     ? route.vehicleOptions[0].vehicleType
                     : null,
                 distanceKm: route.distanceKm ?? null,
                 durationMinutes:
                   route.mode === 'private_vehicle'
-                    ? route.vehicleOptions.length === 1
+                    ? route.vehicleOptions?.length === 1
                       ? route.vehicleOptions[0].durationMinutes
                       : null
                     : (route.durationMinutes ?? null),

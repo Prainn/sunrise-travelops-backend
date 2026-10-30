@@ -153,7 +153,6 @@ async function main() {
         status: 'enabled',
         fromCityId: cities[0].id,
         toCityId: cities[1].id,
-        vehicleOptions: [],
         nameZh: '路线',
         nameEn: 'Route',
         mode: 'hsr',

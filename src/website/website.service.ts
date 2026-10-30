@@ -390,7 +390,7 @@ export class WebsiteService {
         label:
           'code' in item
             ? item.code
-            : 'vehicleOptions' in item && item.vehicleOptions.length
+            : 'vehicleOptions' in item && item.vehicleOptions?.length
               ? `${item.nameZh} · ${item.vehicleOptions.map((option) => websiteTransportVehicleLabel(option.vehicleType, 'zh')).join(' / ')}`
               : item.nameZh,
       })),

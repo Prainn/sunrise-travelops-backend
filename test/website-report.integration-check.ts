@@ -125,6 +125,7 @@ async function main() {
       [
         'WebsiteRouteVehicleOptions1794614400000',
         'WebsiteVehicleDurations1794700800000',
+        'WebsiteRouteModeFields1794960000000',
       ],
     ]);
     assert.equal(
@@ -139,7 +140,7 @@ async function main() {
     assert.deepEqual(converted.routes[0].vehicleOptions, [
       { vehicleType: '7_seat', durationMinutes: 190 },
     ]);
-    assert.equal(converted.routes[0].durationMinutes, null);
+    assert(!('durationMinutes' in converted.routes[0]));
     assert(!('vehicleTypes' in converted.routes[0]));
     assert(!('vehicleType' in converted.routes[0]));
     assert(!('showInMileage' in converted.routes[0]));
@@ -252,15 +253,15 @@ async function main() {
       toCityId: cities[(i + 1) % 2].id,
       mode: i === 1 ? 'hsr' : 'private_vehicle',
       distanceKm: '320.5',
-      durationMinutes: i === 1 ? 180 : null,
-      vehicleOptions:
-        i === 1
-          ? []
-          : [
+      ...(i === 1
+        ? { durationMinutes: 180 }
+        : {
+            vehicleOptions: [
               { vehicleType: '5_seat', durationMinutes: 180 },
               { vehicleType: '7_seat', durationMinutes: 210 },
               { vehicleType: '商务车', durationMinutes: null },
             ],
+          }),
       nameZh: i === 1 ? '大理至昆明高铁' : '昆明至大理专车',
       nameEn:
         i === 1 ? 'Dali to Kunming train' : 'Kunming to Dali private vehicle',

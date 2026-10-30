@@ -23,6 +23,7 @@ ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
 BREAKING_MIGRATIONS = {
+    'WebsiteRouteModeFields1794960000000',
     'WebsiteQuotationHotelTiers1794873600000',
     'AddTourGuideServices1794182400000',
     'RetireUnusedPermissions1793577600000',
