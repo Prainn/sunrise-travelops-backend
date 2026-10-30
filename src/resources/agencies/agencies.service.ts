@@ -160,7 +160,9 @@ export class AgenciesService {
   }
 
   // Business unit here is the coordinator binding, not a resource scope.
-  private agencyBusinessUnit(input: CreateAgencyDto): BusinessUnit {
+  private agencyBusinessUnit(
+    input: Pick<CreateAgencyDto, 'businessUnit'>,
+  ): BusinessUnit {
     return input.businessUnit;
   }
 
@@ -262,13 +264,11 @@ export class AgenciesService {
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'AGY'));
       await ensureCodeAvailable(repository, code);
-      const country = input.countryItemId
-        ? await requireDictionaryItem(
-            manager,
-            'country-region',
-            input.countryItemId,
-          )
-        : { name: '' };
+      const country = await requireDictionaryItem(
+        manager,
+        'country-region',
+        input.countryItemId,
+      );
       const entity = repository.create({
         ...input,
         countryOrRegion: country.name,
