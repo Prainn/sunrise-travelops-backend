@@ -577,7 +577,6 @@ describe('OperationLogInterceptor', () => {
     ['ItinerariesController', 'downloadClick', 'quotation'],
     ['WebsiteController', 'generate', 'itinerary'],
     ['WebsiteController', 'saveConfig', 'website-config'],
-    ['WebsiteController', 'createConfigRecord', 'website-config'],
     ['WebsiteController', 'updateConfigRecord', 'website-config'],
     ['WebsiteController', 'deleteConfigRecord', 'website-config'],
     ['UserManagementController', 'testFeishu', 'user'],
@@ -614,6 +613,31 @@ describe('OperationLogInterceptor', () => {
       expect(JSON.stringify(entries)).not.toContain('private-');
     },
   );
+
+  it('logs the created website resource ID and group without business data', async () => {
+    const request = {
+      user: actor,
+      params: { group: 'routes' },
+      query: {},
+      body: { name: 'private-name' },
+    };
+    await firstValueFrom(
+      interceptor.intercept(
+        context('WebsiteController', 'createConfigRecord', request),
+        {
+          handle: () => of({ id: 'created-id', version: 2, group: 'routes' }),
+        } as CallHandler,
+      ),
+    );
+    expect(entries).toMatchObject([
+      { category: 'website-config', success: true },
+    ]);
+    expect(JSON.parse(entries[0].detail)).toEqual({
+      recordId: 'created-id',
+      group: 'routes',
+    });
+    expect(JSON.stringify(entries)).not.toContain('private-name');
+  });
 
   it('logs each failed batch-delete target and preserves the failure', async () => {
     const failure = new Error('rejected');

@@ -1,5 +1,6 @@
 /** Disposable localhost PostgreSQL only; never reads .env/business credentials. */
 import assert from 'node:assert/strict';
+import { WebsiteQuotationHotelTiers1794873600000 } from '../src/migrations/1794873600000-WebsiteQuotationHotelTiers';
 import { randomUUID } from 'node:crypto';
 import { IsolationHarness } from './business-isolation.harness';
 import { WEBSITE_PRICE_CATEGORIES } from '../src/website/website-price';
@@ -243,7 +244,7 @@ async function main() {
       },
       201,
     );
-    assert.equal(quotation.schemaVersion, 5);
+    assert.equal(quotation.schemaVersion, 6);
     for (const output of [quotation.chinese, quotation.english]) {
       const row = output.quotation[0];
       assert.equal(row.unitPrice, '10000.00');
@@ -271,7 +272,11 @@ async function main() {
       quotation,
     );
     await assert.rejects(
-      h.db.undoLastMigration(),
+      h.db.transaction((manager) =>
+        new WebsiteQuotationHotelTiers1794873600000().down(
+          manager.queryRunner!,
+        ),
+      ),
       /Hotel-tier quotation data prevents rollback/,
     );
     console.log(

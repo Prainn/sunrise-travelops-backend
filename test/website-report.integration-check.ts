@@ -1,5 +1,6 @@
 /** Fresh database and representative upgrade, only on IsolationHarness's disposable localhost PG. */
 import assert from 'node:assert/strict';
+import { WebsiteQuotationHotelTiers1794873600000 } from '../src/migrations/1794873600000-WebsiteQuotationHotelTiers';
 import { randomUUID } from 'node:crypto';
 import { IsolationHarness } from './business-isolation.harness';
 import type {
@@ -484,7 +485,7 @@ async function main() {
       },
       201,
     );
-    assert.equal(quote.schemaVersion, 5);
+    assert.equal(quote.schemaVersion, 6);
     assert.deepEqual(
       quote.english.quotation.map((q) => [
         q.vehicleType,
@@ -528,7 +529,11 @@ async function main() {
     );
     assert.deepEqual(copied.vehiclePrices, plan.vehiclePrices);
     await assert.rejects(
-      h.db.undoLastMigration(),
+      h.db.transaction((manager) =>
+        new WebsiteQuotationHotelTiers1794873600000().down(
+          manager.queryRunner!,
+        ),
+      ),
       /Hotel-tier quotation data prevents rollback/,
     );
     console.log(
