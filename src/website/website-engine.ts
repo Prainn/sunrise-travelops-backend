@@ -360,6 +360,7 @@ export function buildWebsitePreview(
   const pricedPlans = itinerary.vehiclePrices.filter(
     (price) => price.unitPrice !== null,
   );
+  const hasHotels = itinerary.days.some((day) => day.hotels.length > 0);
   for (const price of itinerary.vehiclePrices) {
     if (
       !quotationOptions.vehicleTypes.includes(price.vehicleType) ||
@@ -370,7 +371,7 @@ export function buildWebsitePreview(
         'ERROR',
         '报价组合已不在当前行程中，请调整车型或酒店档次',
       );
-    if (price.unitPrice === null) continue;
+    if (price.unitPrice === null || price.hotelTier === null) continue;
     for (const day of itinerary.days) {
       if (
         day.overnightCityId &&
@@ -411,6 +412,7 @@ export function buildWebsitePreview(
           day.dayNumber,
         );
       if (
+        hasHotels &&
         !day.hotels.some((hotel) => hotel.nameEn.trim() && hotel.nameZh.trim())
       )
         issue(
@@ -625,8 +627,8 @@ export function buildWebsitePreview(
       tier
         ? hotelLabels[tier][language]
         : language === 'en'
-          ? 'No accommodation'
-          : '不住宿';
+          ? 'No hotel arranged'
+          : '未安排酒店';
     const vehicleLabel = (vehicle: string | null) =>
       vehicle
         ? websiteTransportVehicleLabel(vehicle, language)
@@ -991,7 +993,7 @@ export function buildWebsitePreview(
     inquiryVersion: inquiry.version,
     configVersion: config.version,
     schemaVersion: 6,
-    validationVersion: 5,
+    validationVersion: 6,
     issues,
     english,
     chinese,

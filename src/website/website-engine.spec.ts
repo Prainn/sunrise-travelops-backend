@@ -186,6 +186,108 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it.each([null, '7_seat'])(
+    'quotes a hotel-free itinerary with overnight cities and vehicle %s',
+    (vehicleType) => {
+      const { config, inquiry, itinerary } = fixture();
+      itinerary.deletedDays = [
+        { day: structuredClone(itinerary.days[0]), originalDate: null },
+      ];
+      itinerary.days.forEach((day) => (day.hotels = []));
+      if (vehicleType)
+        itinerary.days[0].legs = [
+          {
+            id: randomUUID(),
+            routeId: null,
+            fromCityId: config.cities[0].id,
+            toCityId: config.cities[0].id,
+            mode: 'private_vehicle',
+            vehicleType,
+            nameZh: '专车',
+            nameEn: 'Private vehicle',
+            feeState: 'INCLUDED',
+          },
+        ];
+      itinerary.vehiclePrices = [
+        {
+          vehicleType,
+          hotelTier: null,
+          includesDriver: false,
+          includesGuide: false,
+          unitPrice: '500.00',
+        },
+      ];
+      const preview = buildWebsitePreview(inquiry, itinerary, config);
+      expect(preview.validationVersion).toBe(6);
+      expect(
+        preview.issues.filter((issue) => issue.severity === 'ERROR'),
+      ).toEqual([]);
+      for (const output of [preview.chinese, preview.english]) {
+        expect(output.quotation).toEqual([
+          expect.objectContaining({
+            vehicleType,
+            hotelTier: null,
+            unitPrice: '500.00',
+            totalPrice: '1500.00',
+          }),
+        ]);
+        expect(output.hotelOptions).toEqual([]);
+        expect(
+          output.teamStandard?.find((item) => item.category === 'hotel')
+            ?.included,
+        ).toEqual([]);
+        expect(output.itinerary[0].meal).toBe('');
+      }
+      expect(preview.chinese.quotation[0].hotelCategory).toBe('未安排酒店');
+      expect(preview.english.quotation[0].hotelCategory).toBe(
+        'No hotel arranged',
+      );
+    },
+  );
+
+  it('keeps stale hotel tier prices invalid after every hotel is removed', () => {
+    const { config, inquiry, itinerary } = fixture();
+    itinerary.days.forEach((day) => (day.hotels = []));
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues,
+    ).toContainEqual(
+      expect.objectContaining({ code: 'VAL-E09', severity: 'ERROR' }),
+    );
+  });
+
+  it('still requires bilingual hotel names and complete stays when hotels are arranged', () => {
+    const { config, inquiry, itinerary } = fixture();
+    itinerary.days[1].overnightCityId = config.cities[0].id;
+    const missingStay = buildWebsitePreview(inquiry, itinerary, config);
+    for (const code of ['VAL-E06', 'VAL-E09'])
+      expect(missingStay.issues).toContainEqual(
+        expect.objectContaining({ code, severity: 'ERROR', dayNumber: 2 }),
+      );
+    itinerary.days[1].overnightCityId = null;
+    itinerary.days[0].hotels[0].nameEn = '';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues,
+    ).toContainEqual(
+      expect.objectContaining({
+        code: 'VAL-E06',
+        severity: 'ERROR',
+        dayNumber: 1,
+      }),
+    );
+  });
+
+  it('still requires a price and guest count for hotel-free quotations', () => {
+    const { config, inquiry, itinerary } = fixture();
+    itinerary.days.forEach((day) => (day.hotels = []));
+    itinerary.vehiclePrices = [];
+    itinerary.pax = null;
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    for (const code of ['VAL-E07', 'VAL-E08'])
+      expect(preview.issues).toContainEqual(
+        expect.objectContaining({ code, severity: 'ERROR' }),
+      );
+  });
+
   it('renders economy and two-star hotel alternatives in both language outputs', () => {
     const { config, inquiry, itinerary } = fixture();
     const original = itinerary.days[0].hotels[0];
@@ -814,6 +916,6 @@ describe('compact bilingual customer itinerary', () => {
     expect(preview.english.notes).not.toContain('NO SHOPPING.');
     expect(preview.english.noShopping).toBe('NO SHOPPING.');
     expect(preview.chinese.noShopping).toBe('无购物。');
-    expect(preview.validationVersion).toBe(5);
+    expect(preview.validationVersion).toBe(6);
   });
 });

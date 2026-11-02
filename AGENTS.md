@@ -68,6 +68,7 @@
 
 ## Release Acceptance
 
+- 生产发布按 `deploy-production` Skill 和根 AGENTS 的 CRF 规则执行：发布前核对本次新旧需求变更，发布核验后回填实际交付条目的上线时间。小 UI 调整和按原需求修复的 bug 不登记 CRF。
 - 获授权 push 后，以 repo、branch、准确 SHA 找到对应 Actions run，用 `gh run watch --exit-status` 或 GitHub API 等待 verify/deploy 最终结果；不能 push 完就结束。
 - 失败、取消、等待人工操作均不算成功。及时报告阶段、运行链接、错误摘要及当前仍在线的版本。
 - 成功后核对服务器实际发布 ID/镜像、`/api/health`、前端入口，以及本次变动的关键业务路径（特别是旧询盘/行程读取）。health 为 up 只表示运行探测正常，不证明最新发布成功或业务正确。
