@@ -216,16 +216,17 @@ describe('ledger permissions', () => {
   );
 });
 
-describe('read-only coordinator tour permissions', () => {
+describe('coordinator tour permissions', () => {
   it.each(['shengxu', 'linxi', 'website'] as const)(
     '%s allows tour reads and independent ratings for every duty',
     (scope) => {
       for (const duty of ['reception', 'operation', 'both', null] as const) {
         const permissions = effectivePermissions(scope, ['COORDINATOR'], duty);
         expect(permissions).toContain('tour:list');
-        for (const action of ['create', 'update', 'cancel']) {
-          expect(permissions).not.toContain(`tour:${action}`);
-        }
+        expect(permissions).toEqual(
+          expect.arrayContaining(['tour:create', 'tour:update']),
+        );
+        expect(permissions).not.toContain('tour:cancel');
         expect(permissions).toEqual(
           expect.arrayContaining(['tour:rating:list', 'tour:rating:update']),
         );

@@ -1,7 +1,11 @@
+import { DirectLedgerTourDto } from '../tours/tour.dto';
 import { Type, Transform } from 'class-transformer';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
   IsBoolean,
+  IsDefined,
+  IsObject,
+  ValidateNested,
   IsDateString,
   IsIn,
   IsInt,
@@ -134,6 +138,10 @@ export class UpdateShengxuLedgerDto extends ShengxuLedgerInputDto {
   @ApiProperty({ minimum: 1 }) @IsInt() @Min(1) version!: number;
 }
 export class DirectLedgerInputDto {
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @IsUUID()
+  countryItemId: string | null = null;
   @ApiProperty()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   @IsDateString({ strict: true })
@@ -200,7 +208,22 @@ export class DirectLedgerInputDto {
   @IsBoolean()
   satisfied: boolean | null = null;
 }
+export class ConvertDirectLedgerDto extends LedgerVersionDto {
+  @ApiProperty({ type: DirectLedgerTourDto })
+  @IsDefined()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => DirectLedgerTourDto)
+  tour!: DirectLedgerTourDto;
+}
 export class CreateDirectLedgerDto extends DirectLedgerInputDto {
+  @ApiPropertyOptional({ type: DirectLedgerTourDto })
+  @ValidateIf((_o, value: unknown) => value !== undefined)
+  @IsObject()
+  @ValidateNested()
+  @Type(() => DirectLedgerTourDto)
+  tour?: DirectLedgerTourDto;
+
   @ApiPropertyOptional({
     enum: ['linxi', 'website'],
     description: 'ROOT 代建必填；普通身份须与当前业务一致',

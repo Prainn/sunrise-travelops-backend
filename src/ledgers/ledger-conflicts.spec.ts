@@ -1,3 +1,4 @@
+import { ToursService } from '../tours/tours.service';
 import { LedgerNotificationsService } from './ledger-notifications.service';
 import { ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
@@ -32,6 +33,10 @@ function fixture(unit: 'shengxu' | 'linxi' | 'website') {
   };
   const row = {
     id: 'ledger',
+    countryItemId: null,
+    countryCode: null,
+    countryName: null,
+    tours: [],
     businessUnit: unit,
     creatorId: actor.id,
     operatorId: actor.id,
@@ -81,9 +86,13 @@ function fixture(unit: 'shengxu' | 'linxi' | 'website') {
     query,
     directInput,
     shengxuInput,
-    direct: new DirectLedgersService(db, {
-      enqueue: jest.fn(),
-    } as unknown as LedgerNotificationsService),
+    direct: new DirectLedgersService(
+      db,
+      {
+        enqueue: jest.fn(),
+      } as unknown as LedgerNotificationsService,
+      new ToursService(db),
+    ),
     shengxu: new ShengxuLedgersService(db),
   };
 }

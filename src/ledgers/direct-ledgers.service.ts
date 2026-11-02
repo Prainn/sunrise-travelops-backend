@@ -1,3 +1,6 @@
+import { ToursService } from '../tours/tours.service';
+import { ConvertDirectLedgerDto } from './ledger.dto';
+import { DirectLedgerTourDto } from '../tours/tour.dto';
 import { isFullAdministrator } from '../auth/account-access';
 import { LedgerNotificationsService } from './ledger-notifications.service';
 import { requireBusinessGroup } from '../users/coordinator-assignment';
@@ -29,6 +32,10 @@ import {
 
 interface DirectRow {
   id: string;
+  countryItemId: string | null;
+  countryCode: string | null;
+  countryName: string | null;
+  tours: Array<{ id: string; tourNo: string; status: string }>;
   orderNo: string;
   creatorName: string;
   source: string;
@@ -48,7 +55,11 @@ interface DirectRow {
   version: number;
 }
 const WORKFLOW_STATUS = `CASE WHEN operated THEN 'operated' WHEN loss AND reviewed_at IS NULL THEN 'pending_confirmation' ELSE 'pending_operation' END`;
-const SELECT = `id,business_unit AS "businessUnit",order_no AS "orderNo",received_date::text AS "receivedDate",
+const SELECT = `country_item_id AS "countryItemId",country_code AS "countryCode",country_name AS "countryName",
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('id',dt.id,'tourNo',dt.tour_no,'status',dt.status,'version',dt.version,
+   'cancelReason',dt.cancel_reason,'cancelledAt',dt.cancelled_at,'createdAt',dt.created_at) ORDER BY dt.created_at DESC,dt.id DESC)
+   FROM tours dt WHERE dt.direct_ledger_id=direct_ledgers.id),'[]'::jsonb) AS tours,
+ id,business_unit AS "businessUnit",order_no AS "orderNo",received_date::text AS "receivedDate",
  source,creator_id AS "creatorId",creator_name AS "creatorName",
  receiving_group_id AS "receivingGroupId",receiving_account_name AS "receivingAccountName",operator_id AS "operatorId",operator_name AS "operatorName",
  order_status AS "orderStatus",effective_contact AS "effectiveContact",proposal_sent AS "proposalSent",loss,priority,itinerary,
@@ -62,6 +73,7 @@ export class DirectLedgersService {
   constructor(
     private readonly db: DataSource,
     private readonly notifications: LedgerNotificationsService,
+    private readonly toursService: ToursService,
   ) {}
   private access(actor: AuthenticatedUser, action = 'list') {
     requirePermission(actor, `ledger:direct:${action}`);
@@ -116,12 +128,11 @@ export class DirectLedgersService {
           row.proposalSent &&
           row.orderStatus === 'converted' &&
           actor.permissions.includes('ledger:direct:operate'),
-        canChangeStatus:
-          edit &&
-          (isFullAdministrator(actor) ||
-            actor.id === row.creatorId ||
-            isManager(actor)) &&
-          !row.operatedAt,
+        canConvert:
+          manage &&
+          actor.permissions.includes('ledger:direct:update') &&
+          actor.permissions.includes('tour:create') &&
+          !row.tours.some((tour) => tour.status === 'active'),
       },
     };
   }
@@ -270,6 +281,32 @@ export class DirectLedgersService {
       pageSize: query.pageSize,
     };
   }
+  private async country(
+    manager: EntityManager,
+    id: string | null,
+    existing?: DirectRow,
+  ) {
+    if (id === null)
+      return { country_item_id: null, country_code: null, country_name: null };
+    if (existing?.countryItemId === id)
+      return {
+        country_item_id: id,
+        country_code: existing.countryCode,
+        country_name: existing.countryName,
+      };
+    const [country] = await manager.query<{ code: string; name: string }[]>(
+      `SELECT i.code,i.name FROM system_business_dictionary_items i JOIN system_business_dictionary_types t ON t.id=i.type_id
+       WHERE i.id=$1 AND t.code='country-region' AND t.deleted_at IS NULL AND i.status='enabled' AND i.deleted_at IS NULL FOR SHARE OF i,t`,
+      [id],
+    );
+    if (!country) invalid('请选择有效的国家和地区');
+    return {
+      country_item_id: id,
+      country_code: country.code,
+      country_name: country.name,
+    };
+  }
+
   private async values(
     manager: EntityManager,
     input: DirectLedgerInputDto,
@@ -292,6 +329,7 @@ export class DirectLedgersService {
           : await requireBusinessGroup(manager, input.receivingGroupId);
     }
     return {
+      ...(await this.country(manager, input.countryItemId, existing)),
       received_date: input.receivedDate,
       source: input.source,
       receiving_group_id: input.receivingGroupId ?? null,
@@ -318,6 +356,15 @@ export class DirectLedgersService {
   async create(input: CreateDirectLedgerDto, actor: AuthenticatedUser) {
     this.access(actor, 'create');
     const unit = directUnit(actor, input.businessUnit);
+    if (input.orderStatus === 'converted') {
+      if (!input.tour) invalid('已成团台账必须填写建团资料');
+      requirePermission(actor, 'tour:create');
+      if (
+        input.countryItemId &&
+        input.countryItemId !== input.tour.countryItemId
+      )
+        invalid('国家和地区与建团资料不一致');
+    } else if (input.tour !== undefined) invalid('未成团台账不能提交建团资料');
     const delegate = isLedgerRoot(actor);
     if (!delegate && input.creatorId !== undefined) forbidden();
     if (delegate && !input.creatorId)
@@ -327,7 +374,14 @@ export class DirectLedgersService {
         ? await coordinator(manager, input.creatorId!, unit)
         : await coordinator(manager, actor.id, unit, 'reception');
       const data = {
-        ...(await this.values(manager, input, unit)),
+        ...(await this.values(
+          manager,
+          {
+            ...input,
+            countryItemId: input.tour?.countryItemId ?? input.countryItemId,
+          },
+          unit,
+        )),
         business_unit: unit,
         creator_id: creator.id,
         creator_name: creator.name,
@@ -341,10 +395,80 @@ export class DirectLedgersService {
           .join(',')}) RETURNING ${SELECT}`,
         Object.values(data),
       );
+      if (input.tour) await this.createTour(manager, row, input.tour, actor);
       await this.notifications.enqueue(manager, row);
-      return this.present(row, actor);
+      return this.present(
+        input.tour ? await this.row(manager, row.id, actor) : row,
+        actor,
+      );
     });
   }
+  private async createTour(
+    manager: EntityManager,
+    row: DirectRow,
+    input: DirectLedgerTourDto,
+    actor: AuthenticatedUser,
+  ) {
+    if (row.countryItemId && row.countryItemId !== input.countryItemId)
+      invalid('成团国家和地区须与台账一致');
+    const country = await this.country(manager, input.countryItemId, row);
+    // Existing snapshots are accepted, but the selected country must still be usable for a new tour.
+    const [valid] = await manager.query<{ id: string }[]>(
+      `SELECT i.id FROM system_business_dictionary_items i JOIN system_business_dictionary_types t ON t.id=i.type_id
+       WHERE i.id=$1 AND t.code='country-region' AND t.deleted_at IS NULL AND i.status='enabled' AND i.deleted_at IS NULL FOR SHARE OF i,t`,
+      [input.countryItemId],
+    );
+    if (!valid) invalid('请选择有效的国家和地区');
+    await this.toursService.createFromLedger(
+      manager,
+      input,
+      {
+        ...row,
+        countryItemId: country.country_item_id!,
+        countryCode: country.country_code!,
+        countryName: country.country_name!,
+      },
+      actor,
+    );
+    return country;
+  }
+
+  async convert(
+    id: string,
+    input: ConvertDirectLedgerDto,
+    actor: AuthenticatedUser,
+  ) {
+    this.access(actor, 'update');
+    requirePermission(actor, 'tour:create');
+    return this.db.transaction(async (manager) => {
+      const row = await this.row(manager, id, actor, true);
+      if (!this.manageable(row, actor)) forbidden();
+      assertVersion(row.version, input.version);
+      if (row.tours.some((tour) => tour.status === 'active'))
+        conflict(ErrorCode.CONFLICT, '台账已有有效旅行团');
+      const country = await this.createTour(manager, row, input.tour, actor);
+      const [[saved]] = await manager.query<[DirectRow[], number]>(
+        `UPDATE direct_ledgers SET country_item_id=$2,country_code=$3,country_name=$4,order_status='converted',
+          version=version+1,updated_at=now(),updated_by=$5 WHERE id=$1 RETURNING ${SELECT}`,
+        [
+          id,
+          country.country_item_id,
+          country.country_code,
+          country.country_name,
+          actor.id,
+        ],
+      );
+      if (
+        row.orderStatus === 'unconverted' &&
+        !row.operatedAt &&
+        !row.operated &&
+        row.tours.length === 0
+      )
+        await this.notifications.enqueue(manager, saved, row);
+      return this.present(saved, actor);
+    });
+  }
+
   async update(
     id: string,
     input: UpdateDirectLedgerDto,
@@ -365,13 +489,8 @@ export class DirectLedgersService {
           ErrorCode.DIRECT_LEDGER_OPERATED_READ_ONLY,
           '已操作台账不能修改普通字段',
         );
-      if (
-        row.orderStatus !== input.orderStatus &&
-        row.creatorId !== actor.id &&
-        !isManager(actor) &&
-        !isFullAdministrator(actor)
-      )
-        forbidden();
+      if (row.orderStatus !== input.orderStatus)
+        invalid('请使用成团操作修改订单状态');
       const data = {
         ...(await this.values(manager, input, row.businessUnit, row)),
         updated_by: actor.id,

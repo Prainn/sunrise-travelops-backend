@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsArray,
@@ -110,6 +110,21 @@ export class TourInputDto extends TourScheduleDto {
   @Transform(trim) @IsString() @MaxLength(2000) remark = '';
 }
 
+/** 台账建团不接受人员/业务覆盖，这些值由台账继承。 */
+export class DirectLedgerTourDto extends OmitType(TourInputDto, [
+  'operatorId',
+] as const) {
+  @IsUUID() countryItemId!: string;
+  @IsDateString({ strict: true }) @Matches(DATE) startDate!: string;
+  @IsInt() @Min(1) @Max(365) days!: number;
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  itinerarySummary!: string;
+  @Transform(trim) @IsString() @MaxLength(200) contactName = '';
+}
+
 export class CreateTourDto extends TourInputDto {
   @IsIn(['standard', 'website', 'manual']) sourceModule:
     'standard' | 'website' | 'manual';
@@ -147,7 +162,7 @@ export class UpdateTourDto extends TourInputDto {
 
 export class CancelTourDto {
   @IsInt() @Min(1) version: number;
-  @Transform(trim) @IsString() @MaxLength(500) reason = '';
+  @Transform(trim) @IsString() @MinLength(1) @MaxLength(500) reason!: string;
 }
 
 export class TourFilterOptionsQueryDto extends PaginationQueryDto {

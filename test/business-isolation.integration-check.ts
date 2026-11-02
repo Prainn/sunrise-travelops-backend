@@ -439,11 +439,15 @@ async function ledgers() {
         const edited = await h.call(b.a, 'PUT', `/ledgers/direct/${row.id}`, {
           ...b.ledgerInputs[0],
           proposalSent: true,
-          orderStatus: 'converted',
           loss: true,
           version: row.version,
         });
         assert.equal(edited.version, row.version + 1);
+        // Historical converted ledger fixture: new atomic conversion is covered by its dedicated suite.
+        await h.db.query(
+          "UPDATE direct_ledgers SET order_status='converted' WHERE id=$1",
+          [row.id],
+        );
         const reviewed = await h.call(
           b.manager,
           'POST',
@@ -811,8 +815,8 @@ async function tours() {
               'PUT',
               `/tours/${row.id}`,
               { ...update, version: row.version },
-              actor === foreign.manager ? 404 : 403,
-              actor === foreign.manager ? 'NOT_FOUND' : 'AUTH_FORBIDDEN',
+              actor === b.b ? 403 : 404,
+              actor === b.b ? 'AUTH_FORBIDDEN' : 'NOT_FOUND',
             );
             await deny(
               actor,
@@ -883,7 +887,7 @@ async function tours() {
     }
   });
   await check(
-    '成团表：计调各分工可查看但不可写；负责人编辑/撤销有效',
+    '成团表：计调各分工可新增/关联编辑但不可撤销；负责人编辑/撤销有效',
     async () => {
       for (const b of businesses) {
         const { sourceModule: _source, ...input } = b.tourInputs[0];
@@ -894,22 +898,49 @@ async function tours() {
             [duty, b.a.identityId],
           );
           await h.call(b.a, 'GET', `/tours/${b.tours[0].id}`);
-          await h.unchanged(async () => {
-            await deny(b.a, 'POST', '/tours', b.tourInputs[0]);
-            await deny(b.a, 'POST', '/tours', linkedTourInput(b));
-            await deny(
-              b.a,
-              'GET',
-              `/tours/sources?sourceModule=${b.unit === 'shengxu' ? 'standard' : 'website'}`,
-            );
-            await deny(b.a, 'PUT', `/tours/${b.tours[0].id}`, {
+          const editedOwn = await h.call(
+            b.a,
+            'PUT',
+            `/tours/${b.tours[0].id}`,
+            {
               ...input,
               version: b.tours[0].version,
-            });
-            await deny(b.a, 'POST', `/tours/${b.tours[0].id}/cancel`, {
+            },
+          );
+          b.tours[0] = editedOwn;
+          const manual = await h.call(
+            b.a,
+            'POST',
+            '/tours',
+            b.tourInputs[0],
+            201,
+          );
+          const linked = await h.call(
+            b.a,
+            'POST',
+            '/tours',
+            linkedTourInput(b),
+            201,
+          );
+          await h.call(
+            b.a,
+            'GET',
+            `/tours/sources?sourceModule=${b.unit === 'shengxu' ? 'standard' : 'website'}`,
+          );
+          await h.unchanged(() =>
+            deny(b.a, 'POST', `/tours/${b.tours[0].id}/cancel`, {
               version: b.tours[0].version,
-            });
-          });
+              reason: 'denied',
+            }),
+          );
+          for (const tour of [manual, linked])
+            await h.call(
+              b.manager,
+              'POST',
+              `/tours/${tour.id}/cancel`,
+              { version: tour.version, reason: 'fixture cleanup' },
+              201,
+            );
         }
         await h.db.query(
           "UPDATE user_identities SET coordinator_duty='operation' WHERE id=$1",

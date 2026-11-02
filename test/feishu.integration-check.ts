@@ -1,3 +1,4 @@
+import { ToursService } from '../src/tours/tours.service';
 /** Disposable PostgreSQL only; fake sender never contacts Feishu. */
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
@@ -182,17 +183,27 @@ async function main() {
       '',
     );
     const notifications = new LedgerNotificationsService(h.db, sender);
-    const ledgers = new DirectLedgersService(h.db, notifications);
+    const ledgers = new DirectLedgersService(
+      h.db,
+      notifications,
+      new ToursService(h.db),
+    );
     const input = Object.assign(new CreateDirectLedgerDto(), {
       receivedDate: '2026-10-26',
       source: 'fixture',
       operatorId: operator.id,
       loss: true,
       lossNote: '亏损测试备注' + '😀'.repeat(130),
-      orderStatus: 'converted',
+      orderStatus: 'unconverted',
       proposalSent: true,
     });
     let row = await ledgers.create(input, actor);
+    await h.db.query(
+      "UPDATE direct_ledgers SET order_status='converted' WHERE id=$1",
+      [row.id],
+    );
+    input.orderStatus = 'converted';
+    row = await ledgers.get(row.id, actor);
     const jobs = (id = row.id) =>
       h.db.query<
         { id: string; recipient_id: string; status: string; attempts: number }[]
@@ -273,6 +284,11 @@ async function main() {
       0,
       'pending status without prerequisites must not notify',
     );
+    await h.db.query(
+      "UPDATE direct_ledgers SET order_status='converted' WHERE id=$1",
+      [ready.id],
+    );
+    ready = await ledgers.get(ready.id, actor);
     const readyInput = Object.assign(new UpdateDirectLedgerDto(), initial, {
       version: ready.version,
       orderStatus: 'converted',
@@ -304,7 +320,12 @@ async function main() {
     );
 
     // Bounded retries and business data remain intact after delivery failures.
-    const failing = await ledgers.create(input, actor);
+    const failing = await ledgers.create(
+      Object.assign(new CreateDirectLedgerDto(), input, {
+        orderStatus: 'unconverted',
+      }),
+      actor,
+    );
     fail = true;
     for (let attempt = 0; attempt < 4; attempt++) {
       await h.db.query(
@@ -330,7 +351,16 @@ async function main() {
       )
     )[0].count;
     await assert.rejects(
-      new DirectLedgersService(h.db, rollbackQueue).create(input, actor),
+      new DirectLedgersService(
+        h.db,
+        rollbackQueue,
+        new ToursService(h.db),
+      ).create(
+        Object.assign(new CreateDirectLedgerDto(), input, {
+          orderStatus: 'unconverted',
+        }),
+        actor,
+      ),
     );
     assert.equal(
       (

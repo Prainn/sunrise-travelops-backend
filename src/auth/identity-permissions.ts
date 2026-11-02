@@ -62,6 +62,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     ...INQUIRY_PERMISSIONS,
     'itinerary:download',
     'tour:list',
+    'tour:create',
+    'tour:update',
     'tour:rating:list',
     'tour:rating:update',
   ],

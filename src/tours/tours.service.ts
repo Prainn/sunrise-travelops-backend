@@ -27,6 +27,7 @@ import {
   CancelTourDto,
   TourFilterOptionsQueryDto,
   CreateTourDto,
+  DirectLedgerTourDto,
   ManualTourSourceDto,
   TourScheduleDto,
   RatingQueryDto,
@@ -93,6 +94,8 @@ const RATING_SELECT = RATING_FIELDS.map(
 ).join(',');
 
 const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModule", t.business_unit AS "businessUnit",
+  t.direct_ledger_id AS "directLedgerId",
+  (SELECT dl.order_no FROM direct_ledgers dl WHERE dl.id=t.direct_ledger_id) AS "directLedgerOrderNo",
   t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
   t.inquiry_code AS "inquiryCode", t.itinerary_code AS "itineraryCode", t.quote_code AS "quoteCode",
   t.agency_id AS "agencyId", t.agency_name AS "agencyName", t.contact_name AS "contactName", t.days, t.start_date::text AS "startDate",
@@ -373,10 +376,30 @@ export class ToursService {
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
-      list,
+      list: list.map((row) => this.presentTour(row, user)),
       total: Number(total[0].count),
       page: query.page,
       pageSize: query.pageSize,
+    };
+  }
+
+  private presentTour(row: Row, user: AuthenticatedUser): Row {
+    const related =
+      this.unitAllowed(user, row.businessUnit as Unit) &&
+      (this.isAdmin(user) ||
+        [row.collectCoordinatorId, row.operatorId, row.creatorId].includes(
+          user.id,
+        ));
+    return {
+      ...row,
+      canEdit:
+        row.status === 'active' &&
+        related &&
+        user.permissions.includes('tour:update'),
+      canCancel:
+        row.status === 'active' &&
+        related &&
+        user.permissions.includes('tour:cancel'),
     };
   }
 
@@ -387,7 +410,7 @@ export class ToursService {
       `SELECT ${TOUR_SELECT} FROM ${TOUR_FROM} WHERE t.id = $1${this.visible(user, params)}`,
       params,
     );
-    return rows[0] ?? notFound();
+    return this.presentTour(rows[0] ?? notFound(), user);
   }
 
   /** Inquiries with a frozen quote and no active tour, newest quote first. */
@@ -888,156 +911,228 @@ export class ToursService {
     onChange?: GuideServiceChangeHandler,
   ): Promise<Row> {
     this.require(user, 'tour:create');
-    const id = await this.db.transaction(async (manager) => {
-      let src: Resolved;
-      if (input.sourceModule === 'manual') {
-        if (
-          !input.manualSource ||
-          input.inquiryId !== undefined ||
-          input.quoteId !== undefined
-        )
-          invalid('手工成团必须填写资料且不能关联询盘或报价');
-        src = await this.manualSource(manager, input.manualSource!, user);
-      } else {
-        if (input.manualSource !== undefined || input.scheduleMode === 'manual')
-          invalid('关联来源不能提交手工资料或手填时间');
-        src = await this.resolve(
-          manager,
-          input.sourceModule,
-          input.inquiryId!,
-          user,
-        );
-        if (['lost', 'archived'].includes(src.status))
-          fail(
-            ErrorCode.INQUIRY_READ_ONLY,
-            '已结束询盘不能成团',
-            HttpStatus.CONFLICT,
-          );
-        const active = await manager.query<unknown[]>(
-          `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
-          [src.module, src.inquiryId],
-        );
-        if (active.length) conflict('询盘已有有效旅行团');
-        if (src.quoteId !== input.quoteId)
-          conflict('只能选择该询盘最新的已冻结报价');
-        if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
-      }
-      if (!src.startDate || !DATE_RE.test(src.startDate))
-        invalid('行程缺少开始日期，不能成团');
-      if (!src.countryItemId || !src.countryCode)
-        invalid('询盘缺少国家和地区，请先补齐');
-      if (!Number.isInteger(src.days) || src.days < 1 || src.days > 365)
-        invalid('行程天数无效');
-      const creator = await manager.query<{ tour_code: string | null }[]>(
-        'SELECT tour_code FROM users WHERE id = $1',
-        [user.id],
-      );
-      const creatorCode = creator[0]?.tour_code;
-      if (!creatorCode) invalid('当前账号未设置团号标识');
-      const {
-        pickup,
-        drop,
-        schedule: s,
-      } = await this.booking(manager, input, src.startDate!, src.days);
-      const operator = await this.operator(
-        manager,
-        input.operatorId,
-        src.businessUnit,
-      );
-      await this.validateLanguage(manager, input.language);
-      const services = await prepareGuideServices(
-        manager,
-        null,
-        input.guideServices,
-        onChange,
-      );
+    const id = await this.db.transaction((manager) =>
+      this.insertTour(manager, input, user, onChange),
+    );
+    return this.get(id, user);
+  }
 
-      // Per creator and pickup date; gaps from cancelled tours are never reused.
-      const counter = await manager.query<{ last_value: number }[]>(
-        `INSERT INTO tour_number_counters (creator_id, pickup_date, last_value) VALUES ($1, $2, 1)
+  /** Only the ledger service calls this after locking and authorizing its source row. */
+  async createFromLedger(
+    manager: EntityManager,
+    input: DirectLedgerTourDto,
+    ledger: {
+      id: string;
+      businessUnit: 'linxi' | 'website';
+      creatorId: string;
+      creatorName: string;
+      operatorId: string;
+      operatorName: string;
+      countryItemId: string;
+      countryCode: string;
+      countryName: string;
+    },
+    user: AuthenticatedUser,
+  ): Promise<string> {
+    this.require(user, 'tour:create');
+    if (!this.unitAllowed(user, ledger.businessUnit)) forbidden();
+    return this.insertTour(
+      manager,
+      {
+        ...input,
+        sourceModule: 'manual',
+        operatorId: ledger.operatorId,
+      },
+      user,
+      undefined,
+      {
+        id: ledger.id,
+        operator: { id: ledger.operatorId, name: ledger.operatorName },
+        source: {
+          module: 'manual',
+          inquiryId: null,
+          inquiryCode: null,
+          quoteId: null,
+          quoteCode: null,
+          itineraryId: null,
+          itineraryCode: null,
+          businessUnit: ledger.businessUnit,
+          status: 'active',
+          ownerId: ledger.creatorId,
+          ownerName: ledger.creatorName,
+          agencyName: ledger.businessUnit === 'linxi' ? '霖熹' : '独立站',
+          contactName: input.contactName,
+          countryItemId: ledger.countryItemId,
+          countryCode: ledger.countryCode,
+          countryName: ledger.countryName,
+          startDate: input.startDate,
+          days: input.days,
+          downloaded: false,
+          itinerarySummary: input.itinerarySummary,
+        },
+      },
+    );
+  }
+
+  private async insertTour(
+    manager: EntityManager,
+    input: CreateTourDto,
+    user: AuthenticatedUser,
+    onChange?: GuideServiceChangeHandler,
+    ledger?: {
+      id: string;
+      source: Resolved;
+      operator: { id: string; name: string };
+    },
+  ): Promise<string> {
+    let src: Resolved;
+    if (ledger) {
+      src = ledger.source;
+    } else if (input.sourceModule === 'manual') {
+      if (
+        !input.manualSource ||
+        input.inquiryId !== undefined ||
+        input.quoteId !== undefined
+      )
+        invalid('手工成团必须填写资料且不能关联询盘或报价');
+      src = await this.manualSource(manager, input.manualSource!, user);
+    } else {
+      if (input.manualSource !== undefined || input.scheduleMode === 'manual')
+        invalid('关联来源不能提交手工资料或手填时间');
+      src = await this.resolve(
+        manager,
+        input.sourceModule,
+        input.inquiryId!,
+        user,
+      );
+      if (['lost', 'archived'].includes(src.status))
+        fail(
+          ErrorCode.INQUIRY_READ_ONLY,
+          '已结束询盘不能成团',
+          HttpStatus.CONFLICT,
+        );
+      const active = await manager.query<unknown[]>(
+        `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
+        [src.module, src.inquiryId],
+      );
+      if (active.length) conflict('询盘已有有效旅行团');
+      if (src.quoteId !== input.quoteId)
+        conflict('只能选择该询盘最新的已冻结报价');
+      if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
+    }
+    if (!src.startDate || !DATE_RE.test(src.startDate))
+      invalid('行程缺少开始日期，不能成团');
+    if (!src.countryItemId || !src.countryCode)
+      invalid('询盘缺少国家和地区，请先补齐');
+    if (!Number.isInteger(src.days) || src.days < 1 || src.days > 365)
+      invalid('行程天数无效');
+    const creator = await manager.query<{ tour_code: string | null }[]>(
+      'SELECT tour_code FROM users WHERE id = $1',
+      [user.id],
+    );
+    const creatorCode = creator[0]?.tour_code;
+    if (!creatorCode) invalid('当前账号未设置团号标识');
+    const {
+      pickup,
+      drop,
+      schedule: s,
+    } = await this.booking(manager, input, src.startDate!, src.days);
+    const operator =
+      ledger?.operator ??
+      (await this.operator(manager, input.operatorId, src.businessUnit));
+    await this.validateLanguage(manager, input.language);
+    const services = await prepareGuideServices(
+      manager,
+      null,
+      input.guideServices,
+      onChange,
+    );
+
+    // Per creator and pickup date; gaps from cancelled tours are never reused.
+    const counter = await manager.query<{ last_value: number }[]>(
+      `INSERT INTO tour_number_counters (creator_id, pickup_date, last_value) VALUES ($1, $2, 1)
          ON CONFLICT (creator_id, pickup_date) DO UPDATE SET last_value = tour_number_counters.last_value + 1
          RETURNING last_value`,
-        [user.id, src.startDate],
-      );
-      const sequence = counter[0].last_value;
-      const base = tourNumberBase(
-        src.businessUnit === 'shengxu'
-          ? 'YNSS'
-          : src.businessUnit === 'website'
-            ? 'LYNX'
-            : 'KMLX',
-        src.startDate!,
-        creatorCode!,
-        src.countryCode!,
-      );
-      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
-        base.head + base.tail,
-      ]);
-      const taken = await manager.query<{ tour_no: string }[]>(
-        'SELECT tour_no FROM tours WHERE tour_no LIKE $1',
-        [`${base.head}%${base.tail}`],
-      );
-      const tourNo = pickTourNumber(
-        base,
-        sequence,
-        new Set(taken.map((r) => r.tour_no)),
-      );
-      const inserted = await manager.query<{ id: string }[]>(
-        `INSERT INTO tours (tour_no, source_module, business_unit, inquiry_id, quote_id, itinerary_id,
+      [user.id, src.startDate],
+    );
+    const sequence = counter[0].last_value;
+    const base = tourNumberBase(
+      src.businessUnit === 'shengxu'
+        ? 'YNSS'
+        : src.businessUnit === 'website'
+          ? 'LYNX'
+          : 'KMLX',
+      src.startDate!,
+      creatorCode!,
+      src.countryCode!,
+    );
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      base.head + base.tail,
+    ]);
+    const taken = await manager.query<{ tour_no: string }[]>(
+      'SELECT tour_no FROM tours WHERE tour_no LIKE $1',
+      [`${base.head}%${base.tail}`],
+    );
+    const tourNo = pickTourNumber(
+      base,
+      sequence,
+      new Set(taken.map((r) => r.tour_no)),
+    );
+    const inserted = await manager.query<{ id: string }[]>(
+      `INSERT INTO tours (tour_no, source_module, business_unit, inquiry_id, quote_id, itinerary_id,
           inquiry_code, itinerary_code, quote_code, agency_name, contact_name, days, start_date, pickup_at, drop_at,
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
-          remark, created_by, updated_by, schedule_mode, itinerary_summary, agency_id)
+          remark, created_by, updated_by, schedule_mode, itinerary_summary, agency_id, direct_ledger_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$21,$21,$38,$39,$40) RETURNING id`,
-        [
-          tourNo,
-          src.module,
-          src.businessUnit,
-          src.inquiryId,
-          src.quoteId,
-          src.itineraryId,
-          src.inquiryCode,
-          src.itineraryCode,
-          src.quoteCode,
-          src.agencyName,
-          src.contactName,
-          src.days,
-          src.startDate,
-          s.pickupAt,
-          s.dropAt,
-          s.occupyFrom,
-          s.occupyTo,
-          src.countryItemId,
-          src.countryCode,
-          src.countryName,
-          user.id,
-          creatorCode,
-          sequence,
-          src.ownerId,
-          src.ownerName,
-          operator.id,
-          operator.name,
-          input.adults,
-          input.children,
-          input.leaders,
-          input.language,
-          input.shopping,
-          input.pickupFlightId ?? null,
-          input.dropFlightId ?? null,
-          pickup ? JSON.stringify(pickup) : null,
-          drop ? JSON.stringify(drop) : null,
-          input.remark,
-          input.scheduleMode ?? 'flight',
-          src.itinerarySummary ?? '',
-          src.agencyId ?? null,
-        ],
-      );
-      await saveGuideServices(manager, inserted[0].id, services, user.id);
-      return inserted[0].id;
-    });
-    return this.get(id, user);
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$21,$21,$38,$39,$40,$41) RETURNING id`,
+      [
+        tourNo,
+        src.module,
+        src.businessUnit,
+        src.inquiryId,
+        src.quoteId,
+        src.itineraryId,
+        src.inquiryCode,
+        src.itineraryCode,
+        src.quoteCode,
+        src.agencyName,
+        src.contactName,
+        src.days,
+        src.startDate,
+        s.pickupAt,
+        s.dropAt,
+        s.occupyFrom,
+        s.occupyTo,
+        src.countryItemId,
+        src.countryCode,
+        src.countryName,
+        user.id,
+        creatorCode,
+        sequence,
+        src.ownerId,
+        src.ownerName,
+        operator.id,
+        operator.name,
+        input.adults,
+        input.children,
+        input.leaders,
+        input.language,
+        input.shopping,
+        input.pickupFlightId ?? null,
+        input.dropFlightId ?? null,
+        pickup ? JSON.stringify(pickup) : null,
+        drop ? JSON.stringify(drop) : null,
+        input.remark,
+        input.scheduleMode ?? 'flight',
+        src.itinerarySummary ?? '',
+        src.agencyId ?? null,
+        ledger?.id ?? null,
+      ],
+    );
+    await saveGuideServices(manager, inserted[0].id, services, user.id);
+    return inserted[0].id;
   }
 
   private flightSnapshot(f: {
@@ -1174,6 +1269,8 @@ export class ToursService {
     user: AuthenticatedUser,
   ): Promise<Row> {
     this.require(user, 'tour:cancel');
+    if (!input.reason?.trim() || input.reason.trim().length > 500)
+      invalid('请填写最多500字的撤销原因');
     await this.db.transaction(async (manager) => {
       const tour = await this.lockTour(manager, id, user);
       if (!this.canManage(user, tour)) forbidden();
@@ -1190,7 +1287,7 @@ export class ToursService {
       await manager.query(
         `UPDATE tours SET status='cancelled', cancelled_at=now(), cancelled_by=$2, cancel_reason=$3,
          version=version+1, updated_at=now(), updated_by=$2 WHERE id=$1`,
-        [id, user.id, input.reason],
+        [id, user.id, input.reason.trim()],
       );
     });
     return this.get(id, user);
