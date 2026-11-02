@@ -16,7 +16,9 @@ describe('website draft save and explicit validation', () => {
     permissions: ['website:itinerary:update'],
   } as AuthenticatedUser;
   function setup() {
-    const query = jest.fn().mockResolvedValue([]);
+    const query = jest
+      .fn<Promise<unknown[]>, [sql: string, parameters?: unknown[]]>()
+      .mockResolvedValue([]);
     const manager = { query } as unknown as EntityManager;
     const transaction = jest.fn((fn: (manager: EntityManager) => unknown) =>
       fn(manager),
@@ -127,7 +129,7 @@ describe('website draft save and explicit validation', () => {
       }),
     );
     jest.spyOn(internal, 'mutable').mockResolvedValue();
-    jest.spyOn(internal, 'config').mockResolvedValue({
+    const config: WebsiteConfig = {
       version: 1,
       cities: [],
       attractions: [],
@@ -137,7 +139,8 @@ describe('website draft save and explicit validation', () => {
       patterns: [],
       skeletons: [],
       templates: [],
-    });
+    };
+    jest.spyOn(internal, 'config').mockResolvedValue(config);
     const save = jest
       .spyOn(internal, 'savePlan')
       .mockImplementation((_manager, old, input) =>
@@ -151,7 +154,7 @@ describe('website draft save and explicit validation', () => {
           })),
         }),
       );
-    return { service, plan, save };
+    return { service, plan, save, config, query };
   }
   it('saves an unfinished board and blank title/cities, but validates them on demand without writing', async () => {
     const { service, plan, save } = setup();
@@ -185,5 +188,100 @@ describe('website draft save and explicit validation', () => {
       ).rejects.toMatchObject({ code: 'AUTH_FORBIDDEN' });
     }
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it('validates and freezes a hotel-free overnight itinerary while preserving other quotation guards', async () => {
+    const { service, plan, config, query } = setup();
+    plan.title = 'No hotels';
+    plan.pax = 3;
+    plan.reorderDraft = null;
+    Object.assign(plan.days[0], {
+      departCityId: 'city',
+      endCityId: 'city',
+      overnightCityId: 'city',
+    });
+    plan.vehiclePrices = [
+      {
+        vehicleType: null,
+        hotelTier: null,
+        unitPrice: '500.00',
+        priceComponents: [],
+        includesDriver: false,
+        includesGuide: false,
+      },
+    ];
+    config.cities = [
+      {
+        id: 'city',
+        nameZh: '昆明',
+        nameEn: 'Kunming',
+        status: 'enabled',
+        resourceId: null,
+      },
+    ];
+    config.templates = [
+      'optional-not-included',
+      'peak-season',
+      'hotel-substitution',
+      'no-shopping',
+    ].map((code) => ({
+      id: code,
+      code,
+      name: code,
+      zh: '说明',
+      en: 'Note',
+      status: 'enabled',
+    }));
+    const frozen = jest
+      .spyOn(service as unknown as { frozen: () => Promise<unknown> }, 'frozen')
+      .mockResolvedValue(null);
+    jest
+      .spyOn(service as unknown as { log: () => Promise<void> }, 'log')
+      .mockResolvedValue();
+    query.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('next_business_code') ? [{ code: 'WQT-TEST' }] : [],
+      ),
+    );
+    const preview = await service.validateItinerary(plan.id, plan, user);
+    expect(preview.issues).toEqual([]);
+    const confirmUser = {
+      ...user,
+      permissions: ['website:itinerary:confirm'],
+    };
+    const input = {
+      version: plan.version,
+      inquiryVersion: 1,
+      acknowledgedWarnings: [],
+    };
+    plan.pax = null;
+    await expect(
+      service.confirm(plan.id, input, confirmUser),
+    ).rejects.toMatchObject({
+      code: 'PDF_NOT_READY',
+    });
+    expect(
+      query.mock.calls.some(([sql]) =>
+        sql.includes('INSERT INTO website_quotations'),
+      ),
+    ).toBe(false);
+    plan.pax = 3;
+    const quotation = await service.confirm(plan.id, input, confirmUser);
+    expect(quotation.english.quotation[0]).toMatchObject({
+      hotelTier: null,
+      totalPrice: '1500.00',
+    });
+    const insert = query.mock.calls.find(([sql]) =>
+      sql.includes('INSERT INTO website_quotations'),
+    );
+    expect(JSON.parse(String(insert?.[1]?.[3])) as unknown).toMatchObject({
+      validationVersion: 6,
+      english: { hotelOptions: [] },
+      chinese: { hotelOptions: [] },
+    });
+    frozen.mockResolvedValue(quotation);
+    plan.status = 'quoted';
+    config.cities = [];
+    expect(await service.preview(plan.id, user)).toBe(quotation);
   });
 });
