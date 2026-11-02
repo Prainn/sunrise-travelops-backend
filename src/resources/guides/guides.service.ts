@@ -23,6 +23,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 
 @Injectable()
@@ -76,7 +77,8 @@ export class GuidesService {
       const code = await nextBusinessCode(repository.manager, 'GDE');
       await ensureCodeAvailable(repository, code);
       return this.toResponse(
-        await repository.save(
+        await insertResource(
+          repository,
           repository.create({
             ...input,
             code,

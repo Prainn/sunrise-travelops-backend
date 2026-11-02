@@ -28,8 +28,6 @@ export class FlightQueryDto extends ResourceQueryDto {
 }
 
 export class CreateFlightDto {
-  @IsOptional() @IsUUID('all') id?: string;
-
   @IsUUID() departureAirportId: string;
 
   @IsUUID() arrivalAirportId: string;
@@ -57,6 +55,7 @@ export class CreateFlightDto {
 }
 
 export class UpdateFlightDto extends CreateFlightDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 

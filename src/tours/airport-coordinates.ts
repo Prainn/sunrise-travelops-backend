@@ -1,5 +1,5 @@
 /**
- * WGS84 [longitude, latitude], limited to the current airport catalog.
+ * WGS84 [longitude, latitude] for map positioning; not a dictionary whitelist.
  * Source: https://ourairports.com/data/ (Public Domain), airports.csv retrieved 2026-10-27.
  * https://davidmegginson.github.io/ourairports-data/airports.csv
  * No request-time network lookup; unknown codes remain unlocated.

@@ -1,5 +1,5 @@
 import type { ItineraryRecord, PaxQuoteCalculation } from './itinerary.types';
-import { multiplyMoney, roundMoney, sumMoney } from './money';
+import { divideMoney, multiplyMoney, roundMoney, sumMoney } from './money';
 import { BusinessException } from '../common/exceptions/business.exception';
 
 type QuotePlan = Pick<
@@ -67,7 +67,7 @@ export function calculateItineraryQuote(
         item.unitCost === null
           ? null
           : item.unit === 'table'
-            ? roundMoney(item.unitCost / item.dinerCount!)
+            ? divideMoney(item.unitCost, item.dinerCount!)
             : item.unitCost;
       return {
         type: item.type,
@@ -132,7 +132,7 @@ export function calculateItineraryQuote(
         const unitCost =
           hotels.find((hotel) => hotel.destination === destination)?.unitCost ??
           null;
-        const previousTotal = roundMoney(accumulatedRoomCost / 2);
+        const previousTotal = divideMoney(accumulatedRoomCost, 2);
         if (unitCost !== null)
           accumulatedRoomCost = sumMoney([
             accumulatedRoomCost,
@@ -142,10 +142,10 @@ export function calculateItineraryQuote(
         const totalCost =
           unitCost === null
             ? null
-            : roundMoney(roundMoney(accumulatedRoomCost / 2) - previousTotal);
+            : roundMoney(divideMoney(accumulatedRoomCost, 2) - previousTotal);
         return { destination, nights, unitCost, totalCost };
       });
-      const hotelUnitCost = roundMoney(accumulatedRoomCost / 2);
+      const hotelUnitCost = divideMoney(accumulatedRoomCost, 2);
       const vehicleTotal = roundMoney(
         itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
           ?.totalPrice ?? 0,
@@ -165,13 +165,13 @@ export function calculateItineraryQuote(
           const paxOtherCost = itinerary.quote.paxOtherCosts.find(
             (cost) => cost.pax === pax,
           );
-          const vehicleUnitCost = roundMoney(vehicleTotal / pax);
+          const vehicleUnitCost = divideMoney(vehicleTotal, pax);
           const guideServiceUnitCost = sumMoney([
-            roundMoney(guideCost / pax),
+            divideMoney(guideCost, pax),
             paxOtherCost?.guideOtherCost ?? 0,
           ]);
           const staffRoomUnitCost = sumMoney([
-            roundMoney(staffRoomTotal / pax),
+            divideMoney(staffRoomTotal, pax),
             paxOtherCost?.staffRoomOtherCost ?? 0,
           ]);
           const baseCostPerPerson = sumMoney([
@@ -194,11 +194,15 @@ export function calculateItineraryQuote(
             staffRoomUnitCost,
             baseCostPerPerson,
             adultUnitPrice,
-            childWithoutBedUnitPrice: roundMoney(
-              (adultUnitPrice * itinerary.childWithoutBedRate) / 100,
+            childWithoutBedUnitPrice: multiplyMoney(
+              adultUnitPrice,
+              itinerary.childWithoutBedRate,
+              100,
             ),
-            childUnitPrice: roundMoney(
-              (adultUnitPrice * itinerary.childRate) / 100,
+            childUnitPrice: multiplyMoney(
+              adultUnitPrice,
+              itinerary.childRate,
+              100,
             ),
             leaderUnitPrice: hotelUnitCost,
             singleSupplementUnitCost: hotelUnitCost,

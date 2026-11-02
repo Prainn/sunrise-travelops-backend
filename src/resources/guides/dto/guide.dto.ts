@@ -21,13 +21,13 @@ export class GuideQueryDto extends ResourceQueryDto {
   @IsOptional() @IsIn(['true', 'false']) shopping?: string;
 }
 export class CreateGuideDto {
-  @IsOptional() @IsUUID() id?: string;
   @moneyTransform @Matches(/^\d{1,10}(?:\.\d{1,2})?$/) dailyPrice: string;
   @IsIn(GUIDE_LANGUAGES) secondLanguage: string;
   @IsBoolean() shopping: boolean;
   @IsOptional() @IsEnum(ResourceStatus) status?: ResourceStatus;
 }
 export class UpdateGuideDto extends CreateGuideDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class GuideResponse implements ResourceAuditResponse {

@@ -14,6 +14,7 @@ import { assertMatchingId, assertVersion } from '../common/resource-errors';
 import {
   requireResource,
   requireResourceForUpdate,
+  insertResource,
 } from '../common/resource-service.helpers';
 import {
   CreateGuidePersonDto,
@@ -97,7 +98,7 @@ export class GuidePeopleService {
         createdBy: actorId,
         updatedBy: actorId,
       });
-      return this.toResponse(await repository.save(entity));
+      return this.toResponse(await insertResource(repository, entity));
     });
   }
 

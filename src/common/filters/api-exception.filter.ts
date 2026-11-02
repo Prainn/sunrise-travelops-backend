@@ -49,7 +49,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const requestId = this.requestId(request);
     const userId =
       typeof request.user?.id === 'string' ? request.user.id : undefined;
-    const isWhatsappRoute = request.path.startsWith('/v1/');
+    const suppressErrorDetails =
+      request.path.startsWith('/v1/') ||
+      /^\/api\/resources\/guide-people(?:\/|$)/.test(request.path);
     const source = response.locals.httpLogSource as
       | undefined
       | {
@@ -74,7 +76,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       this.logger.error({
         ...logContext,
         msg: 'Unhandled request exception',
-        ...(isWhatsappRoute ? {} : this.errorDetails(exception)),
+        ...(suppressErrorDetails ? {} : this.errorDetails(exception)),
       });
     }
 

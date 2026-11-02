@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsUUID,
   IsInt,
   IsNumber,
   IsOptional,
@@ -35,6 +36,7 @@ export class CreateCityDto extends ResourceInputDto {
   latitude?: number | null;
 }
 export class UpdateCityDto extends CreateCityDto {
+  @IsOptional() @IsUUID('all') id?: string;
   @Type(() => Number) @IsInt() @Min(1) version: number;
 }
 export class CityResponse implements ResourceAuditResponse {

@@ -14,6 +14,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 import {
   AirportLabel,
@@ -90,7 +91,7 @@ export class FlightsService {
       createdBy: actorId,
       updatedBy: actorId,
     });
-    const saved = await this.flights.save(entity);
+    const saved = await insertResource(this.flights, entity);
     return this.toResponse(saved, await this.airportLabels([saved]));
   }
 

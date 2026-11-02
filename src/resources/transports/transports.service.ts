@@ -23,6 +23,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 
 @Injectable()
@@ -81,7 +82,8 @@ export class TransportsService {
       input.code ?? (await nextBusinessCode(this.transports.manager, 'VEH'));
     await ensureCodeAvailable(this.transports, code);
     return this.toResponse(
-      await this.transports.save(
+      await insertResource(
+        this.transports,
         this.transports.create({
           ...input,
           code,

@@ -1,3 +1,4 @@
+import { moneyResponse } from './changes';
 import { ValidationPipe } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 import { ResourceStatus } from '../resources/common/resource.constants';
@@ -235,5 +236,47 @@ describe('day count and recycle normalization', () => {
     await expect(
       validation.normalize(manager('attraction', '描述', '100.00'), plan),
     ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+  });
+});
+
+describe('draft money save/response round trip', () => {
+  it('normalizes custom meals, tips and tickets before persistence and preserves a repeat save', async () => {
+    const plan = await input('restaurant', 1.005);
+    Object.assign(plan.dailyPlans[0].items[0], {
+      resourceId: null,
+      adjustmentReason: '首次定价',
+    });
+    plan.quote.chineseTip = 10.075;
+    plan.quote.transportFees = [
+      {
+        id: 'ticket',
+        type: 'train',
+        departureCity: '杭州',
+        arrivalCity: '测试',
+        cabin: 'second',
+        unitPrice: 10.075,
+      },
+    ];
+    const validation = new ItineraryValidation();
+    const first = await validation.normalize(
+      manager('restaurant', '', null),
+      plan,
+    );
+    expect(first.dailyPlans[0].items[0]).toMatchObject({
+      unitCost: 1.01,
+      totalCost: 1.01,
+    });
+    expect(first.quote.chineseTip).toBe(10.08);
+    expect(first.quote.transportFees[0].unitPrice).toBe(10.08);
+    expect(moneyResponse(first.dailyPlans[0].items[0])).toMatchObject({
+      unitCost: '1.01',
+      totalCost: '1.01',
+    });
+    const second = await validation.normalize(
+      manager('restaurant', '', null),
+      structuredClone(first),
+      first,
+    );
+    expect(second).toEqual(first);
   });
 });

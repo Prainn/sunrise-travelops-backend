@@ -4,7 +4,7 @@ import { ResourceValidationService } from '../common/resource-validation.service
 import { ResourceStatus } from '../common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Not, Repository } from 'typeorm';
 import { AuthenticatedUser } from '../../auth/auth.types';
 import { UserEntity, UserStatus } from '../../users/user.entity';
 import { BusinessUnit } from '../../users/user-identity.entity';
@@ -37,6 +37,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 
 @Injectable()
@@ -281,11 +282,9 @@ export class AgenciesService {
         createdBy: actor.id,
         updatedBy: actor.id,
       });
-      return this.getResponse(
-        await repository.save(entity),
-        [],
-        coordinator.nickname,
-      );
+      const saved = await insertResource(repository, entity);
+      saved.parent = parent;
+      return this.getResponse(saved, [], coordinator.nickname);
     });
   }
 
@@ -433,8 +432,9 @@ export class AgenciesService {
     agencyId: string,
     input: CreateAgencyContactDto,
     actorId: string,
+    transactionManager?: EntityManager,
   ): Promise<AgencyContactResponse> {
-    return this.dataSource.transaction(async (manager) => {
+    const create = async (manager: EntityManager) => {
       await requireResource(
         manager.getRepository(AgencyEntity),
         agencyId,
@@ -453,7 +453,8 @@ export class AgenciesService {
           status: HttpStatus.CONFLICT,
         });
       return this.toContactResponse(
-        await repository.save(
+        await insertResource(
+          repository,
           repository.create({
             ...input,
             agencyId,
@@ -463,7 +464,10 @@ export class AgenciesService {
           }),
         ),
       );
-    });
+    };
+    return transactionManager
+      ? create(transactionManager)
+      : this.dataSource.transaction(create);
   }
 
   async updateContact(

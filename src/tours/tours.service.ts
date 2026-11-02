@@ -23,7 +23,6 @@ import { buildFlightMap, FlightMapRow } from './flight-map';
 import { ErrorCode, ErrorCodeValue } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { PageResult } from '../common/types/page-result';
-import { countryCatalog } from '../system/business-dictionaries/dictionary-catalogs';
 import {
   CancelTourDto,
   TourFilterOptionsQueryDto,
@@ -693,11 +692,7 @@ export class ToursService {
           [input.countryItemId],
         );
     const country = countries[0];
-    if (
-      !country ||
-      !countryCatalog().some((item) => item.code === country.code)
-    )
-      invalid('请选择有效的国家和地区');
+    if (!country) invalid('请选择有效的国家和地区');
     return {
       module: 'manual',
       inquiryId: null,
@@ -931,8 +926,6 @@ export class ToursService {
         invalid('行程缺少开始日期，不能成团');
       if (!src.countryItemId || !src.countryCode)
         invalid('询盘缺少国家和地区，请先补齐');
-      if (!countryCatalog().some((item) => item.code === src.countryCode))
-        invalid('询盘国家和地区代码无效');
       if (!Number.isInteger(src.days) || src.days < 1 || src.days > 365)
         invalid('行程天数无效');
       const creator = await manager.query<{ tour_code: string | null }[]>(

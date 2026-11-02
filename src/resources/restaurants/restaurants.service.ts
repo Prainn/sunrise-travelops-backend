@@ -16,6 +16,7 @@ import {
   requireResource,
   requireResourceForUpdate,
   requireResources,
+  insertResource,
 } from '../common/resource-service.helpers';
 import { ResourceValidationService } from '../common/resource-validation.service';
 import {
@@ -92,7 +93,8 @@ export class RestaurantsService {
       const code =
         input.code ?? (await nextBusinessCode(repository.manager, 'RES'));
       await ensureCodeAvailable(repository, code);
-      const entity = await repository.save(
+      const entity = await insertResource(
+        repository,
         repository.create({
           ...this.fields(input),
           code,

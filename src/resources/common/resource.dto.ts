@@ -43,14 +43,10 @@ export class BatchIdsQueryDto {
 
 export abstract class ResourceInputDto {
   @IsOptional()
-  @IsUUID('all')
-  id?: string;
-
-  @IsOptional()
   @Transform(trim)
   @IsString()
   @Matches(
-    /^(AGY|HTL|VEH|GDE|RES|ATT|CITY)-(00[1-9]|0[1-9][0-9]|[1-9][0-9]{2,})$/,
+    /^(AGY|HTL|VEH|GDE|RES|ATT|CITY)-(00[1-9]|0[1-9][0-9]|[1-9][0-9]{2,17})$/,
   )
   @MaxLength(50)
   code?: string;

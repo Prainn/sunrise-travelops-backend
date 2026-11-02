@@ -1,4 +1,5 @@
 import {
+  divideMoney,
   fromCents,
   multiplyMoney,
   roundMoney,
@@ -62,5 +63,31 @@ describe('sumMoney', () => {
     { amounts: [12.34, -2.34, -10], expected: 0 },
   ])('sums $amounts as integer cents', ({ amounts, expected }) => {
     expect(sumMoney(amounts)).toBe(expected);
+  });
+});
+
+describe('decimal boundary and ratio regression', () => {
+  it.each([
+    [10.075, 10.08],
+    [-10.075, -10.08],
+    [1000.005, 1000.01],
+    [1e-7, 0],
+  ])('rounds %s to %s', (value, expected) =>
+    expect(roundMoney(value)).toBe(expected),
+  );
+  it.each([
+    [20.15, 2, 10.08],
+    [1000, 3, 333.33],
+    [0.01, 2, 0.01],
+    [-0.01, 2, -0.01],
+    [999999999.99, 10000, 100000],
+  ])('divides %s by %s to %s', (value, people, expected) =>
+    expect(divideMoney(value, people)).toBe(expected),
+  );
+  it('applies percent ratios once at the final cent', () =>
+    expect(multiplyMoney(20.15, 50, 100)).toBe(10.08));
+  it('rejects invalid operands', () => {
+    expect(() => divideMoney(10, 0)).toThrow(RangeError);
+    expect(() => toCents(Infinity)).toThrow(TypeError);
   });
 });

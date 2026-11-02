@@ -19,7 +19,7 @@ export function createTypeOrmOptions(
     autoLoadEntities: true,
     synchronize: false,
     migrationsRun: false,
-    logging:
-      config.get<string>('NODE_ENV') === 'development' ? ['error'] : false,
+    // Raw query errors include bound values (including certificates); use sanitized HTTP errors.
+    logging: false,
   };
 }

@@ -1,34 +1,70 @@
-/**
- * 用于行程规范化、调价校验及权威报价计算。
- * 维护警告：与 sunrise-travel-ops-web/src/utils/money.ts 保持相同的整数分规则。
- * 修改金额转换、非有限数校验或舍入语义时须同步维护两份，并验证相关金额计算。
- */
+/** Keep monetary rules synchronized with sunrise-travel-ops-web/src/utils/money.ts. */
+/** Monetary values round half away from zero; ratios are evaluated without binary float intermediates. */
 const CENTS_PER_UNIT = 100;
 
-/** 将以元表示的金额转换为整数分。 */
-export function toCents(value: number): number {
+function fraction(value: number): [bigint, bigint] {
   if (!Number.isFinite(value))
     throw new TypeError('Money must be a finite number');
-  const correction = value >= 0 ? Number.EPSILON : -Number.EPSILON;
-  return Math.round((value + correction) * CENTS_PER_UNIT);
+  const [decimal = '0', exponent = '0'] = String(value)
+    .toLowerCase()
+    .split('e');
+  const [integer, fractional = ''] = decimal.split('.');
+  const digits = BigInt(integer + fractional);
+  const scale = fractional.length - Number(exponent);
+  return scale >= 0
+    ? [digits, 10n ** BigInt(scale)]
+    : [digits * 10n ** BigInt(-scale), 1n];
 }
 
-/** 将整数分转换为以元表示的金额。 */
+function roundedInteger(numerator: bigint, denominator: bigint): number {
+  if (denominator <= 0n) throw new RangeError('Money divisor must be positive');
+  const magnitude = numerator < 0n ? -numerator : numerator;
+  const rounded = (magnitude + denominator / 2n) / denominator;
+  const result = Number(numerator < 0n ? -rounded : rounded);
+  if (!Number.isSafeInteger(result))
+    throw new RangeError('Money exceeds safe integer cents');
+  return result;
+}
+
+/** Convert decimal yuan to integer cents. */
+export function toCents(value: number): number {
+  const [numerator, denominator] = fraction(value);
+  return roundedInteger(numerator * 100n, denominator);
+}
+
 export function fromCents(value: number): number {
   return value / CENTS_PER_UNIT;
 }
 
-/** 将金额按分四舍五入。 */
 export function roundMoney(value: number): number {
   return fromCents(toCents(value));
 }
 
-/** 使用整数分计算单价和数量的乘积。 */
-export function multiplyMoney(unitAmount: number, quantity: number): number {
-  return fromCents(Math.round(toCents(unitAmount) * quantity));
+/** Round the unit price to cents, then apply quantity/divisor with one final cent rounding. */
+export function multiplyMoney(
+  unitAmount: number,
+  quantity: number,
+  divisor = 1,
+): number {
+  const [numerator, denominator] = fraction(quantity);
+  const [dividend, scale] = fraction(divisor);
+  return fromCents(
+    roundedInteger(
+      BigInt(toCents(unitAmount)) * numerator * scale,
+      denominator * dividend,
+    ),
+  );
 }
 
-/** 使用整数分汇总金额。 */
+export function divideMoney(amount: number, divisor: number): number {
+  return multiplyMoney(amount, 1, divisor);
+}
+
 export function sumMoney(values: number[]): number {
-  return fromCents(values.reduce((total, value) => total + toCents(value), 0));
+  return fromCents(
+    roundedInteger(
+      values.reduce((sum, value) => sum + BigInt(toCents(value)), 0n),
+      1n,
+    ),
+  );
 }

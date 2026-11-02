@@ -19,6 +19,7 @@ import { createValidationException } from '../src/common/validation/validation-e
 import { InquiriesModule } from '../src/inquiries/inquiries.module';
 import { LedgersModule } from '../src/ledgers/ledgers.module';
 import { ToursModule } from '../src/tours/tours.module';
+import { SystemModule } from '../src/system/system.module';
 import { WebsiteModule } from '../src/website/website.module';
 import { LoginScope } from '../src/users/user-identity.entity';
 
@@ -109,6 +110,7 @@ export class IsolationHarness {
         InquiriesModule,
         WebsiteModule,
         ToursModule,
+        SystemModule,
         LedgersModule,
       ],
       providers: [

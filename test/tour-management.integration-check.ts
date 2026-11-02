@@ -27,7 +27,6 @@ import { ItineraryValidation } from '../src/inquiries/itinerary-validation';
 import { effectivePermissions } from '../src/auth/identity-permissions';
 import type { AuthenticatedUser } from '../src/auth/auth.types';
 import type { BusinessUnit } from '../src/users/user-identity.entity';
-import { initTourData } from '../src/scripts/init-tour-dev-data';
 import { BusinessException } from '../src/common/exceptions/business.exception';
 import type { TourInputDto } from '../src/tours/tour.dto';
 
@@ -264,43 +263,17 @@ async function main() {
     ]);
     const stranger = await user('website', 'stranger');
     await db.query('UPDATE users SET tour_code=NULL WHERE id=$1', [web.id]);
-    await check(
-      'initialisation is idempotent and preserves manual/default scope values',
-      async () => {
-        const first = await db.transaction(initTourData);
-        const second = await db.transaction(initTourData);
-        assert.equal((first.airports as { inserted: number }).inserted, 28);
-        assert.equal((second.airports as { inserted: number }).inserted, 0);
-        assert.equal(second.flightUpdates, 0);
-        assert.deepEqual(second.tourCodesApplied, []);
-        assert.equal(
-          (
-            await db.query<{ tour_code: string }[]>(
-              'SELECT tour_code FROM users WHERE id=$1',
-              [sx.id],
-            )
-          )[0].tour_code,
-          'MANUAL',
-        );
-        assert.equal(
-          (
-            await db.query<{ tour_code: string }[]>(
-              'SELECT tour_code FROM users WHERE id=$1',
-              [web.id],
-            )
-          )[0].tour_code,
-          'HY',
-        );
-        assert.deepEqual(
-          (
-            await db.query<{ snapshot: Row }[]>(
-              `SELECT snapshot FROM itinerary_quotes WHERE quote_code='QT-OLD'`,
-            )
-          )[0].snapshot,
-          { unchanged: '历史' },
-        );
-      },
-    );
+    // Minimal fixtures belong to this isolated test, not a runtime standard catalog.
+    await db.query(`INSERT INTO system_business_dictionary_items(type_id,code,name,english_name)
+      SELECT t.id,v.code,v.name,v.english_name FROM system_business_dictionary_types t
+      CROSS JOIN (VALUES ('MYS','马来西亚','Malaysia')) v(code,name,english_name)
+      WHERE t.code='country-region'`);
+    await db.query(`INSERT INTO system_business_dictionary_items(type_id,code,name,english_name)
+      SELECT t.id,v.code,v.name,v.english_name FROM system_business_dictionary_types t
+      CROSS JOIN (VALUES ('KMG','昆明长水国际机场','Kunming Changshui International Airport'),
+        ('PVG','上海浦东国际机场','Shanghai Pudong International Airport'),
+        ('SHA','上海虹桥国际机场','Shanghai Hongqiao International Airport')) v(code,name,english_name)
+      WHERE t.code='city-airport'`);
     await db.query(`UPDATE users SET tour_code='AS' WHERE id=ANY($1::uuid[])`, [
       [sx.id, web.id],
     ]);

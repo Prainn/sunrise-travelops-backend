@@ -10,7 +10,7 @@ import { GuideEntity } from '../resources/guides/guide.entity';
 import { RestaurantEntity } from '../resources/restaurants/restaurant.entity';
 import { AttractionEntity } from '../resources/attractions/attraction.entity';
 import { ItineraryInput } from './inquiry.dto';
-import { multiplyMoney, roundMoney } from './money';
+import { divideMoney, multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
 import { missingItineraryPrices } from './quote-pricing';
 export function invalid(message: string): never {
@@ -215,6 +215,7 @@ export class ItineraryValidation {
       ...plan.dailyPlans,
       ...(plan.deletedDays ?? []).map((entry) => entry.day),
     ].flatMap((day) => day.items)) {
+      if (item.unitCost !== null) item.unitCost = roundMoney(item.unitCost);
       if (item.type === 'restaurant' && !item.mealSlot)
         invalid('Meal slot required');
       if (item.type === 'attraction' && item.mealSlot)
@@ -266,7 +267,7 @@ export class ItineraryValidation {
           ? null
           : multiplyMoney(
               item.unit === 'table'
-                ? roundMoney(item.unitCost / item.dinerCount!)
+                ? divideMoney(item.unitCost, item.dinerCount!)
                 : item.unitCost,
               item.quantity,
             );
@@ -600,10 +601,12 @@ export class ItineraryValidation {
         ).includes(fee.cabin)
       )
         invalid('Invalid transport cabin');
-      fee.unitPrice ??= null;
+      fee.unitPrice = fee.unitPrice == null ? null : roundMoney(fee.unitPrice);
     }
-    plan.quote.chineseTip ??= null;
-    plan.quote.englishTip ??= null;
+    plan.quote.chineseTip =
+      plan.quote.chineseTip == null ? null : roundMoney(plan.quote.chineseTip);
+    plan.quote.englishTip =
+      plan.quote.englishTip == null ? null : roundMoney(plan.quote.englishTip);
     if (plan.quote.chineseTip !== null && plan.quote.englishTip !== null)
       invalid('中文和第二语言小费只能填写一种');
     return plan;
