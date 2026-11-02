@@ -77,7 +77,11 @@ function actionFor(
       update: `编辑${ledger}`,
       delete: `删除${ledger}`,
       ...(controller === 'DirectLedgersController'
-        ? { review: `审核${ledger}`, operate: `保存${ledger}操作信息` }
+        ? {
+            review: `审核${ledger}`,
+            operate: `保存${ledger}操作信息`,
+            convert: `${ledger}成团`,
+          }
         : {}),
     };
     return labels[handler]

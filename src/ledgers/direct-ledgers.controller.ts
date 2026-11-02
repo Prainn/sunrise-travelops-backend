@@ -16,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ApiCommonErrorResponses } from '../common/swagger/api-response.decorator';
 import {
+  ConvertDirectLedgerDto,
   DirectLedgerQueryDto,
   DirectFilterOptionsQueryDto,
   CreateDirectLedgerDto,
@@ -72,6 +73,16 @@ export class DirectLedgersController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.service.receivingGroups(query, actor);
+  }
+  @Post(':id/convert')
+  @HttpCode(200)
+  @Permissions('ledger:direct:update', 'tour:create')
+  convert(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: ConvertDirectLedgerDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.convert(id, input, actor);
   }
   @Post(':id/review')
   @HttpCode(200)

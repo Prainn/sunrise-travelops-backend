@@ -2,8 +2,8 @@ import { AuthService } from './auth.service';
 import { MenuPermissionsService } from '../roles/menu-permissions.service';
 import { allowedMenuKeys } from '../roles/menu-definitions';
 
-describe('read-only tour navigation', () => {
-  it('keeps tour reads and ratings available when duty changes without granting tour writes', async () => {
+describe('coordinator tour navigation', () => {
+  it('keeps tour reads and ratings available when duty changes with create/update but no cancellation', async () => {
     const identity = {
       id: 'identity',
       scope: 'linxi',
@@ -44,9 +44,10 @@ describe('read-only tour navigation', () => {
       expect(await visible()).toEqual(['guide-ratings', 'tours']);
       const permissions = (await current()).permissions;
       expect(permissions).toContain('tour:list');
-      for (const action of ['create', 'update', 'cancel']) {
-        expect(permissions).not.toContain(`tour:${action}`);
-      }
+      expect(permissions).toEqual(
+        expect.arrayContaining(['tour:create', 'tour:update']),
+      );
+      expect(permissions).not.toContain('tour:cancel');
     }
     const latest = await current();
     expect(latest.menuKeys).toEqual(snapshot);

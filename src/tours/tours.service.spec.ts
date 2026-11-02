@@ -365,28 +365,24 @@ describe('tour and independent rating access', () => {
   });
 
   it.each(['shengxu', 'linxi', 'website'] as const)(
-    '%s coordinators cannot create either manual or linked tours',
+    '%s coordinators can create own manual tours for every duty',
     async (scope) => {
       for (const duty of ['reception', 'operation', 'both', null] as const) {
         const { service, query } = setup();
+        const values = input();
+        values.manualSource!.businessUnit = scope;
+        if (scope !== 'shengxu') delete values.manualSource!.agencyId;
         const current = identity(scope, duty);
-        for (const sourceModule of ['manual', 'standard', 'website'] as const) {
-          await expect(
-            service.create({ ...input(), sourceModule }, current),
-          ).rejects.toMatchObject({ status: 403 });
-          if (sourceModule !== 'manual') {
-            await expect(
-              service.sources({ sourceModule }, current),
-            ).rejects.toMatchObject({ status: 403 });
-          }
-        }
-        expect(query).not.toHaveBeenCalled();
+        await service.create(values, current);
+        expect(
+          query.mock.calls.some(([sql]) => sql.includes('INSERT INTO tours')),
+        ).toBe(true);
       }
     },
   );
 
   it.each(['shengxu', 'linxi', 'website'] as const)(
-    '%s coordinators can read related tours but cannot update or cancel for any duty',
+    '%s coordinators can edit related tours but cannot cancel for any duty',
     async (scope) => {
       for (const duty of ['reception', 'operation', 'both', null] as const) {
         const { service, query } = setup({
@@ -399,6 +395,8 @@ describe('tour and independent rating access', () => {
         ).resolves.toMatchObject({ total: 1 });
         await expect(service.get(other, current)).resolves.toMatchObject({
           id: other,
+          canEdit: true,
+          canCancel: false,
         });
         const [sql, params] = query.mock.calls.at(-1)!;
         expect(params).toEqual([other, scope, actor]);
@@ -406,20 +404,22 @@ describe('tour and independent rating access', () => {
         expect(sql).toContain(
           '(t.collect_coordinator_id = $3 OR t.operator_id = $3 OR t.creator_id = $3)',
         );
-        query.mockClear();
+        const edit = updateInput();
+        edit.manualSource!.businessUnit = scope;
+        if (scope !== 'shengxu') delete edit.manualSource!.agencyId;
+        await service.update(other, edit, current);
+        expect(
+          query.mock.calls.some(([sql]) => sql.includes('UPDATE tours SET')),
+        ).toBe(true);
         await expect(
-          service.update(other, updateInput(), current),
+          service.cancel(other, { version: 1, reason: '取消' }, current),
         ).rejects.toMatchObject({ status: 403 });
-        await expect(
-          service.cancel(other, { version: 1, reason: '' }, current),
-        ).rejects.toMatchObject({ status: 403 });
-        expect(query).not.toHaveBeenCalled();
       }
     },
   );
 
   it.each(['shengxu', 'linxi', 'website'] as const)(
-    '%s read-only tour access preserves own rating writes',
+    '%s coordinator tour access preserves own rating writes',
     async (scope) => {
       const { service, query } = setup({
         ...savedTour(),

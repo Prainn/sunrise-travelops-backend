@@ -258,6 +258,7 @@ export class SystemBusinessDictionariesService {
         'SELECT country_item_id FROM inquiries',
         'SELECT country_item_id FROM website_inquiries',
         'SELECT country_item_id FROM tours',
+        'SELECT country_item_id FROM direct_ledgers',
       ],
       'city-airport': [
         'SELECT departure_airport_id AS id FROM resource_flights',
