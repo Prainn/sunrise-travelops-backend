@@ -5,6 +5,7 @@ import {
   Get,
   Header,
   Param,
+  Query,
   Post,
   Req,
   Res,
@@ -15,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
+import { WhatsappListQueryDto } from './whatsapp-list.dto';
 import { WhatsappRegisterDto } from './whatsapp-register.dto';
 import { WhatsappRegistryService } from './whatsapp-registry.service';
 
@@ -39,12 +41,25 @@ export class LynxController {
   }
 
   @Public()
+  @Get('private/whatsapp')
+  @Header('Cache-Control', 'no-store')
+  list(@Query() query: WhatsappListQueryDto, @Req() request: Request) {
+    this.authorizeResolver(request);
+    return this.registry.list(query);
+  }
+
+  @Public()
   @Get('private/whatsapp/:whatsapp_reference')
   @Header('Cache-Control', 'no-store')
   async resolve(
     @Param('whatsapp_reference') reference: string,
     @Req() request: Request,
   ): Promise<Record<string, string>> {
+    this.authorizeResolver(request);
+    return this.registry.resolve(reference);
+  }
+
+  private authorizeResolver(request: Request): void {
     const authorization = request.headers.authorization;
     if (!authorization) throw new UnauthorizedException();
     if (!authorization.startsWith('Bearer ')) throw new ForbiddenException();
@@ -58,6 +73,5 @@ export class LynxController {
     ) {
       throw new UnauthorizedException();
     }
-    return this.registry.resolve(reference);
   }
 }

@@ -148,12 +148,18 @@ export class WebsiteVisitsService {
     );
     const all =
       user.scope === 'headquarters' || user.roles.includes('BUSINESS_MANAGER');
+    const confirmations = await this.db.query<{ visitId: string }[]>(
+      'SELECT visit_id AS "visitId" FROM website_visit_confirmations WHERE visit_id=ANY($1::uuid[])',
+      [result.list.map((row) => row.id)],
+    );
+    const confirmedIds = new Set(confirmations.map((entry) => entry.visitId));
     return {
       ...result,
       list: result.list.map((row) => {
         const link = linked.find((x) => x.visitId === row.id);
         return {
           ...row,
+          confirmed: confirmedIds.has(row.id),
           converted: Boolean(link),
           inquiry:
             link &&
@@ -164,6 +170,15 @@ export class WebsiteVisitsService {
         };
       }),
     };
+  }
+  async confirm(id: string, user: AuthenticatedUser) {
+    this.access(user);
+    await this.row(id);
+    await this.db.query(
+      'INSERT INTO website_visit_confirmations(visit_id) VALUES($1) ON CONFLICT (visit_id) DO NOTHING',
+      [id],
+    );
+    return { confirmed: true };
   }
   async draft(id: string, user: AuthenticatedUser) {
     this.creator(user);

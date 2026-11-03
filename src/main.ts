@@ -22,6 +22,7 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix('api', {
     exclude: [
       { path: 'v1/whatsapp/register', method: RequestMethod.POST },
+      { path: 'v1/private/whatsapp', method: RequestMethod.GET },
       {
         path: 'v1/private/whatsapp/:whatsapp_reference',
         method: RequestMethod.GET,

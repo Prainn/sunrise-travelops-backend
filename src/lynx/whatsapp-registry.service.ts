@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LynxVisit } from './lynx-visit.entity';
+import { WhatsappListQueryDto } from './whatsapp-list.dto';
 import { WhatsappRegisterDto } from './whatsapp-register.dto';
 
 const EXPIRY_MS = 180 * 24 * 60 * 60 * 1000;
@@ -88,6 +89,31 @@ export class WhatsappRegistryService {
     }
   }
 
+  async list(query: WhatsappListQueryDto) {
+    const { page, pageSize } = query;
+    return this.visits.manager.transaction(
+      'REPEATABLE READ',
+      async (manager) => {
+        const [records, total] = await manager
+          .getRepository(LynxVisit)
+          .findAndCount({
+            order: { createdAtUtc: 'DESC', id: 'DESC' },
+            skip: (page - 1) * pageSize,
+            take: pageSize,
+          });
+        return {
+          list: records.map((record) => ({
+            id: record.id,
+            ...this.serialize(record),
+          })),
+          total,
+          page,
+          pageSize,
+        };
+      },
+    );
+  }
+
   async resolve(reference: string): Promise<Record<string, string>> {
     if (!reference || reference.length > 128) throw new NotFoundException();
     const record = await this.visits.findOneBy({
@@ -96,6 +122,10 @@ export class WhatsappRegistryService {
     if (!record || record.expiresAtUtc.getTime() <= Date.now()) {
       throw new NotFoundException();
     }
+    return this.serialize(record);
+  }
+
+  private serialize(record: LynxVisit): Record<string, string> {
     return {
       ...canonicalEvidence(record),
       created_at_utc: record.createdAtUtc.toISOString(),

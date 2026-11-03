@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Header,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -45,6 +46,15 @@ export class WebsiteVisitsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.draft(id, user);
+  }
+  @Post(':id/confirm')
+  @HttpCode(200)
+  @Permissions('website:visit:list')
+  confirm(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.confirm(id, user);
   }
   @Post(':id/inquiry')
   @Permissions('website:visit:list', 'website:inquiry:create')
