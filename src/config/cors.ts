@@ -16,7 +16,10 @@ export function createCorsOptions(
       path === '/api/health' &&
       ['GET', 'OPTIONS'].includes(request.method) &&
       LYNX_ORIGINS.includes(request.get('origin') ?? '');
-    if (path.startsWith('/v1/private/whatsapp/')) {
+    if (
+      path === '/v1/private/whatsapp' ||
+      path.startsWith('/v1/private/whatsapp/')
+    ) {
       callback(null, { origin: false });
       return;
     }

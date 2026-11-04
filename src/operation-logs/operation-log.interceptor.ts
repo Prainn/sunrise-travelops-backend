@@ -89,6 +89,8 @@ function actionFor(
       : null;
   }
   if (controller === 'WebsiteVisitsController') {
+    if (handler === 'confirm')
+      return { category: 'website-visit', label: '确认独立站访问记录' };
     if (handler === 'create')
       return {
         category: 'website-visit',

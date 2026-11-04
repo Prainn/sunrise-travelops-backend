@@ -36,9 +36,12 @@ jobs:
           node-version: '24.22.1'
           cache: pnpm
       - run: python3 scripts/test_deploy.py
+      - run: python3 scripts/test_prepare_release.py
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec jest --runInBand
       - run: pnpm verify:release
+      - name: Compiled migration manifest matches release build
+        run: node scripts/test-migration-manifest.mjs
       - name: Empty database migrations and repeat execution
         run: |
           node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all

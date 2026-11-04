@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Local release operations; called under the host build lock by trusted Actions."""
 from datetime import datetime, timezone
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -138,6 +139,32 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+@contextmanager
+def timed(stage):
+    started = time.monotonic()
+    outcome = 'passed'
+    try:
+        yield
+    except MigrationRequired:
+        outcome = 'waiting_migration'
+        raise
+    except BaseException:
+        outcome = 'failed'
+        raise
+    finally:
+        seconds = round(time.monotonic() - started, 3)
+        # Telemetry failure must never turn a committed migration or a healthy
+        # activation into a deployment failure, nor hide the original exception.
+        try:
+            print(json.dumps({'stage': stage, 'seconds': seconds, 'outcome': outcome}), file=sys.stderr)
+            summary = os.environ.get('GITHUB_STEP_SUMMARY')
+            if summary:
+                with open(summary, 'a') as file:
+                    file.write(f'\n- {stage}: {seconds:.3f}s ({outcome})\n')
+        except OSError:
+            pass
+
+
 def read_state():
     path = STATE / 'state.json'
     if not path.exists() and ENVIRONMENT == 'prod':
@@ -201,6 +228,17 @@ def check_schema(target, current, database, compatible, allow_migrations=False):
         raise ValueError('Pending migrations require manual backward-compatibility confirmation: ' +
                          ', '.join(sorted(pending)))
     return sorted(pending)
+
+
+def review_migrations(target):
+    state = read_state()
+    pending = check_schema(target, state['migration_history'], applied(),
+                           state['compatible_migrations'], allow_migrations=True)
+    reviewed = set(filter(None, os.environ.get('REVIEWED_MIGRATIONS', '').split(',')))
+    if set(pending) != reviewed:
+        raise MigrationRequired('Review compatibility and rerun with these exact pending migrations: ' +
+                                (','.join(pending) or '(none; clear reviewed_migrations)'))
+    return pending
 
 
 def set_image(image):
@@ -301,7 +339,7 @@ def cleanup_after_success():
         print('::warning::Backend release cleanup failed: ' + str(error), file=sys.stderr)
 
 
-def publish(release_id, image, allow_migrations=False):
+def publish(release_id, image, allow_migrations=False, expected_pending=None):
     if not ID.fullmatch(release_id):
         raise ValueError('Invalid release ID')
     record_path = STATE / 'releases' / (release_id + '.json')
@@ -316,15 +354,18 @@ def publish(release_id, image, allow_migrations=False):
     # The current image can be an older rollback target; preserve the complete applied history separately.
     pending = check_schema(target, state['migration_history'], database,
                            state['compatible_migrations'], allow_migrations)
+    if expected_pending is not None and set(pending) != set(expected_pending):
+        raise MigrationRequired('Pending migrations changed before execution; recheck the exact reviewed set')
     if pending:
         environment = os.environ.copy()
         environment['API_IMAGE'] = image
         migration_container = 'sunrise-api-migrate-' + release_id
         try:
-            run(COMPOSE + ['run', '--rm', '--no-deps', '--name', migration_container,
-                           'migrate', 'node', 'node_modules/typeorm/cli.js',
-                           'migration:run', '-d', 'dist/database/data-source.js',
-                           '--transaction', 'all'], env=environment)
+            with timed('Transactional migration'):
+                run(COMPOSE + ['run', '--rm', '--no-deps', '--name', migration_container,
+                               'migrate', 'node', 'node_modules/typeorm/cli.js',
+                               'migration:run', '-d', 'dist/database/data-source.js',
+                               '--transaction', 'all'], env=environment)
         except Exception:
             # Killing a timed-out CLI alone would leave its migration container running.
             subprocess.run(['docker', 'rm', '-f', migration_container], capture_output=True, timeout=30)
@@ -348,7 +389,8 @@ def publish(release_id, image, allow_migrations=False):
               'previous': state['current'], 'status': 'pending'}
     save(record_path, record)
     try:
-        activate_or_restore(image, rollback_image)
+        with timed('Activation, health and recovery'):
+            activate_or_restore(image, rollback_image)
     except Exception:
         record['status'] = 'failed'
         save(record_path, record)
@@ -433,15 +475,9 @@ def main():
         if info['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
             raise ValueError('Image does not match requested commit')
         target = migrations(info['Id'])
-        state = read_state()
-        database = applied()
-        # Schema corruption and incompatible rollback remain real failures, even if migrations are pending.
-        pending = set(check_schema(target, state['migration_history'], database,
-                                   state['compatible_migrations'], allow_migrations=True))
-        reviewed = set(filter(None, os.environ.get('REVIEWED_MIGRATIONS', '').split(',')))
-        if pending and pending != reviewed:
-            raise MigrationRequired('Review compatibility and rerun with these exact pending migrations: ' + ','.join(sorted(pending)))
-        result = publish(release_id, info['Id'], bool(pending))
+        with timed('Final migration review'):
+            pending = review_migrations(target)
+        result = publish(release_id, info['Id'], bool(pending), expected_pending=pending)
     else:
         raise ValueError('Expected preflight, status, bootstrap, deploy <release> <image>, or rollback <release|previous>')
     print(json.dumps(result))

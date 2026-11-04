@@ -16,6 +16,22 @@ spec.loader.exec_module(release)
 
 
 class ReleaseSafety(unittest.TestCase):
+    def setUp(self):
+        # Simulated failures must not appear as real release-stage summaries.
+        environment = patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': ''})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_timing_output_failure_cannot_change_operation_result(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(Path(temporary) / 'missing' / 'summary')}), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with release.timed('Activation, health and recovery'):
+                    pass
+                with self.assertRaisesRegex(RuntimeError, 'original failure'):
+                    with release.timed('Transactional migration'):
+                        raise RuntimeError('original failure')
+
     def test_preflight_rejects_inaccessible_config_before_build(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -73,6 +89,27 @@ class ReleaseSafety(unittest.TestCase):
         state = {'migration_history': {'A': '1'}, 'compatible_migrations': []}
         code, _, calls = self.candidate_result(state, {'A': '1', 'B': '2'}, ['A'], 'B')
         self.assertEqual((code, calls), (0, 1))
+
+    def test_stale_review_is_not_accepted_after_database_advanced(self):
+        state = {'migration_history': {'A': '1'}, 'compatible_migrations': []}
+        code, diagnostic, calls = self.candidate_result(state, {'A': '1'}, ['A'], 'B')
+        self.assertEqual((code, calls), (78, 0))
+        self.assertIn('clear reviewed_migrations', diagnostic)
+
+    def test_database_drift_between_review_and_publish_cannot_migrate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'releases').mkdir()
+            current = {'current': 'old', 'previous': None, 'migration_history': {'A': '1'}, 'compatible_migrations': []}
+            with patch.object(release, 'STATE', state), patch.object(release, 'read_state', return_value=current), \
+                 patch.object(release, 'release', return_value={'image': 'old-image', 'migrations': {'A': '1'}}), \
+                 patch.object(release, 'migrations', return_value={'A': '1', 'B': '2', 'C': '3'}), \
+                 patch.object(release, 'applied', return_value=['A']), patch.object(release, 'run') as run, \
+                 patch.object(release, 'activate_or_restore') as activate:
+                with self.assertRaisesRegex(release.MigrationRequired, 'changed before execution'):
+                    release.publish('a' * 40 + '-1-1', 'new-image', True, expected_pending=['B'])
+                run.assert_not_called()
+                activate.assert_not_called()
 
     def test_reviewed_destructive_migration_still_waits_without_publishing(self):
         name = next(iter(release.BREAKING_MIGRATIONS))

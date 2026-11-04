@@ -7,6 +7,15 @@ RUN --mount=type=cache,id=sunrise-backend-pnpm,target=/root/.local/share/pnpm/st
 FROM dependencies AS production-dependencies
 RUN pnpm prune --prod
 
+FROM dependencies AS migration-metadata
+COPY tsconfig.json ./
+COPY src/migrations ./src/migrations
+COPY scripts/check-migration-names.mjs ./scripts/check-migration-names.mjs
+RUN node scripts/check-migration-names.mjs --manifest > /migration-manifest.json
+
+FROM scratch AS migration-manifest
+COPY --from=migration-metadata /migration-manifest.json /migration-manifest.json
+
 FROM dependencies AS build
 COPY nest-cli.json tsconfig.json tsconfig.build.json eslint.config.mjs .prettierrc ./
 COPY src ./src

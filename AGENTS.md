@@ -1,6 +1,6 @@
 # Sunrise TravelOps Backend
 
-先读 [workspace AGENTS](../AGENTS.md)；详细模块、数据流和数据库边界见 [架构 §4–8、§12](../docs/architecture/overview.md)。本文件保留后端开发与交付门禁，操作步骤见 deployment。
+遵守[根导航](../AGENTS.md)；已有内容不重复读。下面是按任务入口，不要求读取全部链接。
 
 ## Stack / Module Architecture
 
@@ -22,69 +22,20 @@
 
 不要根据业务名猜测模块目录。
 
-## Backend Change Workflow
+## 任务路由
 
-修改 endpoint 检查 Controller → DTO → Service → Entity/Repository 或结构化 SQL → migration（schema 变化时）→ Swagger → frontend caller；检查影响，不机械修改每一层。
+| 任务 | 必读范围 |
+|---|---|
+| 接口、DTO、Service 或调用链修改 | [开发规范](docs/agent-guides/development.md)的 Backend Change Workflow、API Contract、Documentation + 根 API 对应章节及实际消费者 |
+| schema、持久化 JSON、权限隔离、冻结/金额或事务 | [开发规范](docs/agent-guides/development.md)的 Database / Business Invariants + 受影响源码/迁移/需求；不因此全量读索引 |
+| 验证或测试 | [验证规范](docs/agent-guides/release.md#testing--verification) + [共享验证边界](../docs/agent-guides/workflow.md#validation) |
+| 获授权提交、发布、回滚或业务库操作 | [发布规范](docs/agent-guides/release.md)命中章节；部署再读其中目标环境资料与适用发布 Skill |
+| 模块关系仍不清楚 | [架构 §4–8、§12](../docs/architecture/overview.md)中的相关章节；明确调用链的小修改不预读 |
 
-调用链明确的接口改动从相关合同与这条链开始；跨端本身不触发完整 AOCI。只有发现共享授权、隔离、冻结/计算、事务或模块边界影响时，才按根任务分级扩大阅读。
+## 不可绕过的门禁
 
-修改 DTO、实体、服务调用或持久化 JSON 时，同步检查 contract、调用者、fixture、repository mock、seed、历史记录及 migration。类型断言不能证明运行时结构正确。Swagger 从代码生成，不代替根 API 合同。
-
-## API Contract
-
-详见 [共享 API](../docs/api/Sunrise%20TravelOps%20后端说明.md)。
-
-- `/api`；普通成功由 `ResponseInterceptor` 包装 `{ code: "SUCCESS", message: "success", data }`，不在 Service/Controller 再包一层。204 无 body，文件和 health 成功响应有显式例外。
-- `ApiExceptionFilter` 输出 `{ code, message, data: null, details, timestamp, path, requestId? }`；业务拒绝用 `BusinessException` 和现有 ErrorCode，保留真实 HTTP 4xx/5xx，不以 200 代替错误。
-- 单资源不存在 404，空列表 200；分页 `{ list, total, page, pageSize }`。范围外业务记录和无权限访问的状态码按共享合同及所属业务合同核对，不能统一改写。
-- GET/PUT 通常 200，未覆盖的 POST 默认 201；登录/刷新显式 200，退出等显式 204。新增动作核对 Controller 实际状态及前端消费者。
-- 全局 ValidationPipe 负责白名单、拒绝多余字段及转换；DTO 嵌套校验不能替代 Service 的资源归属、状态和版本检查。
-
-## Database / Business Invariants
-
-- `synchronize:false`；应用启动不自动 migration。追加迁移，不修改已部署文件；新迁移冻结自己的转换定义，不导入会变动的运行时代码。
-- Entity 与迁移保持映射一致，但 `structured-itinerary.ts` / `structured-quotes.ts` 的 SQL 明细表并非都有 Entity；完整 schema 看 migration，不能直接用 ORM 差异删除已有约束。
-- 持久化变更检查旧数据及恢复路径，尤其 DROP、rename、type change 和 JSONB 转换；不直接修改生产 schema。日常业务不恢复 data JSONB 双写；冻结存档和审计 JSON 按现有设计保留。
-- 金额沿用 numeric 与现有分币舍入工具、HTTP 两位小数字符串；迁移不得截断历史精度或用今天资源价伪造旧参考价。当前仅人民币，无汇率模型。
-- `effectivePermissions` 以当前身份决定权限，不叠加其他身份；公共资源访问仍须校验动作权限、状态及引用有效性；询盘、行程、成团和独立站专属配置的访问范围按对应需求及合同校验，不能以公共资源共享替代业务归属检查。
-- 每行程一份 V1 冻结报价，quoted 不可普通编辑，修改复制独立 Draft。冻结价格/数量/客户及计算结果不追随主数据更新；读取历史报价不得重新计算。
-- 稳定明细 ID、父版本、业务保存、调价历史和日志保持事务一致；试算/取消/失败不记成功历史。内部成本、利润和调价原因不进入客户 PDF/Word。
-
-## Testing / Verification
-
-- 开发迭代运行相关检查；准备提交或发布时，必须运行 `pnpm verify:release`：迁移命名检查、lint、build（现有单元测试、e2e和数据库集成脚本不包含在此入口，开发时按实际影响另行运行），与 CI 和 Docker build 使用同一个入口。不得用定向测试或 TypeScript 编译代替完整发布门禁。
-- 用户要求部署到生产时，发布前必须针对待发布的后端版本运行 `pnpm test:isolation`，通过后再执行生产发布；不能用其他版本或历史通过结果替代。使用一次性隔离 PostgreSQL，不连接业务库；失败或无法执行时报告原因并暂停生产发布。操作见[业务隔离自测](../docs/deployment/业务隔离自测.md)。这是 Agent 发布前门禁，不并入开发部署、`verify:release`、Docker build 或部署 workflow。
-- 修改 migration 时，除 CI 空库与重复执行，还必须用隔离数据库里的代表性旧结构/旧数据验证升级、约束及关键业务读取；不得对业务库直接试验。没有可用隔离环境时明确报告，不跳过后声称完成。
-
-开发可按影响使用 `pnpm exec eslint <文件>`、`pnpm exec tsc --noEmit`、`pnpm exec jest --runInBand <测试文件>`；没有独立 type-check script。`pnpm build` 只构建，不能代替 verify:release。CI 另在 PostgreSQL 空库执行完整 migration 两次。
-
-## Deployment / Data Safety
-
-- 发布前读取目标环境 pending migrations 与当前版本，列出数据影响、兼容性及恢复方式。本地已执行迁移不代表服务器已执行。
-- DROP、删除数据、不可逆 JSON 转换等破坏性迁移不得标记 `migrations_compatible=true`；必须先获得停写/备份/迁移/恢复方案授权。普通应用回滚不等于数据库回滚。
-- 不默认清库。生产业务数据清理须遵守根 AGENTS 的具体记录清单单独确认规则，不能并入发布或清理旧数据的笼统授权。定向删除前确认环境、唯一 ID 和业务编号，备份后执行，删除后验证目标及关联记录；备份与凭据不能进入 Git。
-- 环境变量、Secrets、DNS、TLS、Nginx/Compose、根权限部署脚本的变化需单独检查安装方式和验收，不能假设随业务镜像自动更新。
-- 触及历史兼容标记时先核实其依据；本环境曾把破坏性规划迁移误登记为兼容，修正服务器状态并验证数据库前，不允许回滚到该结构变更前的应用。
-
-## Release Acceptance
-
-- 生产发布按 `deploy-production` Skill 和根 AGENTS 的 CRF 规则执行：发布前核对本次新旧需求变更，发布核验后回填实际交付条目的上线时间。小 UI 调整和按原需求修复的 bug 不登记 CRF。
-- 获授权 push 后，以 repo、branch、准确 SHA 找到对应 Actions run，用 `gh run watch --exit-status` 或 GitHub API 等待 verify/deploy 最终结果；不能 push 完就结束。
-- 失败、取消、等待人工操作均不算成功。及时报告阶段、运行链接、错误摘要及当前仍在线的版本。
-- 成功后核对服务器实际发布 ID/镜像、`/api/health`、前端入口，以及本次变动的关键业务路径（特别是旧询盘/行程读取）。health 为 up 只表示运行探测正常，不证明最新发布成功或业务正确。
-- 优先直接查 Actions，不以邮箱是否收到通知判断成功；Gmail 仅辅助。任务结束时报告已部署/尚未部署/部署失败的真实状态。
-- 状态页和告警需实际验证异常、恢复、数据过期。未配置通知渠道或未投递验证，不得称“监控已上线”。AGENTS.md 是执行规则，不是后台监控服务。
-
-详细步骤：[ECS 环境](../docs/deployment/ECS开发环境部署.md)、[后端发布/回滚](../docs/deployment/后端自动部署.md)、[独立状态页](../docs/deployment/独立状态页.md)；执行入口为 `.github/workflows/ci.yml`、`.github/workflows/deploy.yml`、`scripts/deploy.py`、`ops`。
-
-## Documentation
-
-- 新增、更新或移除 HTTP 接口时，必须在同一任务内同步更新根 `docs/api/Sunrise TravelOps 后端说明.md` 的对应主题章节；接口与文档未同步，不得视为完成。API 合同集中维护在这一份文档中，未经用户明确要求，不新增按模块或服务拆分的 API 合同文件。
-- 同步内容按实际影响覆盖方法、完整路径及服务地址、认证与权限/数据范围、路径/查询/请求体字段及约束、响应结构、HTTP 状态与错误码，以及分页、版本、幂等和文件响应等约定。仅更新 Swagger、DTO、README 或部署记录不能替代 API 合同。
-- 收尾按受影响模块实际注册的路由逐项核对文档，包含新增及保留的接口，避免只记录本次新增动作而漏掉已有列表/详情等配套接口；公开接口、非 `/api` 前缀和未纳入 Swagger 的接口同样必须记录。移除接口须同步清理当前合同及失效引用，不保留为仍可用接口。
-
-其他文档按根规则同步；涉及身份、结构化存储、冻结/调价约束时核对 [P0 的组织、调价与数据完整性章节](../docs/requirements/Sunrise%20TravelOps%20P0需求说明.md#organization)。环境发布结果留在部署/验证记录，不把动态在线 SHA、迁移执行状态或命令清单写入本文件。
-
-## Branch and Delivery
-
-日常修改在 dev；dev push 发布开发环境，main 必须 PR 且检查通过后手动发布 prod。公开仓库的 PR 检查不得进入 ECS self-hosted runner。根部署命令只用于 dev。基础设施切换完成前以 deployment 的实际记录为准，不能因配置已提交就宣称 runner 或分支保护已生效。
+- 后端提交或发布前必须通过完整 `pnpm verify:release`，定向检查不能替代。
+- 任何生产发布前，待发布后端版本必须通过 `pnpm test:isolation`；使用隔离 PostgreSQL，不连接业务库。操作见[业务隔离自测](../docs/deployment/业务隔离自测.md)。
+- 修改权限或任何生产发布前，按[共享门禁](../docs/agent-guides/workflow.md#权限与生产门禁)运行根 `node scripts/check-role-permissions.cjs`。
+- `synchronize:false`；追加迁移，不修改已部署迁移；运行时 Entity 不代替完整 schema 链。迁移修改的隔离升级验证见验证规范。
+- API 变更同步唯一根合同及前端实际消费者；业务归属/动作权限在服务端验证。纯局部改动不机械检查无关模块。
