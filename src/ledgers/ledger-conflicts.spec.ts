@@ -36,7 +36,7 @@ function fixture(unit: 'shengxu' | 'linxi' | 'website') {
     countryItemId: null,
     countryCode: null,
     countryName: null,
-    tours: [],
+    tours: [] as Array<{ id: string; tourNo: string; status: string }>,
     businessUnit: unit,
     creatorId: actor.id,
     operatorId: actor.id,
@@ -65,13 +65,16 @@ function fixture(unit: 'shengxu' | 'linxi' | 'website') {
     transaction: (work: (manager: EntityManager) => Promise<unknown>) =>
       work(manager),
   } as unknown as DataSource;
-  const directInput = Object.assign(new UpdateDirectLedgerDto(), {
-    receivedDate: '2026-10-20',
-    source: 'Customer',
-    receivingGroupId: 'group',
-    operatorId: actor.id,
-    version: row.version,
-  });
+  const directInput: UpdateDirectLedgerDto = Object.assign(
+    new UpdateDirectLedgerDto(),
+    {
+      receivedDate: '2026-10-20',
+      source: 'Customer',
+      receivingGroupId: 'group',
+      operatorId: actor.id,
+      version: row.version,
+    },
+  );
   const shengxuInput = Object.assign(new UpdateShengxuLedgerDto(), {
     recordDate: '2026-10-20',
     agencyId: row.agencyId,
@@ -277,6 +280,75 @@ describe('ledger conflict API codes', () => {
       ErrorCode.DIRECT_LEDGER_NOT_PENDING_CONFIRMATION,
     );
   });
+
+  describe.each(['linxi', 'website'] as const)(
+    '%s correction of an unlinked converted ledger',
+    (unit) => {
+      it('saves unconverted without requiring permission to create tours', async () => {
+        const f = fixture(unit);
+        f.row.orderStatus = 'converted';
+        if (unit === 'website') f.directInput.receivingGroupId = null;
+        const saved = { ...f.row, orderStatus: 'unconverted', version: 3 };
+        f.query
+          .mockResolvedValueOnce([f.row])
+          .mockResolvedValueOnce([[saved], 1]);
+        const result = await f.direct.update(f.row.id, f.directInput, f.actor);
+        expect(result).toMatchObject({
+          orderStatus: 'unconverted',
+          version: 3,
+          capabilities: { canOperate: false, canDelete: true },
+        });
+        expect(f.query).toHaveBeenNthCalledWith(
+          1,
+          expect.stringContaining('FOR UPDATE'),
+          [f.row.id, unit],
+        );
+        expect(f.query).toHaveBeenLastCalledWith(
+          expect.stringContaining('UPDATE direct_ledgers SET'),
+          expect.arrayContaining(['unconverted', f.actor.id]),
+        );
+      });
+
+      it.each(['active', 'cancelled'])(
+        'rejects rollback with an associated %s tour',
+        async (status) => {
+          const f = fixture(unit);
+          f.row.orderStatus = 'converted';
+          f.row.tours = [{ id: 'tour', tourNo: 'TOUR-1', status }];
+          await expect(
+            f.direct.update(f.row.id, f.directInput, f.actor),
+          ).rejects.toMatchObject({
+            code: ErrorCode.VALIDATION_ERROR,
+            message: '台账已关联成团记录（含已撤销），不能改为未成团',
+          });
+          expect(f.query).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      it('still requires the conversion action to become converted', async () => {
+        const f = fixture(unit);
+        f.directInput.orderStatus = 'converted';
+        await expect(
+          f.direct.update(f.row.id, f.directInput, f.actor),
+        ).rejects.toMatchObject({
+          code: ErrorCode.VALIDATION_ERROR,
+          message: '请使用成团操作修改订单状态',
+        });
+        expect(f.query).toHaveBeenCalledTimes(1);
+      });
+
+      it('rejects correction by an unrelated coordinator', async () => {
+        const f = fixture(unit);
+        f.row.orderStatus = 'converted';
+        f.actor.roles = ['COORDINATOR'];
+        f.actor.id = 'unrelated';
+        await expect(
+          f.direct.update(f.row.id, f.directInput, f.actor),
+        ).rejects.toMatchObject({ code: ErrorCode.AUTH_FORBIDDEN });
+        expect(f.query).toHaveBeenCalledTimes(1);
+      });
+    },
+  );
 
   it('rejects status rollback even after the operated mark was cancelled', async () => {
     const f = fixture('linxi');

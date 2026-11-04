@@ -489,8 +489,12 @@ export class DirectLedgersService {
           ErrorCode.DIRECT_LEDGER_OPERATED_READ_ONLY,
           '已操作台账不能修改普通字段',
         );
-      if (row.orderStatus !== input.orderStatus)
-        invalid('请使用成团操作修改订单状态');
+      if (row.orderStatus !== input.orderStatus) {
+        if (input.orderStatus === 'converted')
+          invalid('请使用成团操作修改订单状态');
+        if (row.tours.length > 0)
+          invalid('台账已关联成团记录（含已撤销），不能改为未成团');
+      }
       const data = {
         ...(await this.values(manager, input, row.businessUnit, row)),
         updated_by: actor.id,
