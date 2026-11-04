@@ -234,6 +234,7 @@ with tempfile.TemporaryFile() as lock:
                 self.assertEqual(run.call_args.kwargs['pass_fds'], (9,))
                 self.assertEqual(run.call_args.args[0][-3:], ['deploy', SHA + '-100-1', IMAGE])
 
+    @patch.object(candidate.deploy, 'ENVIRONMENT', 'dev')
     def test_input_identity_covers_source_toolchain_runtime_and_environment(self):
         # Exercise real input binding, rather than the orchestration fixture's stub.
         source = Path(__file__).resolve().parent.parent
