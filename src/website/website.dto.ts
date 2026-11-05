@@ -605,7 +605,8 @@ export class WebsiteAttractionDto
   resourceId: string | null;
   @IsIn(['attraction', 'component']) kind: 'attraction' | 'component';
   @IsBoolean() chargeable: boolean;
-  @IsString() @MinLength(1) @MaxLength(100) copyKey: string;
+  @IsString() @MaxLength(20000) descriptionZh: string;
+  @IsString() @MaxLength(20000) descriptionEn: string;
   @IsArray()
   @ArrayMaxSize(12)
   @ArrayUnique()

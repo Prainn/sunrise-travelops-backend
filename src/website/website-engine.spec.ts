@@ -544,7 +544,8 @@ it('generates first and last day attractions without confirmed travel times', ()
     resourceId: null,
     kind: 'attraction',
     chargeable: false,
-    copyKey: 'sight',
+    descriptionZh: '游览景点',
+    descriptionEn: 'Visit the sight',
     recommendedMonths: [],
   });
   config.patterns.push({
@@ -570,6 +571,12 @@ it('generates first and last day attractions without confirmed travel times', ()
   expect(
     generated.days.map((day) => day.items.map((item) => item.attractionId)),
   ).toEqual([[attractionId], [attractionId]]);
+  expect(generated.days[0].items[0].descriptionZh).toBe('游览景点');
+  expect(generated.days[0].items[0].descriptionEn).toBe('Visit the sight');
+  config.attractions[0].descriptionEn = '{hotel}';
+  expect(() => validateWebsiteConfig(config)).toThrow('中英文变量必须一致');
+  config.attractions[0].descriptionZh = '{hotel}';
+  expect(() => validateWebsiteConfig(config)).toThrow('未支持的变量 hotel');
 });
 
 describe('website report plans and mileage', () => {

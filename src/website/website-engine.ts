@@ -40,6 +40,10 @@ export function websiteTransportVehicleLabel(
 
 const TEMPLATE_VARIABLES = new Map<string, readonly string[]>([
   ['arrival-basic', ['city']],
+  ['after-breakfast', ['attraction']],
+  ['later-continue', ['attraction']],
+  ['upon-arrival', ['city', 'attraction']],
+  ['free-time', []],
   ['departure-basic', ['city']],
   ['overnight', ['city']],
   ['guide', ['language']],
@@ -63,6 +67,23 @@ function invalid(message: string): never {
     status: HttpStatus.BAD_REQUEST,
     message,
   });
+}
+
+function validateBilingualCopy(
+  zh: string,
+  en: string,
+  variables: readonly string[],
+  name: string,
+) {
+  const tokens = (text: string) =>
+    [...new Set([...text.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]))]
+      .sort()
+      .join(',');
+  if (tokens(zh) !== tokens(en)) invalid(`文案 ${name} 的中英文变量必须一致`);
+  for (const match of `${zh} ${en}`.matchAll(/\{([^{}]+)\}/g)) {
+    if (!variables.includes(match[1]))
+      invalid(`文案 ${name} 使用了未支持的变量 ${match[1]}`);
+  }
 }
 
 /**
@@ -98,19 +119,15 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
       'city',
       'attraction',
     ];
-    const tokens = (text: string) =>
-      [...new Set([...text.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]))]
-        .sort()
-        .join(',');
-    if (tokens(template.zh) !== tokens(template.en))
-      invalid(`文案 ${template.code} 的中英文变量必须一致`);
-    const matches = `${template.zh} ${template.en}`.matchAll(/\{([^{}]+)\}/g);
-    for (const match of matches) {
-      if (!variables.includes(match[1]))
-        invalid(`文案 ${template.code} 使用了未支持的变量 ${match[1]}`);
-    }
+    validateBilingualCopy(template.zh, template.en, variables, template.code);
   }
   for (const item of config.attractions) {
+    validateBilingualCopy(
+      item.descriptionZh,
+      item.descriptionEn,
+      ['city', 'attraction'],
+      item.nameZh,
+    );
     if (!cities.has(item.cityId)) invalid('景点必须关联已有独立站城市');
     if (item.parentId) {
       const parent = attractions.get(item.parentId);
@@ -210,17 +227,13 @@ export function generateWebsiteDraft(
           (item) => item.id === attractionId && item.status === 'enabled',
         );
         if (!attraction) invalid('单日行程模板引用的景点或组件已停用');
-        const copy = config.templates.find(
-          (item) =>
-            item.code === attraction.copyKey && item.status === 'enabled',
-        );
         items.push({
           id: randomUUID(),
           attractionId,
           nameZh: attraction.nameZh,
           nameEn: attraction.nameEn,
-          descriptionZh: copy?.zh ?? '',
-          descriptionEn: copy?.en ?? '',
+          descriptionZh: attraction.descriptionZh,
+          descriptionEn: attraction.descriptionEn,
           appears: true,
           feeState: attraction.kind === 'component' ? 'EXCLUDED' : 'INCLUDED',
         });
@@ -543,13 +556,7 @@ export function buildWebsitePreview(
         );
       if (
         attraction &&
-        !config.templates.some(
-          (copy) =>
-            copy.code === attraction.copyKey &&
-            copy.status === 'enabled' &&
-            copy.en.trim() &&
-            copy.zh.trim(),
-        )
+        (!attraction.descriptionZh.trim() || !attraction.descriptionEn.trim())
       )
         issue(
           'CONFIG_NOT_READY',
@@ -729,7 +736,7 @@ export function buildWebsitePreview(
               ? interpolate(
                   language === 'en' ? item.descriptionEn : item.descriptionZh,
                   { city: city(attraction.cityId), attraction: name },
-                  attraction.copyKey,
+                  attraction.nameZh,
                 )
               : language === 'en'
                 ? item.descriptionEn

@@ -132,7 +132,8 @@ async function main() {
       resourceId: null,
       kind: 'attraction' as const,
       chargeable: true,
-      copyKey: template.code,
+      descriptionZh: template.zh,
+      descriptionEn: template.en,
       recommendedMonths: [1],
     };
     const records: Record<WebsiteConfigGroup, WebsiteConfigRecord> = {
