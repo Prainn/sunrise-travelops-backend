@@ -561,7 +561,7 @@ export function buildWebsitePreview(
         issue(
           'CONFIG_NOT_READY',
           'ERROR',
-          `请维护并启用 ${item.nameZh} 的标准双语文案`,
+          `请在独立站资源中补齐 ${item.nameZh} 的中英文文案`,
           day.dayNumber,
         );
       if (!item.descriptionEn.trim() || !item.descriptionZh.trim())
