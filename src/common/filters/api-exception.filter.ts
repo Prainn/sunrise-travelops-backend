@@ -51,6 +51,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       typeof request.user?.id === 'string' ? request.user.id : undefined;
     const suppressErrorDetails =
       request.path.startsWith('/v1/') ||
+      /^\/api\/whatsapp(?:\/|$)/.test(request.path) ||
       /^\/api\/resources\/guide-people(?:\/|$)/.test(request.path);
     const source = response.locals.httpLogSource as
       | undefined

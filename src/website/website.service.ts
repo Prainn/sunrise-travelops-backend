@@ -1,3 +1,4 @@
+import { chatManager, chatPermission } from '../whatsapp/whatsapp.policy';
 import {
   normalizeVehiclePrice,
   websiteQuotationOptions,
@@ -1011,9 +1012,10 @@ export class WebsiteService {
     id: string,
     input: WebsiteTransferDto,
     user: AuthenticatedUser,
+    transactionManager?: EntityManager,
   ) {
     this.permission(user, 'website:inquiry:transfer');
-    return this.db.transaction(async (manager) => {
+    const transfer = async (manager: EntityManager) => {
       // Account updates also lock users before checking outstanding inquiries.
       const source = await this.inquiry(id, user, manager);
       const owner = await this.owner(
@@ -1022,6 +1024,27 @@ export class WebsiteService {
         source.businessUnit,
       );
       const old = await this.inquiry(id, user, manager, true);
+      const [chat] = await manager.query<{ state: string; locked: boolean }[]>(
+        `SELECT c.state,(c.assignment_locked_at IS NOT NULL OR EXISTS(SELECT 1 FROM direct_ledgers WHERE website_inquiry_id=$1)
+          OR EXISTS(SELECT 1 FROM tours WHERE source_module='website' AND inquiry_id=$1)) AS locked
+         FROM whatsapp_conversations c WHERE c.inquiry_id=$1 FOR UPDATE OF c`,
+        [id],
+      );
+      if (chat) {
+        chatPermission(user, 'whatsapp:conversation:assign');
+        if (!chatManager(user))
+          fail(
+            'AUTH_FORBIDDEN',
+            '只有主管可改派会话询盘',
+            HttpStatus.FORBIDDEN,
+          );
+        if (chat.locked || chat.state === 'archived')
+          fail(
+            'CONFLICT',
+            '已生成台账、成团或归档的会话不能改派',
+            HttpStatus.CONFLICT,
+          );
+      }
       await this.mutable(old, manager);
       this.version(old.version, input.version);
       if (old.ownerId === owner.id) invalid('新负责人不能与当前负责人相同');
@@ -1029,6 +1052,21 @@ export class WebsiteService {
         'UPDATE website_inquiries SET owner_id=$2,owner=$3,version=version+1,updated_at=now() WHERE id=$1',
         [id, owner.id, owner.name],
       );
+      if (chat && !transactionManager) {
+        await manager.query(
+          `INSERT INTO whatsapp_actions(conversation_id,actor_id,action,details) SELECT id,$2,'assigned',$3::jsonb FROM whatsapp_conversations WHERE inquiry_id=$1`,
+          [
+            id,
+            user.id,
+            JSON.stringify({
+              previousOwnerId: old.ownerId,
+              ownerId: owner.id,
+              reason: input.reason,
+              origin: 'inquiry',
+            }),
+          ],
+        );
+      }
       const updated = await this.inquiry(id, user, manager);
       await this.log(
         manager,
@@ -1043,7 +1081,10 @@ export class WebsiteService {
         },
       );
       return updated;
-    });
+    };
+    return transactionManager
+      ? transfer(transactionManager)
+      : this.db.transaction(transfer);
   }
   async delete(
     id: string,
