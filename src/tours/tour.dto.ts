@@ -230,6 +230,15 @@ export class TourLanguageQueryDto extends PaginationQueryDto {
 }
 
 export class TourGuideQueryDto extends GuideServiceTimeDto {
+  @ApiProperty({
+    description: '按导游姓名包含搜索；去首尾空白，不解析通配符',
+    maxLength: 150,
+  })
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(150)
+  keyword: string;
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
   @IsOptional() @IsUUID() excludeTourId?: string;
@@ -238,6 +247,77 @@ export class TourGuideQueryDto extends GuideServiceTimeDto {
   @ValidateNested({ each: true })
   @Type(() => GuideBusyInputDto)
   otherServices?: GuideBusyInputDto[];
+}
+
+export class TourGuideOptionResponse {
+  @ApiProperty({ format: 'uuid' }) id: string;
+  @ApiProperty() code: string;
+  @ApiProperty() name: string;
+  @ApiProperty({ type: String, nullable: true }) language: string | null;
+}
+
+export class GuideConflictTourResponse {
+  @ApiProperty() tourNo: string;
+  @ApiProperty({ enum: UNITS }) businessUnit: (typeof UNITS)[number];
+  @ApiProperty() serviceStartAt: string;
+  @ApiProperty() serviceEndAt: string;
+}
+
+export class GuideConflictLeaveResponse {
+  @ApiProperty() startDate: string;
+  @ApiProperty() endDate: string;
+}
+
+export class GuideConflictSiblingResponse {
+  @ApiProperty({ description: '请求 otherServices 数组中的零基下标' })
+  otherServiceIndex: number;
+  @ApiProperty() serviceStartAt: string;
+  @ApiProperty() serviceEndAt: string;
+}
+
+export class GuideUnavailableReasonResponse {
+  @ApiProperty({
+    enum: [
+      'GUIDE_DISABLED',
+      'LANGUAGE_MISMATCH',
+      'LEAVE_CONFLICT',
+      'SCHEDULE_CONFLICT',
+      'FORM_CONFLICT',
+    ],
+  })
+  code:
+    | 'GUIDE_DISABLED'
+    | 'LANGUAGE_MISMATCH'
+    | 'LEAVE_CONFLICT'
+    | 'SCHEDULE_CONFLICT'
+    | 'FORM_CONFLICT';
+  @ApiProperty() message: string;
+  @ApiPropertyOptional() expectedLanguage?: string;
+  @ApiPropertyOptional({ type: String, nullable: true }) actualLanguage?:
+    string | null;
+  @ApiPropertyOptional({ type: [GuideConflictLeaveResponse] })
+  leaves?: GuideConflictLeaveResponse[];
+  @ApiPropertyOptional({ type: [GuideConflictTourResponse] })
+  tours?: GuideConflictTourResponse[];
+  @ApiPropertyOptional({ type: [GuideConflictSiblingResponse] })
+  services?: GuideConflictSiblingResponse[];
+}
+
+export class UnavailableTourGuideResponse extends TourGuideOptionResponse {
+  @ApiProperty({ type: [GuideUnavailableReasonResponse] })
+  reasons: GuideUnavailableReasonResponse[];
+}
+
+export class TourGuideSearchResponse {
+  @ApiProperty({ enum: ['available', 'not_found', 'unavailable'] })
+  status: 'available' | 'not_found' | 'unavailable';
+  @ApiProperty({ description: '本次姓名搜索的后端提示，不是响应外层 message' })
+  message: string;
+  @ApiProperty() matchedCount: number;
+  @ApiProperty({ type: [TourGuideOptionResponse] })
+  list: TourGuideOptionResponse[];
+  @ApiProperty({ type: [UnavailableTourGuideResponse] })
+  unavailable: UnavailableTourGuideResponse[];
 }
 
 export class RatingScoreDto {
