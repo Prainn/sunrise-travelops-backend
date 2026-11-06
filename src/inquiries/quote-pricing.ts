@@ -39,6 +39,7 @@ export function missingItineraryPrices(
 
 export function calculateItineraryQuote(
   itinerary: QuotePlan,
+  resourceCities: ReadonlyMap<string, string> = new Map(),
 ): PaxQuoteCalculation {
   if (
     itinerary.quote.chineseTip !== null &&
@@ -72,6 +73,7 @@ export function calculateItineraryQuote(
       return {
         type: item.type,
         detail: {
+          city: resourceCities.get(`${item.type}:${item.resourceId}`) ?? null,
           dayNumber: day.dayNumber,
           resourceName: item.resourceName,
           unitCost,

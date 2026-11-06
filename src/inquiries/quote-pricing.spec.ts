@@ -476,6 +476,7 @@ describe('calculateItineraryQuote', () => {
         {
           dayNumber: 1,
           resourceName: 'Table meal',
+          city: null,
           unitCost,
           quantity: 1,
           totalCost: unitCost,

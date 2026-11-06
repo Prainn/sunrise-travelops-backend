@@ -11,7 +11,9 @@ import { assertNoActiveTour } from '../common/tour-lock';
 import { nextBusinessCode } from '../common/business-code';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { DataSource, EntityManager } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
+import { RestaurantEntity } from '../resources/restaurants/restaurant.entity';
+import { AttractionEntity } from '../resources/attractions/attraction.entity';
 import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -588,8 +590,51 @@ export class InquiriesService {
     const { itinerary } = await this.pair(id, actor);
     return this.itineraryResponse(itinerary);
   }
-  private calculateQuote(data: ItineraryInput) {
-    return calculateItineraryQuote(data);
+  private async calculateQuote(
+    data: ItineraryInput,
+    manager = this.db.manager,
+  ) {
+    const items = data.dailyPlans.flatMap((day) => day.items);
+    const restaurantIds = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.type === 'restaurant' && item.resourceId
+            ? [item.resourceId]
+            : [],
+        ),
+      ),
+    ];
+    const attractionIds = [
+      ...new Set(
+        items.flatMap((item) =>
+          item.type === 'attraction' && item.resourceId
+            ? [item.resourceId]
+            : [],
+        ),
+      ),
+    ];
+    const [restaurants, attractions] = await Promise.all([
+      restaurantIds.length
+        ? manager.find(RestaurantEntity, {
+            where: { id: In(restaurantIds) },
+            select: { id: true, city: true },
+          })
+        : [],
+      attractionIds.length
+        ? manager.find(AttractionEntity, {
+            where: { id: In(attractionIds) },
+            select: { id: true, area: true },
+          })
+        : [],
+    ]);
+    const cities = new Map<string, string>();
+    for (const restaurant of restaurants)
+      if (restaurant.city.trim())
+        cities.set(`restaurant:${restaurant.id}`, restaurant.city.trim());
+    for (const attraction of attractions)
+      if (attraction.area.trim())
+        cities.set(`attraction:${attraction.id}`, attraction.area.trim());
+    return calculateItineraryQuote(data, cities);
   }
   async quoteCalculation(id: string, actor: Actor) {
     const { itinerary } = await this.pair(id, actor);
@@ -789,7 +834,11 @@ export class InquiriesService {
       return this.itineraryResponse(row);
     });
   }
-  private pdfSnapshot(inquiry: InquiryEntity, row: ItineraryEntity): PdfData {
+  private async pdfSnapshot(
+    inquiry: InquiryEntity,
+    row: ItineraryEntity,
+    manager: EntityManager,
+  ): Promise<PdfData> {
     const generatedAt = new Date().toISOString();
     return {
       inquiry: this.inquiryResponse(inquiry),
@@ -798,7 +847,7 @@ export class InquiriesService {
       generatedAt,
       quoteCode: `${row.code}-V1`,
       quoteVersion: 1,
-      calculation: this.calculateQuote(row.data),
+      calculation: await this.calculateQuote(row.data, manager),
     };
   }
   /** Records the first download click on a frozen quote; repeats keep the first time. */
@@ -825,7 +874,7 @@ export class InquiriesService {
       await assertNoActiveTour(manager, 'standard', inquiry.id);
       await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
-      return this.pdfSnapshot(inquiry, itinerary);
+      return this.pdfSnapshot(inquiry, itinerary, manager);
     });
   }
   async confirmPdf(id: string, input: ConfirmPdfDto, actor: Actor) {
@@ -849,7 +898,7 @@ export class InquiriesService {
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       await this.validation.assertUniqueResources(manager, itinerary.data);
       this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
-      const snapshot = this.pdfSnapshot(inquiry, itinerary);
+      const snapshot = await this.pdfSnapshot(inquiry, itinerary, manager);
       const frozen = await manager.save(
         ItineraryQuoteEntity,
         manager.create(ItineraryQuoteEntity, {

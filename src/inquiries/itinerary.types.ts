@@ -181,6 +181,7 @@ export interface PaxQuoteCalculation {
   missingPrices?: string[];
   dailyResourceCost: number;
   mealDetails?: {
+    city?: string | null;
     dayNumber: number;
     resourceName: string;
     unitCost: number | null;
@@ -188,6 +189,7 @@ export interface PaxQuoteCalculation {
     totalCost: number | null;
   }[];
   attractionDetails?: {
+    city?: string | null;
     dayNumber: number;
     resourceName: string;
     unitCost: number | null;
