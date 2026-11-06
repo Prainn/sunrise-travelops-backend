@@ -122,6 +122,8 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
     validateBilingualCopy(template.zh, template.en, variables, template.code);
   }
   for (const item of config.attractions) {
+    if (typeof item.price !== 'string' || !MONEY.test(item.price))
+      invalid('景点价格必须为非负金额，最多两位小数');
     for (const text of [item.descriptionZh, item.descriptionEn]) {
       if (typeof text !== 'string' || !text.trim())
         invalid(`景点 ${item.nameZh} 的中英文文案不能为空`);

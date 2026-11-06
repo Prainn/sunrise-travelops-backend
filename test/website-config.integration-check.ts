@@ -132,6 +132,7 @@ async function main() {
       resourceId: null,
       kind: 'attraction' as const,
       chargeable: true,
+      price: '0.00',
       descriptionZh: template.zh,
       descriptionEn: template.en,
       recommendedMonths: [1],

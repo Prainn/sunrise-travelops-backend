@@ -23,6 +23,7 @@ export interface WebsiteAttraction extends ConfigBase {
   resourceId: string | null;
   kind: 'attraction' | 'component';
   chargeable: boolean;
+  price: string;
   descriptionZh: string;
   descriptionEn: string;
   recommendedMonths: number[];
@@ -245,6 +246,21 @@ export interface WebsiteItinerary extends WebsiteItineraryInput {
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+/** Internal reference only; never sent back as itinerary input or customer quotation. */
+export interface WebsiteAttractionPriceReference {
+  configVersion: number;
+  items: Array<{
+    dayId: string;
+    itemId: string;
+    attractionId: string | null;
+    chargeable: boolean | null;
+    price: string | null;
+  }>;
+  total: string;
+}
+export interface WebsiteItineraryResponse extends WebsiteItinerary {
+  attractionPriceReference: WebsiteAttractionPriceReference;
 }
 export interface WebsiteValidation {
   code: string;

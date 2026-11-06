@@ -606,6 +606,9 @@ export class WebsiteAttractionDto
   @IsIn(['attraction', 'component']) kind: 'attraction' | 'component';
   @IsBoolean() chargeable: boolean;
   @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  price: string;
+  @IsString()
   @MinLength(1)
   @MaxLength(2000)
   @Matches(/\S/u)
