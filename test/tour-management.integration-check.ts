@@ -608,6 +608,7 @@ async function main() {
         t = updated;
         const available = await tours.availableGuides(
           {
+            keyword: 'Test Guide',
             businessUnit: 'website',
             language: 'English',
             serviceStartAt: '2026-09-05 09:00',
@@ -616,7 +617,7 @@ async function main() {
           },
           web,
         );
-        assert(available.some((r) => r.id === g));
+        assert(available.list.some((r) => r.id === g));
       },
     );
     await check(

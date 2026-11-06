@@ -35,6 +35,11 @@ import {
   TourFlightQueryDto,
   TourFlightOptionResponse,
   TourGuideQueryDto,
+  TourGuideSearchResponse,
+  TourGuideOptionResponse,
+  GuideUnavailableReasonResponse,
+  GuideConflictLeaveResponse,
+  GuideConflictTourResponse,
   TourLanguageQueryDto,
   TourInputDto,
   TourQueryDto,
@@ -547,14 +552,20 @@ export class ToursService {
     };
   }
 
-  /** Advisory availability for one independent service interval and its unsaved siblings. */
-  async availableGuides(query: TourGuideQueryDto, user: AuthenticatedUser) {
+  /** Name search diagnoses availability; saving still rechecks under guide locks. */
+  async availableGuides(
+    query: TourGuideQueryDto,
+    user: AuthenticatedUser,
+  ): Promise<TourGuideSearchResponse> {
     this.require(user, 'tour:list');
     if (!this.unitAllowed(user, query.businessUnit)) forbidden();
     const existing = query.excludeTourId
       ? await this.get(query.excludeTourId, user)
       : null;
     if (existing && existing.businessUnit !== query.businessUnit) forbidden();
+    const keyword = query.keyword?.trim();
+    if (!keyword || keyword.length > 150)
+      invalid('请输入导游姓名，最多150字符');
     try {
       validateServiceTimes(query.serviceStartAt, query.serviceEndAt);
       for (const other of query.otherServices ?? [])
@@ -562,31 +573,105 @@ export class ToursService {
     } catch {
       invalid('服务起止时间无效');
     }
-    const blocked = (query.otherServices ?? [])
-      .filter(
-        (other) =>
-          other.serviceStartAt <= query.serviceEndAt &&
-          other.serviceEndAt >= query.serviceStartAt,
-      )
-      .map((other) => other.guideId);
-    return this.db.query<Row[]>(
-      `SELECT g.id,g.code,g.name,g.language FROM resource_guide_people g
-       WHERE g.status='enabled' AND g.deleted_at IS NULL AND btrim(g.language)=$4
-       AND NOT (g.id=ANY($5::uuid[]))
-       AND NOT EXISTS (SELECT 1 FROM resource_guide_leaves l WHERE l.guide_person_id=g.id AND l.deleted_at IS NULL
-         AND l.start_date <= $2::timestamp::date AND l.end_date >= $1::timestamp::date)
-       AND NOT EXISTS (SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
+    // A single snapshot keeps name matches and their database blockers consistent.
+    // Cross-business disclosure is limited to the scheduling summary below.
+    const matches = await this.db.query<
+      (TourGuideOptionResponse & {
+        status: string;
+        leaves: GuideConflictLeaveResponse[];
+        tours: GuideConflictTourResponse[];
+      })[]
+    >(
+      `SELECT g.id,g.code,g.name,g.language,g.status,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object(
+         'startDate',l.start_date::text,'endDate',l.end_date::text)
+         ORDER BY l.start_date,l.end_date,l.id)
+         FROM resource_guide_leaves l WHERE l.guide_person_id=g.id AND l.deleted_at IS NULL
+         AND l.start_date <= $2::timestamp::date AND l.end_date >= $1::timestamp::date),'[]'::jsonb) AS leaves,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object(
+         'tourNo',t.tour_no,'businessUnit',t.business_unit,
+         'serviceStartAt',to_char(s.service_start_at,'YYYY-MM-DD HH24:MI'),
+         'serviceEndAt',to_char(s.service_end_at,'YYYY-MM-DD HH24:MI'))
+         ORDER BY s.service_start_at,s.service_end_at,t.tour_no,s.id)
+         FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
          WHERE s.guide_id=g.id AND t.status='active' AND s.service_start_at <= $2::timestamp
-         AND s.service_end_at >= $1::timestamp AND ($3::uuid IS NULL OR t.id<>$3))
+         AND s.service_end_at >= $1::timestamp AND ($3::uuid IS NULL OR t.id<>$3)),'[]'::jsonb) AS tours
+       FROM resource_guide_people g
+       WHERE g.deleted_at IS NULL AND strpos(lower(g.name),lower($4::text))>0
        ORDER BY g.code,g.id`,
       [
         query.serviceStartAt,
         query.serviceEndAt,
         query.excludeTourId ?? null,
-        query.language,
-        blocked,
+        keyword,
       ],
     );
+    const result: TourGuideSearchResponse = {
+      status: 'not_found',
+      message: '未找到该姓名的导游',
+      matchedCount: matches.length,
+      list: [],
+      unavailable: [],
+    };
+    for (const guide of matches) {
+      const option: TourGuideOptionResponse = {
+        id: guide.id,
+        code: guide.code,
+        name: guide.name,
+        language: guide.language,
+      };
+      const reasons: GuideUnavailableReasonResponse[] = [];
+      if (guide.status !== 'enabled')
+        reasons.push({ code: 'GUIDE_DISABLED', message: '该导游已停用' });
+      if (guide.language?.trim() !== query.language.trim())
+        reasons.push({
+          code: 'LANGUAGE_MISMATCH',
+          message: '该导游语种与本段要求不符',
+          expectedLanguage: query.language.trim(),
+          actualLanguage: guide.language,
+        });
+      if (guide.leaves.length)
+        reasons.push({
+          code: 'LEAVE_CONFLICT',
+          message: '该导游在服务期间请假',
+          leaves: guide.leaves,
+        });
+      if (guide.tours.length)
+        reasons.push({
+          code: 'SCHEDULE_CONFLICT',
+          message: '该导游与已有团队服务排期冲突',
+          tours: guide.tours,
+        });
+      const services = (query.otherServices ?? []).flatMap((other, index) =>
+        other.guideId.toLowerCase() === guide.id &&
+        other.serviceStartAt <= query.serviceEndAt &&
+        other.serviceEndAt >= query.serviceStartAt
+          ? [
+              {
+                otherServiceIndex: index,
+                serviceStartAt: other.serviceStartAt,
+                serviceEndAt: other.serviceEndAt,
+              },
+            ]
+          : [],
+      );
+      if (services.length)
+        reasons.push({
+          code: 'FORM_CONFLICT',
+          message: '该导游与当前表单其他服务段冲突',
+          services,
+        });
+      if (reasons.length) result.unavailable.push({ ...option, reasons });
+      else result.list.push(option);
+    }
+    if (result.list.length) {
+      result.status = 'available';
+      result.message = '已找到可用导游';
+    } else if (matches.length) {
+      result.status = 'unavailable';
+      result.message = '匹配的导游当前均不可用，请查看具体原因';
+    }
+    return result;
   }
 
   // ---------- writes ----------

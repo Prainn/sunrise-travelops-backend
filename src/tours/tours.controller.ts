@@ -23,6 +23,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   ApiCommonErrorResponses,
   ApiPaginatedResponse,
+  ApiSuccessResponse,
 } from '../common/swagger/api-response.decorator';
 import { BatchIdsQueryDto } from '../resources/common/resource.dto';
 import { GuideLeavesService } from './guide-leaves.service';
@@ -38,6 +39,7 @@ import {
   TourFlightOptionResponse,
   TourOperatorQueryDto,
   TourGuideQueryDto,
+  TourGuideSearchResponse,
   TourLanguageQueryDto,
   TourQueryDto,
   TourSourceQueryDto,
@@ -109,6 +111,8 @@ export class ToursController {
   @Post('available-guides')
   @HttpCode(200)
   @Permissions('tour:list')
+  @ApiOperation({ summary: '按姓名搜索可用导游及不可用原因' })
+  @ApiSuccessResponse({ type: TourGuideSearchResponse })
   availableGuides(
     @Body() query: TourGuideQueryDto,
     @CurrentUser() user: AuthenticatedUser,

@@ -410,9 +410,10 @@ async function main() {
       },
     );
     await check(
-      'availability POST includes unsaved siblings and hides cross-business details',
+      'name availability includes unsaved siblings and rejects out-of-scope exclusions',
       async () => {
         const query = {
+          keyword: 'e',
           businessUnit: 'linxi',
           language: 'English',
           serviceStartAt: '2030-01-09 11:00',
@@ -426,14 +427,14 @@ async function main() {
             },
           ],
         };
-        const list = await h.call<{ id: string }[]>(
+        const result = await h.call<{ list: { id: string }[] }>(
           linxi,
           'POST',
           '/tours/available-guides',
           query,
         );
-        assert(!list.some((g) => g.id === g1));
-        assert(list.some((g) => g.id === g2));
+        assert(!result.list.some((g) => g.id === g1));
+        assert(result.list.some((g) => g.id === g2));
         await h.call(
           website,
           'POST',
