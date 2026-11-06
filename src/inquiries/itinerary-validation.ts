@@ -1,4 +1,8 @@
 import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
+import {
+  normalizeVehiclePaxPrices,
+  validateVehicleModeChange,
+} from './vehicle-pax-pricing';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -177,6 +181,7 @@ export class ItineraryValidation {
     );
     unique(plan.hotelPlans.map((p) => String(p.tier)));
     unique(plan.vehiclePlans.map((p) => p.tier));
+    validateVehicleModeChange(plan, previous);
     unique(plan.guidePlans.map((p) => p.destination));
     unique(plan.quote.options.map((p) => p.id));
     unique(plan.quote.transportFees.map((p) => p.id));
@@ -346,6 +351,8 @@ export class ItineraryValidation {
     const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
     for (const group of plan.vehiclePlans) {
       unique(group.arrangements.map((a) => a.id));
+      const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
+      normalizeVehiclePaxPrices(group, plan.paxTiers, old, checkReason);
       group.totalPrice ??= null;
       if (!group.arrangements.length) group.totalPrice = null;
       if (group.totalPrice !== null)
@@ -409,12 +416,15 @@ export class ItineraryValidation {
         );
         if (
           hasStartDate &&
-          (arrangement.vehicles.length > 0 || arrangement.totalPrice == null) &&
+          (group.quotationMode
+            ? group.quotationMode === 'itinerary'
+            : arrangement.vehicles.length > 0 ||
+              arrangement.totalPrice == null) &&
           seats < guestCount
         )
           invalid('Vehicle has insufficient seats');
       }
-      const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
+      if (group.quotationMode) continue;
       group.segmentTotal = vehicleSegmentTotal(group);
       group.pricingMode ??=
         old?.pricingMode ??
@@ -618,7 +628,12 @@ export class ItineraryValidation {
     if (
       !hotels.length ||
       !plan.vehiclePlans.some(
-        (p) => p.arrangements.length && p.totalPrice !== null,
+        (p) =>
+          p.arrangements.length &&
+          (p.quotationMode
+            ? p.paxPrices?.length === plan.paxTiers.length &&
+              p.paxPrices.every((price) => price.totalPrice != null)
+            : p.totalPrice !== null),
       ) ||
       !plan.quote.options.length
     )
@@ -626,12 +641,16 @@ export class ItineraryValidation {
     for (const vehicle of plan.vehiclePlans)
       if (
         vehicle.arrangements.length &&
-        (vehicle.totalPrice === null ||
+        ((vehicle.quotationMode
+          ? vehicle.paxPrices?.some((p) => p.totalPrice == null)
+          : vehicle.totalPrice === null) ||
           vehicle.arrangements.some(
             (a) =>
               !a.startDate ||
               !a.endDate ||
-              (!a.vehicles.length && a.totalPrice == null),
+              (vehicle.quotationMode
+                ? vehicle.quotationMode === 'itinerary' && !a.vehicles.length
+                : !a.vehicles.length && a.totalPrice == null),
           ))
       )
         issues.push('vehicleDays');

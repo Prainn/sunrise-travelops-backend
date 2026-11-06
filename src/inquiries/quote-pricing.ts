@@ -16,7 +16,8 @@ type QuotePlan = Pick<
 
 /** Stable API paths for selected resources whose actual price is not ready. */
 export function missingItineraryPrices(
-  itinerary: Pick<QuotePlan, 'hotelPlans' | 'guidePlans' | 'dailyPlans'>,
+  itinerary: Pick<QuotePlan, 'hotelPlans' | 'guidePlans' | 'dailyPlans'> &
+    Partial<Pick<QuotePlan, 'vehiclePlans' | 'paxTiers'>>,
 ): string[] {
   const missing: string[] = [];
   const ready = (price: number | null) =>
@@ -34,6 +35,15 @@ export function missingItineraryPrices(
     for (const item of day.items)
       if (!ready(item.unitCost))
         missing.push(`dailyPlans[${day.id}].items[${item.id}].unitCost`);
+  for (const plan of itinerary.vehiclePlans ?? [])
+    if (plan.quotationMode && plan.arrangements.length)
+      for (const pax of itinerary.paxTiers ?? [])
+        if (
+          !ready(plan.paxPrices?.find((p) => p.pax === pax)?.totalPrice ?? null)
+        )
+          missing.push(
+            `vehiclePlans[${plan.tier}].paxPrices[${pax}].totalPrice`,
+          );
   return missing;
 }
 
@@ -148,10 +158,12 @@ export function calculateItineraryQuote(
         return { destination, nights, unitCost, totalCost };
       });
       const hotelUnitCost = divideMoney(accumulatedRoomCost, 2);
-      const vehicleTotal = roundMoney(
-        itinerary.vehiclePlans.find((plan) => plan.tier === option.vehicleTier)
-          ?.totalPrice ?? 0,
+      const vehiclePlan = itinerary.vehiclePlans.find(
+        (plan) => plan.tier === option.vehicleTier,
       );
+      const vehicleTotal = vehiclePlan?.quotationMode
+        ? null
+        : roundMoney(vehiclePlan?.totalPrice ?? 0);
       const staffRoomTotal = sumMoney(
         itinerary.quote.staffRoomCosts.map((cost) => cost.total ?? 0),
       );
@@ -167,7 +179,11 @@ export function calculateItineraryQuote(
           const paxOtherCost = itinerary.quote.paxOtherCosts.find(
             (cost) => cost.pax === pax,
           );
-          const vehicleUnitCost = divideMoney(vehicleTotal, pax);
+          const paxVehicleTotal = vehiclePlan?.quotationMode
+            ? (vehiclePlan.paxPrices?.find((p) => p.pax === pax)?.totalPrice ??
+              null)
+            : vehicleTotal;
+          const vehicleUnitCost = divideMoney(paxVehicleTotal ?? 0, pax);
           const guideServiceUnitCost = sumMoney([
             divideMoney(guideCost, pax),
             paxOtherCost?.guideOtherCost ?? 0,
@@ -191,6 +207,7 @@ export function calculateItineraryQuote(
           const profitPerPerson = roundMoney(revenue - baseCostPerPerson);
           return {
             pax,
+            vehicleTotal: paxVehicleTotal,
             vehicleUnitCost,
             guideServiceUnitCost,
             staffRoomUnitCost,

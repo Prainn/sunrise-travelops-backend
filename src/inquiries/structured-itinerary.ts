@@ -55,6 +55,7 @@ export const ITINERARY_TABLES = {
   },
   itinerary_vehicle_plans: {
     tier: 'text',
+    quotationMode: 'text?',
     totalPrice: 'numeric?',
     pricingMode: 'text?',
     segmentTotal: 'numeric?',
@@ -65,6 +66,20 @@ export const ITINERARY_TABLES = {
     id: 'text',
     startDate: 'text',
     endDate: 'text',
+    totalPrice: 'numeric?',
+  },
+  itinerary_vehicle_pax_prices: {
+    tier: 'text',
+    pax: 'integer',
+    totalPrice: 'numeric?',
+    pricingMode: 'text',
+    segmentTotal: 'numeric?',
+    adjustmentReason: 'text',
+  },
+  itinerary_vehicle_range_pax_prices: {
+    tier: 'text',
+    rangeId: 'text',
+    pax: 'integer',
     totalPrice: 'numeric?',
   },
   itinerary_vehicles: {
@@ -165,6 +180,22 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     itinerary_vehicle_plans: data.vehiclePlans.map((row) => ({ ...row })),
     itinerary_vehicle_ranges: data.vehiclePlans.flatMap((p) =>
       p.arrangements.map((a) => ({ ...a, tier: p.tier })),
+    ),
+    itinerary_vehicle_pax_prices: data.vehiclePlans.flatMap((p) =>
+      (p.paxPrices ?? []).map((price) => ({
+        ...price,
+        adjustmentReason: price.adjustmentReason ?? '',
+        tier: p.tier,
+      })),
+    ),
+    itinerary_vehicle_range_pax_prices: data.vehiclePlans.flatMap((p) =>
+      p.arrangements.flatMap((a) =>
+        (a.paxPrices ?? []).map((price) => ({
+          ...price,
+          tier: p.tier,
+          rangeId: a.id,
+        })),
+      ),
     ),
     itinerary_vehicles: data.vehiclePlans.flatMap((p) =>
       p.arrangements.flatMap((a) =>
@@ -275,11 +306,27 @@ export async function loadItineraryData(
         .map((h) => omit(h, ['tier'])),
     })),
     vehiclePlans: rows.itinerary_vehicle_plans.map((p) => ({
-      ...p,
+      ...omit(p, p.quotationMode ? [] : ['quotationMode']),
+      ...(p.quotationMode
+        ? {
+            paxPrices: rows.itinerary_vehicle_pax_prices
+              .filter((price) => price.tier === p.tier)
+              .map((price) => omit(price, ['tier'])),
+          }
+        : {}),
       arrangements: rows.itinerary_vehicle_ranges
         .filter((a) => a.tier === p.tier)
         .map((a) => ({
           ...omit(a, ['tier']),
+          ...(p.quotationMode
+            ? {
+                paxPrices: rows.itinerary_vehicle_range_pax_prices
+                  .filter(
+                    (price) => price.tier === p.tier && price.rangeId === a.id,
+                  )
+                  .map((price) => omit(price, ['tier', 'rangeId'])),
+              }
+            : {}),
           vehicles: rows.itinerary_vehicles
             .filter((v) => v.tier === p.tier && v.rangeId === a.id)
             .map((v) => omit(v, ['tier', 'rangeId'])),

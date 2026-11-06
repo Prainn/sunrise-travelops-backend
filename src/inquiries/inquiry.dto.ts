@@ -205,7 +205,28 @@ class VehicleInput {
   @IsInt() @Min(1) seats: number;
   @IsInt() @Min(1) @Max(10000) quantity: number;
 }
+class VehiclePaxSegmentPriceInput {
+  @IsInt() @Min(1) @Max(10000) pax: number;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1e9)
+  totalPrice: number | null;
+}
+class VehiclePaxPriceInput extends VehiclePaxSegmentPriceInput {
+  @IsIn(['automatic', 'manual']) pricingMode: 'automatic' | 'manual';
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) segmentTotal?:
+    number | null;
+  @IsOptional() @IsString() @MaxLength(2000) adjustmentReason?: string | null;
+}
 class VehicleArrangementInput {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => VehiclePaxSegmentPriceInput)
+  paxPrices?: VehiclePaxSegmentPriceInput[];
   @IsString() @MinLength(1) @MaxLength(100) id: string;
   @IsString()
   @MaxLength(10)
@@ -226,6 +247,14 @@ class VehicleArrangementInput {
     number | null;
 }
 class VehiclePlanInput {
+  @IsOptional() @IsIn(['itinerary', 'stage']) quotationMode?:
+    'itinerary' | 'stage' | null;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => VehiclePaxPriceInput)
+  paxPrices?: VehiclePaxPriceInput[];
   @IsOptional() @IsIn(['automatic', 'manual', 'unknown']) pricingMode?:
     'automatic' | 'manual' | 'unknown' | null;
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) segmentTotal?:
@@ -387,6 +416,8 @@ class DeletedDayInput {
   originalDate: string | null;
 }
 export class ItineraryInput {
+  /** Request-only acknowledgement; consumed before persistence and auditing. */
+  @IsOptional() @IsBoolean() confirmVehicleModeChange?: boolean;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )

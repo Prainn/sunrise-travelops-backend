@@ -32,7 +32,17 @@ export interface ItineraryVehicleSelection {
   seats: number;
   quantity: number;
 }
+export interface VehiclePaxSegmentPrice {
+  pax: number;
+  totalPrice: number | null;
+}
+export interface VehiclePaxPrice extends VehiclePaxSegmentPrice {
+  pricingMode: 'automatic' | 'manual';
+  segmentTotal?: number | null;
+  adjustmentReason?: string | null;
+}
 export interface ItineraryVehicleArrangement {
+  paxPrices?: VehiclePaxSegmentPrice[];
   id: string;
   startDate: string;
   endDate: string;
@@ -40,6 +50,8 @@ export interface ItineraryVehicleArrangement {
   totalPrice?: number | null;
 }
 export interface ItineraryVehiclePlan {
+  quotationMode?: 'itinerary' | 'stage' | null;
+  paxPrices?: VehiclePaxPrice[];
   pricingMode?: 'automatic' | 'manual' | 'unknown' | null;
   segmentTotal?: number | null;
   adjustmentReason?: string | null;
@@ -144,6 +156,8 @@ export interface LegacyQuoteCalculation {
 
 export interface ItineraryPaxCalculation {
   pax: number;
+  /** Exact group vehicle price for this PAX; absent in historical freezes. */
+  vehicleTotal?: number | null;
   vehicleUnitCost: number;
   guideServiceUnitCost: number;
   staffRoomUnitCost: number;
@@ -169,7 +183,7 @@ export interface ItineraryQuoteOptionCalculation {
     totalCost: number | null;
   }[];
   hotelUnitCost: number;
-  vehicleTotal: number;
+  vehicleTotal: number | null;
   staffRoomTotal: number;
   paxPrices: ItineraryPaxCalculation[];
 }
