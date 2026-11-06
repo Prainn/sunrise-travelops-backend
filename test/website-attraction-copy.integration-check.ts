@@ -34,6 +34,7 @@ async function main() {
       kind: 'attraction',
       resourceId: null,
       chargeable: false,
+      price: '0.00',
       recommendedMonths: [],
       descriptionZh: '参观{city}的{attraction}。',
       descriptionEn: 'Visit {attraction} in {city}.',

@@ -23,6 +23,7 @@ export interface WebsiteAttraction extends ConfigBase {
   resourceId: string | null;
   kind: 'attraction' | 'component';
   chargeable: boolean;
+  price: string;
   descriptionZh: string;
   descriptionEn: string;
   recommendedMonths: number[];
