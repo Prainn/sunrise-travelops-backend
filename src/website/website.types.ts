@@ -247,6 +247,21 @@ export interface WebsiteItinerary extends WebsiteItineraryInput {
   createdAt: string;
   updatedAt: string;
 }
+/** Internal reference only; never sent back as itinerary input or customer quotation. */
+export interface WebsiteAttractionPriceReference {
+  configVersion: number;
+  items: Array<{
+    dayId: string;
+    itemId: string;
+    attractionId: string | null;
+    chargeable: boolean | null;
+    price: string | null;
+  }>;
+  total: string;
+}
+export interface WebsiteItineraryResponse extends WebsiteItinerary {
+  attractionPriceReference: WebsiteAttractionPriceReference;
+}
 export interface WebsiteValidation {
   code: string;
   severity: 'ERROR' | 'WARNING';

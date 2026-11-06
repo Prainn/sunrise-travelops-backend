@@ -1,5 +1,7 @@
 import type {
   WebsitePriceComponent,
+  WebsiteConfig,
+  WebsiteAttractionPriceReference,
   WebsiteVehiclePriceInput,
   WebsiteDay,
   WebsiteHotelTier,
@@ -103,4 +105,41 @@ export function quotationPriceKey(
   price: Pick<WebsiteVehiclePriceInput, 'vehicleType' | 'hotelTier'>,
 ): string {
   return JSON.stringify([price.vehicleType, price.hotelTier]);
+}
+
+/** Reference amounts follow the bound config; each active item is one occurrence. */
+export function websiteAttractionPriceReference(
+  days: WebsiteDay[],
+  config: WebsiteConfig,
+): WebsiteAttractionPriceReference {
+  const attractions = new Map(
+    config.attractions.map((item) => [item.id, item]),
+  );
+  let total = 0n;
+  const items = days.flatMap((day) =>
+    day.items.map((item) => {
+      const attraction = item.attractionId
+        ? attractions.get(item.attractionId)
+        : undefined;
+      let price: string | null = null;
+      if (attraction?.chargeable) {
+        const [whole, fraction = ''] = attraction.price.split('.');
+        const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+        total += cents;
+        price = `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
+      }
+      return {
+        dayId: day.id,
+        itemId: item.id,
+        attractionId: item.attractionId,
+        chargeable: attraction?.chargeable ?? null,
+        price,
+      };
+    }),
+  );
+  return {
+    configVersion: config.version,
+    items,
+    total: `${total / 100n}.${String(total % 100n).padStart(2, '0')}`,
+  };
 }

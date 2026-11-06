@@ -1,5 +1,6 @@
 import {
   normalizeVehiclePrice,
+  websiteAttractionPriceReference,
   websiteQuotationOptions,
   quotationPriceKey,
 } from './website-price';
@@ -27,6 +28,7 @@ import type {
   WebsiteInquiryInput,
   WebsiteDay,
   WebsiteItinerary,
+  WebsiteItineraryResponse,
   WebsiteItineraryInput,
   WebsiteInquiryLog,
   WebsiteLogAction,
@@ -1216,14 +1218,33 @@ export class WebsiteService {
       [inquiryId],
     );
     return Promise.all(
-      rows.map(async (row) => ({
-        ...row,
-        ...(await loadWebsiteDetails(this.db.manager, row.id)),
-      })),
+      rows.map(async (row) =>
+        this.itineraryResponse({
+          ...row,
+          ...(await loadWebsiteDetails(this.db.manager, row.id)),
+        }),
+      ),
     );
   }
   async itineraryDetail(id: string, user: AuthenticatedUser) {
-    return (await this.itinerary(id, user)).itinerary;
+    return this.itineraryResponse((await this.itinerary(id, user)).itinerary);
+  }
+  private async itineraryResponse(
+    itinerary: WebsiteItinerary,
+    manager = this.db.manager,
+  ): Promise<WebsiteItineraryResponse> {
+    const config = await this.config(
+      manager,
+      itinerary.businessUnit,
+      itinerary.configVersion,
+    );
+    return {
+      ...itinerary,
+      attractionPriceReference: websiteAttractionPriceReference(
+        itinerary.days,
+        config,
+      ),
+    };
   }
   private async preparePlan(
     manager: EntityManager,
@@ -1463,7 +1484,7 @@ export class WebsiteService {
       saved.itinerary,
       { metadata },
     );
-    return saved.itinerary;
+    return this.itineraryResponse(saved.itinerary, manager);
   }
   async createItinerary(
     inquiryId: string,
@@ -1520,7 +1541,7 @@ export class WebsiteService {
       itinerary,
       saved.itinerary,
     );
-    return saved.itinerary;
+    return this.itineraryResponse(saved.itinerary, manager);
   }
   async saveItinerary(
     id: string,
