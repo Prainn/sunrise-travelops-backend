@@ -122,6 +122,12 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
     validateBilingualCopy(template.zh, template.en, variables, template.code);
   }
   for (const item of config.attractions) {
+    for (const text of [item.descriptionZh, item.descriptionEn]) {
+      if (typeof text !== 'string' || !text.trim())
+        invalid(`景点 ${item.nameZh} 的中英文文案不能为空`);
+      if ([...text].length > 2000)
+        invalid(`景点 ${item.nameZh} 的中英文文案各不能超过2000字符`);
+    }
     validateBilingualCopy(
       item.descriptionZh,
       item.descriptionEn,
@@ -564,7 +570,11 @@ export function buildWebsitePreview(
           `请在独立站资源中补齐 ${item.nameZh} 的中英文文案`,
           day.dayNumber,
         );
-      if (!item.descriptionEn.trim() || !item.descriptionZh.trim())
+      // 资源条目保存时已同步资源正文，缺失由上一条提示；此处只检查手填条目。
+      if (
+        !attraction &&
+        (!item.descriptionEn.trim() || !item.descriptionZh.trim())
+      )
         issue(
           'CONFIG_NOT_READY',
           'ERROR',

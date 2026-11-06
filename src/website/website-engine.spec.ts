@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { ValidationPipe } from '@nestjs/common';
+import { WebsiteAttractionDto, WebsiteConfigDto } from './website.dto';
 import {
   buildWebsitePreview,
   generateWebsiteDraft,
@@ -528,6 +530,82 @@ describe('sequence and relaxed timing', () => {
     });
     expect(() => validateWebsiteConfig(config)).not.toThrow();
   });
+});
+
+describe('required attraction copy at configuration write boundaries', () => {
+  const pipe = new ValidationPipe({
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: true,
+  });
+  function copyConfig() {
+    const { config } = fixture();
+    config.attractions.push({
+      id: randomUUID(),
+      cityId: config.cities[0].id,
+      parentId: null,
+      status: 'enabled',
+      nameZh: '景点',
+      nameEn: 'Sight',
+      resourceId: null,
+      kind: 'component',
+      chargeable: false,
+      descriptionZh: '中文正文',
+      descriptionEn: 'English copy',
+      recommendedMonths: [],
+    });
+    return config;
+  }
+  it.each(['descriptionZh', 'descriptionEn'] as const)(
+    'rejects missing, blank and overlong %s in single-record, bulk and direct validation',
+    async (field) => {
+      for (const text of [
+        undefined,
+        null,
+        '',
+        ' \t\n\u3000\u00a0',
+        '中'.repeat(2001),
+        '🌄'.repeat(2001),
+      ]) {
+        const config = copyConfig();
+        Object.assign(config.attractions[0], { [field]: text });
+        await expect(
+          pipe.transform(config.attractions[0], {
+            type: 'body',
+            metatype: WebsiteAttractionDto,
+          }),
+        ).rejects.toThrow();
+        await expect(
+          pipe.transform(config, {
+            type: 'body',
+            metatype: WebsiteConfigDto,
+          }),
+        ).rejects.toThrow();
+        expect(() => validateWebsiteConfig(config)).toThrow();
+      }
+    },
+  );
+  it.each(['中', 'a', '🌄'])(
+    'accepts exactly 2000 %s characters at all write boundaries',
+    async (character) => {
+      const config = copyConfig();
+      config.attractions[0].descriptionZh = character.repeat(2000);
+      config.attractions[0].descriptionEn = character.repeat(2000);
+      await expect(
+        pipe.transform(config.attractions[0], {
+          type: 'body',
+          metatype: WebsiteAttractionDto,
+        }),
+      ).resolves.toMatchObject(config.attractions[0]);
+      await expect(
+        pipe.transform(config, {
+          type: 'body',
+          metatype: WebsiteConfigDto,
+        }),
+      ).resolves.toMatchObject(config);
+      expect(() => validateWebsiteConfig(config)).not.toThrow();
+    },
+  );
 });
 
 it('generates first and last day attractions without confirmed travel times', () => {
