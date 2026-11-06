@@ -1355,15 +1355,12 @@ export class WebsiteService {
         )
           invalid('景点配置不可用', { attractionId: item.attractionId });
         if (!attraction) return { ...item };
-        const copy = config.templates.find(
-          (t) => t.code === attraction.copyKey && t.status === 'enabled',
-        );
         return {
           ...item,
           nameZh: attraction.nameZh,
           nameEn: attraction.nameEn,
-          descriptionZh: copy?.zh ?? '',
-          descriptionEn: copy?.en ?? '',
+          descriptionZh: attraction.descriptionZh,
+          descriptionEn: attraction.descriptionEn,
         };
       });
       return { ...day, items };

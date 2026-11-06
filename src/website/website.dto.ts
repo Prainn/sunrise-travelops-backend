@@ -269,8 +269,8 @@ export class WebsiteItemDto implements WebsiteItem {
   attractionId: string | null;
   @IsString() @MaxLength(150) nameZh: string;
   @IsString() @MaxLength(150) nameEn: string;
-  @IsString() @MaxLength(20000) descriptionZh: string;
-  @IsString() @MaxLength(20000) descriptionEn: string;
+  @IsString() @MaxLength(2000) descriptionZh: string;
+  @IsString() @MaxLength(2000) descriptionEn: string;
   @IsBoolean() appears: boolean;
   @IsIn(fees) feeState: FeeState;
 }
@@ -605,7 +605,16 @@ export class WebsiteAttractionDto
   resourceId: string | null;
   @IsIn(['attraction', 'component']) kind: 'attraction' | 'component';
   @IsBoolean() chargeable: boolean;
-  @IsString() @MinLength(1) @MaxLength(100) copyKey: string;
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  @Matches(/\S/u)
+  descriptionZh: string;
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  @Matches(/\S/u)
+  descriptionEn: string;
   @IsArray()
   @ArrayMaxSize(12)
   @ArrayUnique()
@@ -724,8 +733,8 @@ export class WebsiteTemplateDto
 {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(150) name: string;
   @IsString() @MinLength(1) @MaxLength(100) code: string;
-  @IsString() @MinLength(1) @MaxLength(20000) zh: string;
-  @IsString() @MinLength(1) @MaxLength(20000) en: string;
+  @IsString() @MinLength(1) @MaxLength(2000) zh: string;
+  @IsString() @MinLength(1) @MaxLength(2000) en: string;
 }
 export class WebsiteConfigDto implements WebsiteConfig {
   @IsInt() @Min(0) version: number;

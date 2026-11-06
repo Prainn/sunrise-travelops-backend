@@ -23,7 +23,8 @@ export interface WebsiteAttraction extends ConfigBase {
   resourceId: string | null;
   kind: 'attraction' | 'component';
   chargeable: boolean;
-  copyKey: string;
+  descriptionZh: string;
+  descriptionEn: string;
   recommendedMonths: number[];
 }
 export interface WebsiteConfigHotel extends ConfigBase {
