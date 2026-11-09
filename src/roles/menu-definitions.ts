@@ -11,6 +11,27 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'whatsapp-inbox',
+    title: 'whatsappInbox',
+    group: 'whatsappWorkbench',
+    permissions: ['whatsapp:conversation:list'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
+    key: 'whatsapp-management',
+    title: 'whatsappManagement',
+    group: 'whatsappWorkbench',
+    permissions: ['whatsapp:conversation:assign'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
+    key: 'whatsapp-integration',
+    title: 'whatsappIntegration',
+    group: 'whatsappWorkbench',
+    permissions: ['whatsapp:integration:manage'],
+    scopes: ['headquarters'],
+  },
+  {
     key: 'shengxu-agency-summary',
     title: 'shengxuAgencySummary',
     group: 'dataLedgers',
@@ -266,6 +287,16 @@ function menuItem(
 
 /** Shared display order; node identity is distinct from the persisted grant key. */
 export const MENU_GROUPS: MenuNavigationGroup[] = [
+  {
+    key: 'whatsapp-workbench',
+    title: 'whatsappWorkbench',
+    routeName: 'WhatsappWorkbench',
+    children: [
+      menuItem('whatsapp-inbox', 'WhatsappInbox'),
+      menuItem('whatsapp-management', 'WhatsappManagement'),
+      menuItem('whatsapp-integration', 'WhatsappIntegration'),
+    ],
+  },
   {
     key: 'system',
     title: 'systemManagement',

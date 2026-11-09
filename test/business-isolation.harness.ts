@@ -3,7 +3,8 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { WhatsappModule } from '../src/whatsapp/whatsapp.module';
+import { Type, INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
@@ -52,7 +53,7 @@ export class IsolationHarness {
   private actors = 0;
   requests = 0;
 
-  constructor() {
+  constructor(private readonly extraConfig: Record<string, string> = {}) {
     const port = Number(process.env.ISOLATION_PG_PORT ?? '55457');
     assert(Number.isInteger(port) && port > 0 && port <= 65535);
     const connection = {
@@ -97,6 +98,7 @@ export class IsolationHarness {
           ignoreEnvVars: true,
           load: [
             () => ({
+              ...this.extraConfig,
               JWT_SECRET: 'isolation-access-secret-never-used-outside-tests',
               JWT_EXPIRES_IN: '1h',
               REFRESH_TOKEN_SECRET:
@@ -109,6 +111,7 @@ export class IsolationHarness {
         AuthModule,
         InquiriesModule,
         WebsiteModule,
+        WhatsappModule,
         ToursModule,
         SystemModule,
         LedgersModule,
@@ -133,6 +136,10 @@ export class IsolationHarness {
     await this.app.listen(0, '127.0.0.1');
     this.base = `${await this.app.getUrl()}/api`;
     this.passwordHash = await argon2.hash('isolation-fixture-password');
+  }
+
+  get<T>(token: Type<T>): T {
+    return this.app!.get(token);
   }
 
   async close() {
@@ -161,8 +168,10 @@ export class IsolationHarness {
     role = 'COORDINATOR',
     duty: string | null = 'both',
     userId?: string,
+    usernameOverride?: string,
   ): Promise<Actor> {
     let username = `iso_${scope}_${++this.actors}`;
+    if (usernameOverride) username = usernameOverride;
     const id = userId ?? randomUUID();
     const identityId = randomUUID();
     if (userId) {
@@ -206,7 +215,7 @@ export class IsolationHarness {
     path: string,
     body?: unknown,
     status = 200,
-    code = 'SUCCESS',
+    code: string | number = 'SUCCESS',
   ): Promise<T> {
     const response = await fetch(`${this.base}${path}`, {
       method,

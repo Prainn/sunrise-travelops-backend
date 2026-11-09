@@ -217,6 +217,13 @@ export class ConvertDirectLedgerDto extends LedgerVersionDto {
   tour!: DirectLedgerTourDto;
 }
 export class CreateDirectLedgerDto extends DirectLedgerInputDto {
+  @ApiPropertyOptional({
+    description: '独立站询盘关联，创建后不可修改；收客计调须与询盘负责人一致',
+  })
+  @IsOptional()
+  @IsUUID()
+  websiteInquiryId?: string;
+
   @ApiPropertyOptional({ type: DirectLedgerTourDto })
   @ValidateIf((_o, value: unknown) => value !== undefined)
   @IsObject()

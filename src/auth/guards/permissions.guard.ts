@@ -32,7 +32,7 @@ export class PermissionsGuard implements CanActivate {
     ) {
       throw new BusinessException({
         code: ErrorCode.AUTH_FORBIDDEN,
-        message: '没有权限执行此操作',
+        message: '',
         status: HttpStatus.FORBIDDEN,
       });
     }

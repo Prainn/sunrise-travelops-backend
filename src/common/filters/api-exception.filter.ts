@@ -51,6 +51,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       typeof request.user?.id === 'string' ? request.user.id : undefined;
     const suppressErrorDetails =
       request.path.startsWith('/v1/') ||
+      /^\/api\/whatsapp(?:\/|$)/.test(request.path) ||
       /^\/api\/resources\/guide-people(?:\/|$)/.test(request.path);
     const source = response.locals.httpLogSource as
       | undefined
@@ -118,7 +119,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
         return {
           status,
           code: ErrorCode.INTERNAL_SERVER_ERROR,
-          message: '服务器内部错误',
+          message: '',
           details: {},
         };
       }
@@ -129,17 +130,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
         return {
           status,
           code: body.code,
-          message:
-            typeof body.message === 'string'
-              ? body.message
-              : this.messageFromStatus(status),
+          message: typeof body.message === 'string' ? body.message : '',
           details: this.isRecord(body.details) ? body.details : {},
         };
       }
       return {
         status,
         code: this.codeFromStatus(status),
-        message: this.messageFromStatus(status),
+        message: '',
         details: {},
       };
     }
@@ -147,7 +145,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       code: ErrorCode.INTERNAL_SERVER_ERROR,
-      message: '服务器内部错误',
+      message: '',
       details: {},
     };
   }
@@ -163,20 +161,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
       [HttpStatus.INTERNAL_SERVER_ERROR]: ErrorCode.INTERNAL_SERVER_ERROR,
     };
     return codes[status] ?? ErrorCode.INTERNAL_SERVER_ERROR;
-  }
-
-  private messageFromStatus(status: number): string {
-    if (status >= 500) return '服务器内部错误';
-    const messages: Record<number, string> = {
-      [HttpStatus.BAD_REQUEST]: '请求参数错误',
-      [HttpStatus.UNAUTHORIZED]: '身份认证失败',
-      [HttpStatus.FORBIDDEN]: '没有权限执行此操作',
-      [HttpStatus.NOT_FOUND]: '请求的资源不存在',
-      [HttpStatus.CONFLICT]: '请求与当前状态冲突',
-      [HttpStatus.TOO_MANY_REQUESTS]: '请求过于频繁，请稍后重试',
-      [HttpStatus.INTERNAL_SERVER_ERROR]: '服务器内部错误',
-    };
-    return messages[status] ?? '请求处理失败';
   }
 
   private isErrorCode(value: unknown): value is ErrorCodeValue {
@@ -273,9 +257,7 @@ export function normalizeDatabaseError(
     code: isConstraintViolation
       ? ErrorCode.DATABASE_CONSTRAINT_VIOLATION
       : ErrorCode.INTERNAL_SERVER_ERROR,
-    message: isConstraintViolation
-      ? '请求的数据与现有数据冲突'
-      : '服务器内部错误',
+    message: '',
     details: {},
   };
 }

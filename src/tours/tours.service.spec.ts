@@ -180,6 +180,16 @@ const updateInput = (): UpdateTourDto => {
 };
 
 describe('manual tour contract and scope', () => {
+  it('returns no specific reason for a generic permission denial', async () => {
+    const { service, query } = setup();
+    await expect(
+      service.list(new TourQueryDto(), { ...user, permissions: [] }),
+    ).rejects.toMatchObject({
+      response: { code: 'AUTH_FORBIDDEN', message: '', details: {} },
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it('accepts manual source and zero counts without inquiry or flights', async () => {
     expect(
       await validate(input(), { whitelist: true, forbidNonWhitelisted: true }),

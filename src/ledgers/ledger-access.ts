@@ -14,7 +14,7 @@ export function invalid(message: string): never {
 export function forbidden(): never {
   throw new BusinessException({
     code: 'AUTH_FORBIDDEN',
-    message: '没有权限执行此操作',
+    message: '',
     status: HttpStatus.FORBIDDEN,
   });
 }

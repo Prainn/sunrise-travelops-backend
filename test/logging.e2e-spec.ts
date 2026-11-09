@@ -69,7 +69,7 @@ class LoggingController {
   forbidden(): never {
     throw new BusinessException({
       code: ErrorCode.AUTH_FORBIDDEN,
-      message: '没有权限执行此操作',
+      message: '',
       status: HttpStatus.FORBIDDEN,
     });
   }
@@ -78,7 +78,7 @@ class LoggingController {
   missing(): never {
     throw new BusinessException({
       code: ErrorCode.NOT_FOUND,
-      message: '请求的资源不存在',
+      message: '',
       status: HttpStatus.NOT_FOUND,
     });
   }

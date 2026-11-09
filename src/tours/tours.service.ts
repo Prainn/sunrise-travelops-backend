@@ -75,7 +75,7 @@ const invalid = (message: string): never =>
 const conflict = (message: string): never =>
   fail(ErrorCode.CONFLICT, message, HttpStatus.CONFLICT);
 const forbidden = (): never =>
-  fail(ErrorCode.AUTH_FORBIDDEN, '没有权限执行此操作', HttpStatus.FORBIDDEN);
+  fail(ErrorCode.AUTH_FORBIDDEN, '', HttpStatus.FORBIDDEN);
 const notFound = (): never =>
   fail(ErrorCode.NOT_FOUND, '旅行团不存在', HttpStatus.NOT_FOUND);
 

@@ -31,6 +31,7 @@ import {
 } from './ledger-access';
 
 interface DirectRow {
+  websiteInquiryId: string | null;
   id: string;
   countryItemId: string | null;
   countryCode: string | null;
@@ -55,7 +56,7 @@ interface DirectRow {
   version: number;
 }
 const WORKFLOW_STATUS = `CASE WHEN operated THEN 'operated' WHEN loss AND reviewed_at IS NULL THEN 'pending_confirmation' ELSE 'pending_operation' END`;
-const SELECT = `country_item_id AS "countryItemId",country_code AS "countryCode",country_name AS "countryName",
+const SELECT = `website_inquiry_id AS "websiteInquiryId",country_item_id AS "countryItemId",country_code AS "countryCode",country_name AS "countryName",
  COALESCE((SELECT jsonb_agg(jsonb_build_object('id',dt.id,'tourNo',dt.tour_no,'status',dt.status,'version',dt.version,
    'cancelReason',dt.cancel_reason,'cancelledAt',dt.cancelled_at,'createdAt',dt.created_at) ORDER BY dt.created_at DESC,dt.id DESC)
    FROM tours dt WHERE dt.direct_ledger_id=direct_ledgers.id),'[]'::jsonb) AS tours,
@@ -373,6 +374,15 @@ export class DirectLedgersService {
       const creator = delegate
         ? await coordinator(manager, input.creatorId!, unit)
         : await coordinator(manager, actor.id, unit, 'reception');
+      if (input.websiteInquiryId) {
+        if (unit !== 'website') forbidden();
+        const [inquiry] = await manager.query<{ ownerId: string }[]>(
+          `SELECT owner_id AS "ownerId" FROM website_inquiries WHERE id=$1 AND business_unit='website' AND deleted_at IS NULL FOR UPDATE`,
+          [input.websiteInquiryId],
+        );
+        if (!inquiry || inquiry.ownerId !== creator.id)
+          invalid('关联询盘必须属于当前收客计调及独立站业务');
+      }
       const data = {
         ...(await this.values(
           manager,
@@ -383,6 +393,7 @@ export class DirectLedgersService {
           unit,
         )),
         business_unit: unit,
+        website_inquiry_id: input.websiteInquiryId ?? null,
         creator_id: creator.id,
         creator_name: creator.name,
         updated_by: actor.id,

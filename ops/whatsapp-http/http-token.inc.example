@@ -1,0 +1,4 @@
+# Example only. Generate a random token at deployment, never commit the real file.
+# Use the same token as WHATSAPP_CHAT_HTTP_TOKEN in the selected backend.
+# This placeholder is deliberately shorter than the application's 32-char minimum.
+proxy_set_header Authorization "Bearer REPLACE_AT_DEPLOYMENT";

@@ -107,7 +107,8 @@ services:
     ports:
       - "127.0.0.1:${DOZZLE_PORT:-8081}:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Directory mount survives proxy socket recreation; never mount the raw engine socket.
+      - /run/sunrise-docker-readonly:/var/run:ro
       - dozzle_data:/data
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
