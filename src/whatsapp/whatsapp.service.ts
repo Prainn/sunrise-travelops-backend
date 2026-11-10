@@ -192,8 +192,10 @@ export class WhatsappService {
     );
     const list = await this.db.query<Conversation[]>(
       `SELECT ${CONVERSATION_COLUMNS},${unread} AS "unreadCount",
-      (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' ELSE text END FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) AS "lastMessageText"
-      ${CONVERSATION_FROM} WHERE ${sql} ORDER BY c.updated_at DESC,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      lm.text AS "lastMessageText",lm.occurred_at AS "lastMessageAt"
+      ${CONVERSATION_FROM}
+      LEFT JOIN LATERAL (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' ELSE text END AS text,occurred_at FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) lm ON true
+      WHERE ${sql} ORDER BY c.updated_at DESC,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
