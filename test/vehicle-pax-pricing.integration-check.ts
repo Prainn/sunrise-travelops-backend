@@ -90,7 +90,7 @@ async function run() {
       await q.query(`DROP TABLE quote_vehicle_range_pax_prices,quote_vehicle_pax_prices,itinerary_vehicle_range_pax_prices,itinerary_vehicle_pax_prices;
         ALTER TABLE itinerary_vehicle_plans DROP COLUMN quotation_mode;
         ALTER TABLE quote_pax_prices DROP COLUMN vehicle_total;`);
-      const totals = await q.query<{ total_price: string | null }[]>(
+      const totals: unknown = await q.query(
         'SELECT total_price FROM itinerary_vehicle_plans WHERE itinerary_id=$1',
         [legacy.id],
       );

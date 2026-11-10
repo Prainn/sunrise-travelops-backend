@@ -18,13 +18,6 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters', 'website'],
   },
   {
-    key: 'whatsapp-management',
-    title: 'whatsappManagement',
-    group: 'whatsappWorkbench',
-    permissions: ['whatsapp:conversation:assign'],
-    scopes: ['headquarters', 'website'],
-  },
-  {
     key: 'whatsapp-integration',
     title: 'whatsappIntegration',
     group: 'whatsappWorkbench',
@@ -293,7 +286,6 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     routeName: 'WhatsappWorkbench',
     children: [
       menuItem('whatsapp-inbox', 'WhatsappInbox'),
-      menuItem('whatsapp-management', 'WhatsappManagement'),
       menuItem('whatsapp-integration', 'WhatsappIntegration'),
     ],
   },
