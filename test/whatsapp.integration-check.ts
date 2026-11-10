@@ -428,6 +428,125 @@ async function main() {
     },
   );
   await check(
+    'quoted text binds same-conversation provider target and preserves it on retry',
+    async () => {
+      const path = `/whatsapp/conversations/${c.id}/messages`;
+      const input = {
+        clientRequestId: randomUUID(),
+        text: '*Synthetic quoted reply*',
+        replyToMessageId: message.id,
+      };
+      await call(b, 'POST', path, input, 404, 'NOT_FOUND');
+      await call(other, 'POST', path, input, 403, 'AUTH_FORBIDDEN');
+      await call(
+        a,
+        'POST',
+        path,
+        { ...input, contextMessageId: 'spoofed' },
+        400,
+      );
+      await call(
+        a,
+        'POST',
+        path,
+        { ...input, replyToMessageId: randomUUID() },
+        404,
+        'NOT_FOUND',
+      );
+      const sent = await call<ChatMessage>(a, 'POST', path, input);
+      assert.equal(sent.attachment?.replyToMessageId, message.id);
+      assert.equal(sent.attachment?.contextMessageId, message.providerId);
+      assert.deepEqual(sent.attachment?.replyTo, {
+        id: message.id,
+        text: message.text.slice(0, 280),
+        kind: message.kind,
+        direction: message.direction,
+        source: message.source,
+      });
+      assert.equal(
+        (await call<ChatMessage>(a, 'POST', path, input)).id,
+        sent.id,
+      );
+      await call(
+        a,
+        'POST',
+        path,
+        { ...input, replyToMessageId: undefined },
+        409,
+        'CONFLICT',
+      );
+      await call(
+        a,
+        'POST',
+        path,
+        { ...input, replyToMessageId: randomUUID() },
+        409,
+        'CONFLICT',
+      );
+      await call(
+        a,
+        'POST',
+        path,
+        { ...input, clientRequestId: randomUUID(), replyToMessageId: sent.id },
+        409,
+        'CONFLICT',
+      );
+      const [reaction] = await h.db.query<{ id: string }[]>(
+        "SELECT id FROM whatsapp_messages WHERE kind='reaction' LIMIT 1",
+      );
+      await call(
+        a,
+        'POST',
+        path,
+        {
+          ...input,
+          clientRequestId: randomUUID(),
+          replyToMessageId: reaction.id,
+        },
+        409,
+        'CONFLICT',
+      );
+      let sends = 0;
+      provider.send = (
+        _account,
+        _recipient,
+        text,
+        _taskId,
+        reaction,
+        contextMessageId,
+      ) => {
+        sends++;
+        assert.equal(text, input.text);
+        assert.equal(reaction, undefined);
+        assert.equal(contextMessageId, message.providerId);
+        return Promise.resolve({
+          status: 'failed',
+          errorCode: 'PROVIDER_REJECTED',
+        });
+      };
+      await service.dispatchOne();
+      const retried = await call<ChatMessage>(
+        a,
+        'POST',
+        `${path}/${sent.id}/retry`,
+        { clientRequestId: randomUUID() },
+      );
+      assert.equal(retried.attachment?.contextMessageId, message.providerId);
+      await service.dispatchOne();
+      assert.equal(sends, 2);
+      const saved = await call<Page<ChatMessage>>(
+        a,
+        'GET',
+        `${path}?pageSize=100`,
+      );
+      assert.equal(
+        saved.list.find((item) => item.id === retried.id)?.attachment
+          ?.replyToMessageId,
+        message.id,
+      );
+    },
+  );
+  await check(
     'mobile echoes have mobile origin and do not falsely attribute staff; API echo deduplicates',
     async () => {
       const echo = payload('mobile-1', {
@@ -831,6 +950,18 @@ async function main() {
         `/whatsapp/conversations/${created.id}/messages`,
       );
       assert.equal(newMessages.total, 1);
+      await call(
+        manager,
+        'POST',
+        `/whatsapp/conversations/${created.id}/messages`,
+        {
+          clientRequestId: randomUUID(),
+          text: 'Synthetic cross-consultation quote',
+          replyToMessageId: message.id,
+        },
+        404,
+        'NOT_FOUND',
+      );
       const detail = await call<{
         hasFormedTours: boolean;
         tours: { title: string }[];

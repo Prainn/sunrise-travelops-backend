@@ -84,6 +84,34 @@ describe('WhatsApp official SDK adapter', () => {
       expect.anything(),
     );
   });
+  it('uses ContextMessageId for a native quoted text reply', async () => {
+    const transport = jest
+      .spyOn(Cams.prototype, 'sendChatappMessageWithOptions')
+      .mockResolvedValue(
+        new SendChatappMessageResponse({
+          body: new SendChatappMessageResponseBody({
+            code: 'OK',
+            messageId: 'quoted-reply',
+          }),
+        }),
+      );
+    await provider.send(
+      account,
+      'ZZ.synthetic',
+      '*hello*',
+      'task',
+      undefined,
+      'original-provider-id',
+    );
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageType: 'text',
+        content: '{"text":"*hello*"}',
+        contextMessageId: 'original-provider-id',
+      }),
+      expect.objectContaining({ autoretry: false, maxAttempts: 1 }),
+    );
+  });
   it.each([
     ['OK', 'unknown'],
     ['InvalidParameter', 'failed'],

@@ -505,6 +505,8 @@ export class WhatsappService {
           existing.kind !== (reaction ? 'reaction' : 'text') ||
           (existing.attachment?.targetMessageId ?? null) !==
             (reaction?.targetMessageId ?? null) ||
+          (existing.attachment?.replyToMessageId ?? null) !==
+            (input.replyToMessageId ?? null) ||
           existing.actorId !== user.id ||
           existing.retryOf !== (retryOf ?? null)
         )
@@ -542,6 +544,39 @@ export class WhatsappService {
           chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
       }
       let attachment: Record<string, unknown> | null = null;
+      if (input.replyToMessageId) {
+        if (reaction)
+          chatFail('VALIDATION_ERROR', '表情回应不能同时引用消息', 400);
+        const [target] = await manager.query<ChatMessage[]>(
+          `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
+          [input.replyToMessageId, id],
+        );
+        if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
+        if (!target.providerId || interaction(target))
+          chatFail('CONFLICT', '该消息暂不能引用回复', 409);
+        const aliases = await manager.query<MessageAlias[]>(
+          `SELECT m.id,m.provider_id AS "providerId",e.payload->'record'->>'UniqueMessageId' AS "externalId"
+           FROM whatsapp_messages m LEFT JOIN whatsapp_events e ON e.message_id=m.id AND e.kind='history_import' AND e.state='done'
+           WHERE m.id=$1`,
+          [target.id],
+        );
+        const edits = await manager.query<ChatMessage[]>(
+          `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND (kind='edit' OR attachment->>'type'='edit')`,
+          [id],
+        );
+        const shown = presentMessages([target], aliases, edits)[0];
+        attachment = {
+          replyToMessageId: target.id,
+          contextMessageId: target.providerId,
+          replyTo: {
+            id: target.id,
+            text: shown.presentation.text.slice(0, 280),
+            kind: target.kind,
+            direction: target.direction,
+            source: target.source,
+          },
+        };
+      }
       if (reaction) {
         const [target] = await manager.query<ChatMessage[]>(
           `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
@@ -617,7 +652,14 @@ export class WhatsappService {
     if (!old) chatFail('NOT_FOUND', '消息不存在', 404);
     return this.enqueue(
       id,
-      { clientRequestId, text: old.text },
+      {
+        clientRequestId,
+        text: old.text,
+        replyToMessageId:
+          typeof old.attachment?.replyToMessageId === 'string'
+            ? old.attachment.replyToMessageId
+            : undefined,
+      },
       user,
       messageId,
       old.kind === 'reaction'
@@ -692,6 +734,9 @@ export class WhatsappService {
                 : '',
             emoji: job.m.text,
           }
+        : undefined,
+      typeof job.m.attachment?.contextMessageId === 'string'
+        ? job.m.attachment.contextMessageId
         : undefined,
     );
     await this.db.transaction(async (manager) => {

@@ -10,10 +10,12 @@ const { RuntimeOptions } = require('@darabonba/typescript');
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', ''];
 function validateSend(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction'].includes(key)) ||
+      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId'].includes(key)) ||
       typeof value.recipient !== 'string' || !/^(\d{5,20}|[A-Z]{2}\.[A-Za-z0-9.]+)$/.test(value.recipient) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.taskId) ||
       typeof value.text !== 'string' || value.text.length > 4096) return false;
+  if (value.contextMessageId !== undefined &&
+      (typeof value.contextMessageId !== 'string' || !value.contextMessageId.length || value.contextMessageId.length > 1000 || value.reaction !== undefined)) return false;
   if (value.reaction !== undefined) {
     const reaction = value.reaction;
     return !!reaction && typeof reaction === 'object' && !Array.isArray(reaction) &&
@@ -64,11 +66,11 @@ async function main() {
   const client = new CamsModule.default(new $OpenApiUtil.Config({
     credential, endpoint: 'cams.ap-southeast-1.aliyuncs.com',
   }));
-  const server = createRelay(async ({ recipient, text, taskId, reaction }) => {
+  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId }) => {
     const result = await client.sendChatappMessageWithOptions(new CamsModule.SendChatappMessageRequest({
       channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : 'text',
       custSpaceId: config.spaceId, from: config.phone, to: recipient,
-      content: JSON.stringify(reaction ?? { text }), taskId,
+      content: JSON.stringify(reaction ?? { text }), taskId, contextMessageId,
     }), new RuntimeOptions({ autoretry: false, maxAttempts: 1, connectTimeout: 5000, readTimeout: 10000 }));
     if (result.body?.code === 'OK' && result.body.messageId)
       return { status: 'accepted', providerId: result.body.messageId };

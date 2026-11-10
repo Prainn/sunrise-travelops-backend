@@ -11,9 +11,24 @@ test('relay restricts request shape to text/reaction sends without credential or
   assert.equal(validateSend({ ...text, phone: '0000000001' }), false);
   assert.equal(validateSend({ ...text, text: '' }), false);
   assert.equal(validateSend({ ...text, text: 'x'.repeat(4097) }), false);
+  assert.equal(validateSend({ ...text, contextMessageId: 'original-id' }), true);
+  for (const contextMessageId of ['', 123, 'x'.repeat(1001)]) assert.equal(validateSend({ ...text, contextMessageId }), false);
+  assert.equal(validateSend({ ...text, text: '👍', contextMessageId: 'id', reaction: { messageId: 'id', emoji: '👍' } }), false);
   for (const emoji of ['👍', '']) assert.equal(validateSend({ ...text, text: emoji, reaction: { messageId: 'synthetic-message', emoji } }), true);
   assert.equal(validateSend({ ...text, text: '👍', reaction: { messageId: 'id', emoji: '👍', endpoint: 'bad' } }), false);
   assert.equal(validateSend({ ...text, text: '👍', reaction: { messageId: '', emoji: '👍' } }), false);
+});
+
+test('relay forwards the quoted provider ID intact without exposing general SDK options', async () => {
+  let received;
+  const relay = createRelay(async (body) => { received = body; return { status: 'accepted', providerId: 'reply-id' }; }, async () => {});
+  await new Promise((resolve) => relay.listen(0, '127.0.0.1', resolve));
+  try {
+    const body = { recipient: 'ZZ.synthetic', text: '*hello*', taskId: randomUUID(), contextMessageId: 'original-id' };
+    const response = await fetch(`http://127.0.0.1:${relay.address().port}/send`, { method: 'POST', body: JSON.stringify(body) });
+    assert.equal(response.status, 200);
+    assert.deepEqual(received, body);
+  } finally { await new Promise((resolve) => relay.close(resolve)); }
 });
 
 test('relay exposes results and credential readiness, never retries a send after failure', async () => {

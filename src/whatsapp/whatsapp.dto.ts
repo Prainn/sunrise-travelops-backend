@@ -45,6 +45,7 @@ export class ReadChatDto {
 }
 export class SendTextDto {
   @IsUUID() clientRequestId: string;
+  @IsOptional() @IsUUID() replyToMessageId?: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )

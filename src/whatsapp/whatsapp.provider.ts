@@ -18,6 +18,7 @@ export class WhatsappProvider {
     text: string,
     taskId: string,
     reaction?: { messageId: string; emoji: string },
+    contextMessageId?: string,
   ): Promise<SendResult> {
     this.config.assertSend(recipient);
     const socketPath = this.config.get('SEND_SOCKET');
@@ -27,6 +28,7 @@ export class WhatsappProvider {
         text,
         taskId,
         ...(reaction ? { reaction } : {}),
+        ...(contextMessageId ? { contextMessageId } : {}),
       });
     // Construct only on an authorized send; no credential resolution/network at module import.
     const client = new Cams(
@@ -46,6 +48,7 @@ export class WhatsappProvider {
           to: recipient,
           content: JSON.stringify(reaction ?? { text }),
           taskId,
+          contextMessageId,
         }),
         new RuntimeOptions({
           autoretry: false,

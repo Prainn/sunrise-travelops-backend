@@ -207,6 +207,34 @@ describe('WhatsApp configuration and permissions', () => {
   });
 });
 describe('WhatsApp DTO boundary', () => {
+  it('allows only a local UUID as the quoted message target, never a provider override', () => {
+    const base = { clientRequestId: randomUUID(), text: 'reply' };
+    expect(
+      validateSync(
+        plainToInstance(SendTextDto, {
+          ...base,
+          replyToMessageId: randomUUID(),
+        }),
+      ),
+    ).toHaveLength(0);
+    expect(
+      validateSync(
+        plainToInstance(SendTextDto, {
+          ...base,
+          replyToMessageId: 'provider-id',
+        }),
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      validateSync(
+        plainToInstance(SendTextDto, {
+          ...base,
+          contextMessageId: 'provider-id',
+        }),
+        { whitelist: true, forbidNonWhitelisted: true },
+      ).length,
+    ).toBeGreaterThan(0);
+  });
   it('rejects empty text and additional fields', () => {
     const dto = plainToInstance(SendTextDto, {
       clientRequestId: randomUUID(),
