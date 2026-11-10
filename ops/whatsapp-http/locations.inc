@@ -6,6 +6,8 @@ location ~* ^/api/whatsapp/ingress/(inbound|status)/?$ {
     if ($request_method != POST) { return 405; }
 
     client_max_body_size 1m;
+    limit_req zone=whatsapp_callback_rate burst=100 nodelay;
+    limit_req_status 429;
     access_log /var/log/nginx/access.log whatsapp_callback;
 
     proxy_pass http://$api_upstream;

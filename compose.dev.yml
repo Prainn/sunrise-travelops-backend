@@ -1,5 +1,13 @@
 # Preserve existing dev database TLS and client access during the CI refactor.
 services:
+  api:
+    # Optional, private dev-only HTTP receive configuration. Never pass it to migrations.
+    env_file:
+      - path: ./whatsapp-receive.env
+        required: false
+    environment:
+      # This dev integration is receive-only, including after future API releases.
+      WHATSAPP_CHAT_SEND_ENABLED: "false"
   postgres:
     networks:
       app: {}

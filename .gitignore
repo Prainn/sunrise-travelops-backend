@@ -4,6 +4,7 @@ dist/
 coverage/
 .env
 .env.*
+whatsapp-receive.env
 *.log
 .DS_Store
 .idea/
