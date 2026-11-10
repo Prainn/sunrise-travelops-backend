@@ -176,7 +176,7 @@ export class WhatsappService {
       );
     }
     const userParam = params.push(user.id);
-    const unread = `(SELECT count(*)::int FROM whatsapp_messages m WHERE m.conversation_id=c.id AND m.direction='inbound' AND m.seq>coalesce((SELECT last_seq FROM whatsapp_reads r WHERE r.conversation_id=c.id AND r.user_id=$${userParam}),0))`;
+    const unread = `(SELECT count(*)::int FROM whatsapp_messages m WHERE m.conversation_id=c.id AND m.direction='inbound' AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done') AND m.seq>coalesce((SELECT last_seq FROM whatsapp_reads r WHERE r.conversation_id=c.id AND r.user_id=$${userParam}),0))`;
     if (query.unread)
       where.push(`${unread}${query.unread === 'true' ? '>0' : '=0'}`);
     where.push(`$${userParam}::uuid IS NOT NULL`);
@@ -187,7 +187,7 @@ export class WhatsappService {
     );
     const list = await this.db.query<Conversation[]>(
       `SELECT ${CONVERSATION_COLUMNS},${unread} AS "unreadCount",
-      (SELECT text FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY seq DESC LIMIT 1) AS "lastMessageText"
+      (SELECT text FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) AS "lastMessageText"
       ${CONVERSATION_FROM} WHERE ${sql} ORDER BY c.updated_at DESC,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
