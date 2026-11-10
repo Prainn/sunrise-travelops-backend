@@ -146,6 +146,42 @@ export class ItineraryValidation {
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
+    plan.titleEn ??= '';
+    plan.customerDisplayMode ??= 'same';
+    plan.returnArrivalText ??= '返回温馨的家';
+    plan.returnArrivalTextEn ??= 'Arrive home';
+    if (
+      plan.customerDisplayMode === 'returnArrival' &&
+      !plan.returnArrivalText.trim()
+    )
+      invalid('请填写返程抵达展示内容');
+    // Explicitly no accommodation is distinct from an unfinished overnight selection.
+    const noAccommodation =
+      plan.dailyPlans.length > 0 &&
+      plan.dailyPlans.every((d) => d.overnightDestination === '');
+    if (noAccommodation) plan.hotelPlans = [];
+    for (const day of [
+      ...plan.dailyPlans,
+      ...(plan.deletedDays ?? []).map((d) => d.day),
+    ]) {
+      day.viaDestinations ??= [];
+      day.departureEn ??= '';
+      day.destinationEn ??= '';
+      day.transportEn ??= '';
+      day.descriptionEn ??= '';
+      for (const item of day.items) {
+        item.resourceNameEn ??= '';
+        item.remarkEn ??= '';
+      }
+    }
+    plan.quote.customerNotesEn ??= '';
+    plan.quote.holidayRestrictionsEn ??= '';
+    plan.quote.hotelReplacementTermsEn ??= '';
+    for (const fee of plan.quote.transportFees) {
+      fee.departureCityEn ??= '';
+      fee.arrivalCityEn ??= '';
+    }
+
     await this.assertUniqueResources(manager, plan);
     if (!previous && plan.dailyPlans.length !== plannedDays)
       invalid('新建行程天数必须与询盘计划天数一致');
@@ -186,6 +222,11 @@ export class ItineraryValidation {
     unique(plan.quote.options.map((p) => p.id));
     unique(plan.quote.transportFees.map((p) => p.id));
     plan.dailyPlans.forEach((day, index) => {
+      unique(day.viaDestinations ?? []);
+      if (
+        day.viaDestinations?.some((city) => !plan.destinations.includes(city))
+      )
+        invalid('途经地必须先加入行程目的地');
       day.dayNumber = index + 1;
       day.date = dateAt(plan.startDate, index);
       day.overnightDestination ??= null;
@@ -579,31 +620,32 @@ export class ItineraryValidation {
       if (option.paxPrices.some((price) => !plan.paxTiers.includes(price.pax)))
         invalid('报价档位不属于行程');
     }
-    plan.quote.options = plan.hotelPlans
-      .filter((p) => p.hotels.length)
-      .flatMap((h) =>
-        plan.vehiclePlans
-          .filter((p) => p.arrangements.length)
-          .map((v) => {
-            const option = options.find(
-              (o) => o.hotelTier === h.tier && o.vehicleTier === v.tier,
-            );
-            return {
-              id: option?.id ?? randomUUID(),
-              hotelTier: h.tier,
-              vehicleTier: v.tier,
-              paxPrices: plan.paxTiers.map((pax) => {
-                const price = option?.paxPrices.find(
-                  (price) => price.pax === pax,
-                )?.adultUnitPrice;
-                return {
-                  pax,
-                  adultUnitPrice: price == null ? null : roundMoney(price),
-                };
-              }),
-            };
-          }),
-      );
+    const hotelTiers = noAccommodation
+      ? [null]
+      : plan.hotelPlans.filter((p) => p.hotels.length).map((p) => p.tier);
+    plan.quote.options = hotelTiers.flatMap((hotelTier) =>
+      plan.vehiclePlans
+        .filter((p) => p.arrangements.length)
+        .map((v) => {
+          const option = options.find(
+            (o) => o.hotelTier === hotelTier && o.vehicleTier === v.tier,
+          );
+          return {
+            id: option?.id ?? randomUUID(),
+            hotelTier,
+            vehicleTier: v.tier,
+            paxPrices: plan.paxTiers.map((pax) => {
+              const price = option?.paxPrices.find(
+                (price) => price.pax === pax,
+              )?.adultUnitPrice;
+              return {
+                pax,
+                adultUnitPrice: price == null ? null : roundMoney(price),
+              };
+            }),
+          };
+        }),
+    );
     for (const fee of plan.quote.transportFees) {
       if (
         !(
@@ -626,7 +668,8 @@ export class ItineraryValidation {
     const issues: string[] = missingItineraryPrices(plan);
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
-      !hotels.length ||
+      (!hotels.length &&
+        !plan.dailyPlans.every((d) => d.overnightDestination === '')) ||
       !plan.vehiclePlans.some(
         (p) =>
           p.arrangements.length &&

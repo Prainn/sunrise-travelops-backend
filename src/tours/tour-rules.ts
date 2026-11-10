@@ -100,6 +100,11 @@ export function validateServiceTimes(
     throw new Error('Invalid service interval');
 }
 
+/** Service dates are Shanghai calendar dates; both endpoints occupy a day. */
+export function validateServiceDates(from: string, to: string): void {
+  if (parseDate(from) > parseDate(to)) throw new Error('Invalid service dates');
+}
+
 export function tourNumberBase(
   prefix: string,
   pickupDate: string,

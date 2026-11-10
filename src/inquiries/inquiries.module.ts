@@ -14,9 +14,12 @@ import {
 } from './inquiries.controller';
 import { InquiriesService } from './inquiries.service';
 import { ItineraryValidation } from './itinerary-validation';
+import { FeishuModule } from '../feishu/feishu.module';
+import { InquiryRemindersService } from './inquiry-reminders.service';
 @Module({
   imports: [
     ResourcesModule,
+    FeishuModule,
     TypeOrmModule.forFeature([
       InquiryEntity,
       InquiryLogEntity,
@@ -29,7 +32,7 @@ import { ItineraryValidation } from './itinerary-validation';
     ItinerariesController,
     InquiryLogsController,
   ],
-  providers: [InquiriesService, ItineraryValidation],
+  providers: [InquiriesService, ItineraryValidation, InquiryRemindersService],
   exports: [InquiriesService],
 })
 export class InquiriesModule {}

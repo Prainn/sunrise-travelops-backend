@@ -186,7 +186,7 @@ export class GuidePeopleService {
     const rows = await manager.query<unknown[]>(
       `SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
        WHERE s.guide_id=$1 AND t.status='active'
-       AND s.service_end_at >= (now() AT TIME ZONE 'Asia/Shanghai') LIMIT 1`,
+       AND s.service_end_at::date >= (now() AT TIME ZONE 'Asia/Shanghai')::date LIMIT 1`,
       [id],
     );
     if (rows.length)

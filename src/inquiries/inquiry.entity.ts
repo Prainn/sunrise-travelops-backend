@@ -1,3 +1,4 @@
+import type { CustomerPresentation } from './customer-presentation';
 import {
   Column,
   CreateDateColumn,
@@ -15,8 +16,9 @@ import type {
   LegacyQuoteCalculation,
 } from './itinerary.types';
 export interface InquiryData {
-  agencyId: string;
-  contactId: string;
+  isSeries?: boolean;
+  agencyId: string | null;
+  contactId: string | null;
   agencyCode: string;
   agencyName: string;
   contactName: string;
@@ -28,13 +30,15 @@ export interface InquiryData {
   sourceChannel: string;
   originalMessage: string;
   internalRemark: string;
-  plannedDays: number;
+  plannedDays: number | null;
   nextFollowUpAt: string | null;
   lostReason: string;
 }
 @Entity('inquiries')
 @Index('IDX_inquiries_owner_created', ['ownerId', 'createdAt'])
 export class InquiryEntity extends AuditedEntity {
+  @Column({ name: 'is_series', type: 'boolean', default: false })
+  isSeries: boolean;
   @DeleteDateColumn({ name: 'deleted_at', type: 'timestamptz', nullable: true })
   deletedAt: Date | null;
   @Column({ unique: true }) code: string;
@@ -43,9 +47,9 @@ export class InquiryEntity extends AuditedEntity {
   @Column({ default: 'new' }) status: string;
   @Column() creator: string;
   @Column({ name: 'business_unit', type: 'text' }) businessUnit: string;
-  @Column({ name: 'agency_id', type: 'uuid' })
+  @Column({ name: 'agency_id', type: 'uuid', nullable: true })
   agencyId: InquiryData['agencyId'];
-  @Column({ name: 'contact_id', type: 'uuid' })
+  @Column({ name: 'contact_id', type: 'uuid', nullable: true })
   contactId: InquiryData['contactId'];
   @Column({ name: 'agency_code', type: 'text' })
   agencyCode: InquiryData['agencyCode'];
@@ -72,7 +76,7 @@ export class InquiryEntity extends AuditedEntity {
   originalMessage: InquiryData['originalMessage'];
   @Column({ name: 'internal_remark', type: 'text' })
   internalRemark: InquiryData['internalRemark'];
-  @Column({ name: 'planned_days', type: 'integer' })
+  @Column({ name: 'planned_days', type: 'integer', nullable: true })
   plannedDays: InquiryData['plannedDays'];
   @Column({ name: 'next_follow_up_at', type: 'text', nullable: true })
   nextFollowUpAt: InquiryData['nextFollowUpAt'];
@@ -80,6 +84,7 @@ export class InquiryEntity extends AuditedEntity {
   lostReason: InquiryData['lostReason'];
   get data(): InquiryData {
     return {
+      isSeries: this.isSeries,
       agencyId: this.agencyId,
       contactId: this.contactId,
       agencyCode: this.agencyCode,
@@ -99,6 +104,7 @@ export class InquiryEntity extends AuditedEntity {
     };
   }
   set data(value: InquiryData) {
+    this.isSeries = value.isSeries ?? false;
     this.agencyId = value.agencyId;
     this.contactId = value.contactId;
     this.agencyCode = value.agencyCode;
@@ -127,6 +133,24 @@ export class ItineraryEntity extends AuditedEntity {
   @Column() creator: string;
   data: ItineraryInput;
   @Column({ name: 'title', type: 'text' }) title: string;
+  @Column({ name: 'title_en', type: 'varchar', length: 300, default: '' })
+  titleEn: string;
+  @Column({ name: 'customer_display_mode', type: 'text', default: 'same' })
+  customerDisplayMode: 'same' | 'returnArrival';
+  @Column({
+    name: 'return_arrival_text',
+    type: 'varchar',
+    length: 2000,
+    default: '返回温馨的家',
+  })
+  returnArrivalText: string;
+  @Column({
+    name: 'return_arrival_text_en',
+    type: 'varchar',
+    length: 2000,
+    default: 'Arrive home',
+  })
+  returnArrivalTextEn: string;
   @Column({ name: 'start_date', type: 'text' }) startDate: string;
   @Column({ name: 'pax_tiers', type: 'integer', array: true })
   paxTiers: number[];
@@ -173,6 +197,8 @@ export class InquiryLogEntity {
   @Column({ name: 'request_id', default: '' }) requestId: string;
 }
 export interface CurrentPdfData {
+  customerPresentation?: CustomerPresentation;
+  exportLanguage?: 'zh' | 'en';
   inquiry: InquiryData & {
     id: string;
     code: string;

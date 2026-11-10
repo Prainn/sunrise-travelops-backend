@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import { FeishuService } from '../src/feishu/feishu.service';
 import { AccountLinksService } from '../src/users/account-links.service';
 import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
@@ -956,7 +957,12 @@ async function main() {
       db,
       resourceValidation,
     );
-    const service = new InquiriesService(db, validation, agencies);
+    const service = new InquiriesService(
+      db,
+      validation,
+      agencies,
+      {} as InquiryRemindersService,
+    );
     const actor = async (user: AuthenticatedUser) =>
       service.actor(user, { ip: '127.0.0.1' } as Request);
     const a = await actor(owner),

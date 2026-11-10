@@ -80,12 +80,15 @@ export interface ItineraryPaxOtherCost {
 
 export interface ItineraryQuoteOption {
   id: string;
-  hotelTier: ItineraryHotelTier;
+  hotelTier: ItineraryHotelTier | null;
   vehicleTier: ItineraryVehicleTier;
   paxPrices: ItineraryPaxPrice[];
 }
 
 export interface ItineraryQuoteSettings {
+  customerNotesEn?: string;
+  holidayRestrictionsEn?: string;
+  hotelReplacementTermsEn?: string;
   mealOtherCost: number | null;
   mealOtherReason: string;
   attractionOtherCost: number | null;
@@ -104,6 +107,8 @@ export interface ItineraryQuoteSettings {
 }
 
 export interface ItineraryTransportFee {
+  departureCityEn?: string;
+  arrivalCityEn?: string;
   id: string;
   type: 'flight' | 'train';
   departureCity: string;
@@ -174,7 +179,7 @@ export interface ItineraryPaxCalculation {
 
 export interface ItineraryQuoteOptionCalculation {
   optionId: string;
-  hotelTier: ItineraryHotelTier;
+  hotelTier: ItineraryHotelTier | null;
   vehicleTier: ItineraryVehicleTier;
   hotelCityCosts?: {
     destination: string;
@@ -220,6 +225,8 @@ export type ItineraryQuoteCalculation =
   PaxQuoteCalculation | LegacyQuoteCalculation;
 
 export interface ItineraryResourceItem extends ReferencePrice {
+  resourceNameEn?: string;
+  remarkEn?: string;
   id: string;
   type: ItineraryItemType;
   /** Both IDs are null for an itinerary-only custom restaurant. */
@@ -236,6 +243,11 @@ export interface ItineraryResourceItem extends ReferencePrice {
 }
 
 export interface ItineraryDayRecord {
+  viaDestinations?: string[];
+  departureEn?: string;
+  destinationEn?: string;
+  transportEn?: string;
+  descriptionEn?: string;
   id: string;
   dayNumber: number;
   date: string;
@@ -259,6 +271,10 @@ export interface ItineraryGuidePlan extends ReferencePrice {
 }
 
 export interface ItineraryRecord {
+  titleEn?: string;
+  customerDisplayMode?: 'same' | 'returnArrival';
+  returnArrivalText?: string;
+  returnArrivalTextEn?: string;
   guidePlans: ItineraryGuidePlan[];
   id: string;
   inquiryId: string;

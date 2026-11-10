@@ -1,5 +1,7 @@
 import { BusinessUnit } from '../users/user-identity.entity';
 import { TransferInquiryDto } from './inquiry.dto';
+import { FollowUpInput } from './inquiry.dto';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
   Body,
   Controller,
@@ -29,6 +31,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { InquiriesService } from './inquiries.service';
 import {
   ConfirmPdfDto,
+  ExportQueryDto,
   ContactInput,
   CopyItineraryDto,
   InquiryInput,
@@ -124,6 +127,34 @@ export class InquiriesController {
     @Req() req: Request,
   ) {
     return this.service.transfers(id, await this.service.actor(user, req));
+  }
+  @Get(':id/follow-ups')
+  @Permissions('inquiry:list')
+  async followUps(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: PaginationQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.service.followUps(
+      id,
+      query,
+      await this.service.actor(user, req),
+    );
+  }
+  @Post(':id/follow-ups')
+  @Permissions('inquiry:update')
+  async addFollowUp(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: FollowUpInput,
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ) {
+    return this.service.addFollowUp(
+      id,
+      input,
+      await this.service.actor(user, req),
+    );
   }
   @Get(':id')
   @Permissions('inquiry:list')
@@ -270,12 +301,13 @@ export class ItinerariesController {
   @Get(':id/pdf-data')
   @Permissions('itinerary:list')
   async pdf(
+    @Query() query: ExportQueryDto,
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,
   ) {
     const actor = await this.service.actor(user, req);
-    return moneyResponse(await this.service.pdfData(id, actor));
+    return moneyResponse(await this.service.pdfData(id, actor, query.language));
   }
   @Post(':id/download-click')
   @HttpCode(200)

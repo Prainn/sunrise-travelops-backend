@@ -37,7 +37,7 @@ export class SelectionService {
       qb.andWhere(`resource.${city} = :city`, { city: query.city.trim() });
     if (query.keyword?.trim())
       qb.andWhere(
-        '(resource.name ILIKE :keyword OR resource.description ILIKE :keyword)',
+        '(resource.name ILIKE :keyword OR resource.description ILIKE :keyword OR resource.englishName ILIKE :keyword OR resource.englishDescription ILIKE :keyword)',
         { keyword: `%${query.keyword.trim()}%` },
       );
     const total = await qb.getCount();
@@ -45,6 +45,8 @@ export class SelectionService {
       .addSelect('resource.id', 'resourceId')
       .addSelect('resource.isStandardPrice', 'isStandardPrice')
       .addSelect('resource.name', 'resourceName')
+      .addSelect('resource.englishName', 'englishName')
+      .addSelect('resource.englishDescription', 'englishDescription')
       .addSelect(`resource.${city}`, 'city')
       .addSelect('resource.unit', 'unit')
       .addSelect('resource.price', 'unitCost');

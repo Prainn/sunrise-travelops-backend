@@ -1,3 +1,10 @@
+import { appendFollowUp, cancelInquiryReminders } from './follow-ups';
+import { InquiryRemindersService } from './inquiry-reminders.service';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import {
+  buildCustomerPresentation,
+  exportSnapshot,
+} from './customer-presentation';
 import {
   UserIdentityEntity,
   BusinessUnit,
@@ -27,6 +34,7 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import type { ErrorCodeValue } from '../common/constants/error-code';
 import {
   ACTIONS,
+  FollowUpInput,
   ConfirmPdfDto,
   ContactInput,
   CopyItineraryDto,
@@ -70,6 +78,7 @@ export class InquiriesService {
     private readonly db: DataSource,
     private readonly validation: ItineraryValidation,
     private readonly agencies: AgenciesService,
+    private readonly reminders: InquiryRemindersService,
   ) {}
   actor(user: AuthenticatedUser, request: Request): Promise<Actor> {
     return Promise.resolve({
@@ -173,6 +182,12 @@ export class InquiriesService {
       updatedAt: row.updatedAt.toISOString(),
       version: row.version,
       days: row.data.dailyPlans.length,
+      displayDays:
+        row.data.dailyPlans.length +
+        (row.data.customerDisplayMode === 'returnArrival' ? 1 : 0),
+      accommodationNights: row.data.dailyPlans.filter(
+        (d) => !!d.overnightDestination,
+      ).length,
       endDate: dateAt(row.data.startDate, row.data.dailyPlans.length - 1),
       quoteGeneratedAt: generatedAt,
     };
@@ -307,6 +322,49 @@ export class InquiriesService {
     previous?: InquiryEntity,
     businessUnit?: BusinessUnit,
   ) {
+    if (input.isSeries) {
+      if ((businessUnit ?? previous?.businessUnit) !== 'shengxu')
+        invalid('系列询盘仅用于盛旭');
+      if (
+        input.agencyId !== undefined ||
+        input.contactId !== undefined ||
+        input.plannedDays !== undefined ||
+        input.sourceChannel !== undefined
+      )
+        invalid('系列询盘不填写组团社、联系人、来源渠道和计划天数');
+      const country =
+        previous?.countryItemId === input.countryItemId
+          ? {
+              id: previous.countryItemId,
+              code: previous.countryCode,
+              name: previous.countryOrRegion,
+            }
+          : await requireDictionaryItem(
+              manager,
+              'country-region',
+              input.countryItemId,
+            );
+      return {
+        isSeries: true,
+        agencyId: null,
+        contactId: null,
+        agencyCode: '',
+        agencyName: '',
+        contactName: '',
+        email: '',
+        phone: '',
+        countryItemId: country.id,
+        countryCode: country.code,
+        countryOrRegion: country.name,
+        sourceChannel: '',
+        originalMessage: input.originalMessage?.trim() ?? '',
+        internalRemark: previous?.internalRemark ?? input.internalRemark,
+        plannedDays: null,
+        nextFollowUpAt: previous?.nextFollowUpAt ?? null,
+        lostReason: input.status === 'lost' ? input.lostReason.trim() : '',
+      };
+    }
+    if (!input.originalMessage?.trim()) invalid('请填写客户原始消息');
     const unchanged =
       previous?.data.agencyId === input.agencyId &&
       previous.data.contactId === input.contactId;
@@ -394,25 +452,40 @@ export class InquiriesService {
         (input.businessUnit && input.businessUnit !== businessUnit)
       )
         invalid('Business unit required');
-      const agency = await manager.findOneBy(AgencyEntity, {
-        id: input.agencyId,
-      });
-      if (
-        !agency ||
-        agency.status !== ResourceStatus.Enabled ||
-        agency.businessUnit !== businessUnit ||
-        !agency.coordinatorId ||
-        (input.ownerId && input.ownerId !== agency.coordinatorId)
-      )
-        fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
-      const owner = await this.owner(
-        agency.coordinatorId,
-        actor,
-        manager,
-        businessUnit,
-        false,
-        true,
-      );
+      let owner: UserEntity;
+      if (input.isSeries) {
+        if (businessUnit !== 'shengxu') invalid('系列询盘仅用于盛旭');
+        const ownerId =
+          actor.roles.includes('COORDINATOR') && actor.scope === 'shengxu'
+            ? actor.id
+            : input.ownerId;
+        if (
+          !ownerId ||
+          (!actor.admin && input.ownerId && input.ownerId !== actor.id)
+        )
+          fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
+        owner = await this.owner(ownerId, actor, manager, businessUnit, true);
+      } else {
+        const agency = await manager.findOneBy(AgencyEntity, {
+          id: input.agencyId,
+        });
+        if (
+          !agency ||
+          agency.status !== ResourceStatus.Enabled ||
+          agency.businessUnit !== businessUnit ||
+          !agency.coordinatorId ||
+          (input.ownerId && input.ownerId !== agency.coordinatorId)
+        )
+          fail('INQUIRY_OWNER_INVALID', HttpStatus.BAD_REQUEST);
+        owner = await this.owner(
+          agency.coordinatorId,
+          actor,
+          manager,
+          businessUnit,
+          false,
+          true,
+        );
+      }
       const row = await manager.save(
         InquiryEntity,
         Object.assign(new InquiryEntity(), {
@@ -427,6 +500,13 @@ export class InquiriesService {
           data: await this.data(input, manager, undefined, businessUnit),
         }),
       );
+      if (row.internalRemark.trim() || row.nextFollowUpAt)
+        await appendFollowUp(
+          manager,
+          row.id,
+          { remark: row.internalRemark, nextFollowUpAt: row.nextFollowUpAt },
+          actor,
+        );
       await this.log(
         manager,
         row,
@@ -442,7 +522,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const row = await this.inquiry(id, actor, manager, true);
       this.writable(row, actor);
-      await assertNoActiveTour(manager, 'standard', row.id);
+      await assertNoActiveTour(manager, 'standard', row.id, true);
       this.checkVersion(row.version, input.version);
       if (
         input.status &&
@@ -452,6 +532,8 @@ export class InquiriesService {
         invalid('Invalid inquiry status transition');
       if (input.status === 'lost' && !input.lostReason.trim())
         invalid('Lost reason required');
+      if ((input.isSeries ?? false) !== row.isSeries)
+        invalid('询盘类型创建后不可切换');
       const nextData = await this.data(input, manager, row);
       if (
         (input.ownerId && input.ownerId !== row.ownerId) ||
@@ -475,12 +557,24 @@ export class InquiriesService {
         },
       );
       if (!changes.length) return this.inquiryResponse(row, actor);
+      const followUpChanged =
+        row.internalRemark !== nextData.internalRemark ||
+        row.nextFollowUpAt !== nextData.nextFollowUpAt;
       row.data = nextData;
       row.status = nextStatus;
       row.ownerId = owner.id;
       row.owner = owner.nickname;
       row.updatedBy = actor.id;
       const saved = await manager.save(row);
+      if (followUpChanged)
+        await appendFollowUp(
+          manager,
+          row.id,
+          { remark: row.internalRemark, nextFollowUpAt: row.nextFollowUpAt },
+          actor,
+          nextStatus !== 'lost',
+        );
+      if (nextStatus === 'lost') await cancelInquiryReminders(manager, row.id);
       await this.log(
         manager,
         row,
@@ -501,6 +595,7 @@ export class InquiriesService {
         fail('AUTH_FORBIDDEN', HttpStatus.FORBIDDEN);
       this.checkVersion(row.version, version);
       await assertNoActiveTour(manager, 'standard', row.id);
+      await cancelInquiryReminders(manager, row.id);
       row.deletedAt = new Date();
       row.updatedBy = actor.id;
       await manager.save(row);
@@ -514,6 +609,7 @@ export class InquiriesService {
       await assertNoActiveTour(manager, 'standard', row.id);
       this.checkVersion(row.version, version);
       const before = row.status;
+      await cancelInquiryReminders(manager, row.id);
       row.status = 'archived';
       row.updatedBy = actor.id;
       await manager.save(row);
@@ -658,7 +754,7 @@ export class InquiriesService {
       this.db.manager,
       input,
       itinerary.data,
-      inquiry.data.plannedDays,
+      inquiry.data.plannedDays ?? input.dailyPlans.length,
       false,
     );
     return this.calculateQuote(data);
@@ -678,12 +774,12 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const inquiry = await this.inquiry(id, actor, manager, true);
       this.writable(inquiry, actor);
-      await assertNoActiveTour(manager, 'standard', inquiry.id);
+      await assertNoActiveTour(manager, 'standard', inquiry.id, true);
       const data = await this.validation.normalize(
         manager,
         input,
         undefined,
-        inquiry.data.plannedDays,
+        inquiry.data.plannedDays ?? input.dailyPlans.length,
       );
       const row = await manager.save(
         ItineraryEntity,
@@ -721,7 +817,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       this.writable(inquiry, actor);
-      await assertNoActiveTour(manager, 'standard', inquiry.id);
+      await assertNoActiveTour(manager, 'standard', inquiry.id, true);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       this.checkVersion(itinerary.version, input.version, true);
@@ -731,7 +827,7 @@ export class InquiriesService {
         manager,
         body,
         itinerary.data,
-        inquiry.data.plannedDays,
+        inquiry.data.plannedDays ?? input.dailyPlans.length,
       );
       const changes = contextualChanges(itinerary.data, data);
       if (!changes.length) return this.itineraryResponse(itinerary);
@@ -763,7 +859,7 @@ export class InquiriesService {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       this.writable(inquiry, actor);
-      await assertNoActiveTour(manager, 'standard', inquiry.id);
+      await assertNoActiveTour(manager, 'standard', inquiry.id, true);
       this.checkVersion(itinerary.version, input.version, true);
       const data = structuredClone(itinerary.data);
       data.title = input.title;
@@ -848,6 +944,15 @@ export class InquiriesService {
       quoteCode: `${row.code}-V1`,
       quoteVersion: 1,
       calculation: await this.calculateQuote(row.data, manager),
+      ...(inquiry.businessUnit === 'shengxu'
+        ? {
+            customerPresentation: await buildCustomerPresentation(
+              manager,
+              row.data,
+              inquiry,
+            ),
+          }
+        : {}),
     };
   }
   /** Records the first download click on a frozen quote; repeats keep the first time. */
@@ -863,24 +968,35 @@ export class InquiriesService {
     if (!rows[0]) fail('PDF_NOT_READY', HttpStatus.CONFLICT);
     return { firstDownloadedAt: rows[0].firstDownloadedAt };
   }
-  async pdfData(id: string, actor: Actor) {
+  async pdfData(id: string, actor: Actor, language: 'zh' | 'en' = 'zh') {
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
       const original = await manager.findOneBy(ItineraryQuoteEntity, {
         itineraryId: id,
       });
-      if (original) return original.snapshot;
+      if (language === 'en' && inquiry.businessUnit !== 'shengxu')
+        invalid('英文导出当前仅支持盛旭');
+      if (original) return exportSnapshot(original.snapshot, language);
       this.writable(inquiry, actor);
-      await assertNoActiveTour(manager, 'standard', inquiry.id);
+      await assertNoActiveTour(manager, 'standard', inquiry.id, true);
       await this.validation.assertUniqueResources(manager, itinerary.data);
-      this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
-      return this.pdfSnapshot(inquiry, itinerary, manager);
+      this.validation.assertPdfReady(
+        itinerary.data,
+        inquiry.data.plannedDays ?? itinerary.data.dailyPlans.length,
+      );
+      return exportSnapshot(
+        await this.pdfSnapshot(inquiry, itinerary, manager),
+        language,
+      );
     });
   }
   async confirmPdf(id: string, input: ConfirmPdfDto, actor: Actor) {
     this.permission(actor, 'itinerary:pdf');
     return this.db.transaction(async (manager) => {
       const { inquiry, itinerary } = await this.pair(id, actor, manager, true);
+      const language = input.language ?? 'zh';
+      if (language === 'en' && inquiry.businessUnit !== 'shengxu')
+        invalid('英文导出当前仅支持盛旭');
       const original = await manager.findOneBy(ItineraryQuoteEntity, {
         itineraryId: id,
       });
@@ -889,16 +1005,20 @@ export class InquiriesService {
         original.sourceVersion === input.version &&
         original.snapshot.inquiryVersion === input.inquiryVersion
       )
-        return original.snapshot;
+        return exportSnapshot(original.snapshot, language);
       this.writable(inquiry, actor);
-      await assertNoActiveTour(manager, 'standard', inquiry.id);
+      await assertNoActiveTour(manager, 'standard', inquiry.id, true);
       this.checkVersion(itinerary.version, input.version, true);
       this.checkVersion(inquiry.version, input.inquiryVersion);
       if (itinerary.status !== 'draft')
         fail('ITINERARY_READ_ONLY', HttpStatus.CONFLICT);
       await this.validation.assertUniqueResources(manager, itinerary.data);
-      this.validation.assertPdfReady(itinerary.data, inquiry.data.plannedDays);
+      this.validation.assertPdfReady(
+        itinerary.data,
+        inquiry.data.plannedDays ?? itinerary.data.dailyPlans.length,
+      );
       const snapshot = await this.pdfSnapshot(inquiry, itinerary, manager);
+      exportSnapshot(snapshot, language);
       const frozen = await manager.save(
         ItineraryQuoteEntity,
         manager.create(ItineraryQuoteEntity, {
@@ -932,7 +1052,7 @@ export class InquiriesService {
         [],
         { quoteCode: snapshot.quoteCode, quoteVersion: 1 },
       );
-      return snapshot;
+      return exportSnapshot(snapshot, language);
     });
   }
   async transfer(id: string, input: TransferInquiryDto, actor: Actor) {
@@ -947,7 +1067,7 @@ export class InquiriesService {
         true,
       );
       const row = await this.inquiry(id, actor, manager, true);
-      await assertNoActiveTour(manager, 'standard', row.id);
+      await assertNoActiveTour(manager, 'standard', row.id, true);
       this.checkVersion(row.version, input.version);
       if (row.ownerId === owner.id || !input.reason.trim())
         invalid('Choose a new owner and enter transfer reason');
@@ -983,6 +1103,95 @@ export class InquiriesService {
         { transferReason: input.reason.trim() },
       );
       return this.inquiryResponse(row, actor);
+    });
+  }
+  async followUps(id: string, query: PaginationQueryDto, actor: Actor) {
+    await this.inquiry(id, actor);
+    const [count] = await this.db.query<{ total: number }[]>(
+      'SELECT count(*)::int AS total FROM inquiry_follow_ups WHERE inquiry_id=$1',
+      [id],
+    );
+    const list = await this.db.query<Record<string, unknown>[]>(
+      `SELECT f.id,f.inquiry_id AS "inquiryId",f.remark,f.next_follow_up_at AS "nextFollowUpAt",f.reminder_days AS "reminderDays",
+      f.followed_at AS "followedAt",f.followed_by AS "followedBy",f.followed_by_name AS "followedByName",f.legacy,
+      r.id AS "reminderId",r.due_at AS "reminderAt",r.status AS "reminderStatus",r.recipient_id AS "recipientId",r.sent_at AS "sentAt",r.error_code AS "reminderError",r.delivery_unknown AS "deliveryUnknown"
+      FROM inquiry_follow_ups f LEFT JOIN inquiry_follow_up_reminders r ON r.follow_up_id=f.id
+      WHERE f.inquiry_id=$1 ORDER BY f.followed_at DESC NULLS LAST,f.id DESC LIMIT $2 OFFSET $3`,
+      [id, query.pageSize, (query.page - 1) * query.pageSize],
+    );
+    return {
+      list,
+      total: count.total,
+      page: query.page,
+      pageSize: query.pageSize,
+      delivery: await this.reminders.availability(this.db.manager, id),
+    };
+  }
+  async addFollowUp(id: string, input: FollowUpInput, actor: Actor) {
+    this.permission(actor, 'inquiry:update');
+    return this.db.transaction(async (manager) => {
+      const inquiry = await this.inquiry(id, actor, manager, true);
+      const next = input.nextFollowUpAt
+        ? new Date(input.nextFollowUpAt).toISOString()
+        : null;
+      const [existing] = await manager.query<
+        {
+          id: string;
+          remark: string;
+          next_follow_up_at: Date | null;
+          reminder_days: number | null;
+        }[]
+      >(
+        'SELECT * FROM inquiry_follow_ups WHERE inquiry_id=$1 AND request_id=$2',
+        [id, input.requestId],
+      );
+      if (existing) {
+        if (
+          existing.remark !== input.remark ||
+          (existing.next_follow_up_at?.toISOString() ?? null) !== next ||
+          existing.reminder_days !== (input.reminderDays ?? null)
+        )
+          invalid('同一请求标识不能用于不同跟进内容');
+        return {
+          id: existing.id,
+          inquiryVersion: inquiry.version,
+          delivery: await this.reminders.availability(manager, id),
+        };
+      }
+      this.writable(inquiry, actor);
+      this.checkVersion(inquiry.version, input.version);
+      await assertNoActiveTour(manager, 'standard', id, true);
+      const followUpId = await appendFollowUp(
+        manager,
+        id,
+        { ...input, nextFollowUpAt: next },
+        actor,
+      );
+      const before = {
+        internalRemark: inquiry.internalRemark,
+        nextFollowUpAt: inquiry.nextFollowUpAt,
+      };
+      inquiry.internalRemark = input.remark;
+      inquiry.nextFollowUpAt = next;
+      inquiry.updatedBy = actor.id;
+      await manager.save(inquiry);
+      await this.log(
+        manager,
+        inquiry,
+        actor,
+        'inquiry_updated',
+        undefined,
+        diffChanges(before, {
+          internalRemark: input.remark,
+          nextFollowUpAt: next,
+        }),
+        { followUpId },
+      );
+      return {
+        id: followUpId,
+        inquiryVersion: inquiry.version,
+        delivery: await this.reminders.availability(manager, id),
+      };
     });
   }
   async transfers(id: string, actor: Actor) {

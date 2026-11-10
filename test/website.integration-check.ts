@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import { AccountLinksService } from '../src/users/account-links.service';
 import { MenuPermissionsService } from '../src/roles/menu-permissions.service';
 import { allowedMenuKeys } from '../src/roles/menu-definitions';
@@ -284,6 +285,7 @@ async function main() {
       db,
       new ItineraryValidation(),
       agencies,
+      {} as InquiryRemindersService,
     );
     const legacyActor = await legacy.actor(linxi, {
       ip: '127.0.0.1',

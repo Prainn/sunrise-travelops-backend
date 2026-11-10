@@ -73,14 +73,14 @@ export class ManualTourSourceDto {
 }
 
 export class GuideServiceTimeDto {
-  @ApiProperty({ example: '2026-10-27 09:00' })
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
-  serviceStartAt: string;
-  @ApiProperty({ example: '2026-10-27 18:00' })
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/)
-  serviceEndAt: string;
+  @ApiProperty({ example: '2026-10-27', description: '上海自然日，含首尾日' })
+  @IsDateString({ strict: true })
+  @Matches(DATE)
+  serviceStartDate: string;
+  @ApiProperty({ example: '2026-10-27' })
+  @IsDateString({ strict: true })
+  @Matches(DATE)
+  serviceEndDate: string;
 }
 
 export class GuideBusyInputDto extends GuideServiceTimeDto {
@@ -92,6 +92,13 @@ export class TourGuideServiceInputDto extends GuideBusyInputDto {
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
   @Transform(trim) @IsString() @MaxLength(2000) remark = '';
   @IsOptional() @IsBoolean() confirmTime?: boolean;
+  @ApiPropertyOptional({
+    description: '用户明确确认后回传可用性查询的冲突指纹，条件变化须重新确认',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/)
+  scheduleConflictToken?: string;
 }
 
 export class TourInputDto extends TourScheduleDto {
@@ -126,6 +133,13 @@ export class DirectLedgerTourDto extends OmitType(TourInputDto, [
 }
 
 export class CreateTourDto extends TourInputDto {
+  @ApiPropertyOptional({
+    description: '系列询盘本次成团的实际开始日期，系列成团必填',
+  })
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(DATE)
+  seriesStartDate?: string;
   @IsIn(['standard', 'website', 'manual']) sourceModule:
     'standard' | 'website' | 'manual';
   @ValidateIf(
@@ -152,6 +166,10 @@ export class CreateTourDto extends TourInputDto {
 }
 
 export class UpdateTourDto extends TourInputDto {
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(DATE)
+  seriesStartDate?: string;
   @ValidateIf((_o, v) => v !== undefined)
   @IsObject()
   @ValidateNested()
@@ -172,6 +190,7 @@ export class TourFilterOptionsQueryDto extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(200) declare keyword?: string;
 }
 export class TourQueryDto extends PaginationQueryDto {
+  @IsOptional() @IsUUID() inquiryId?: string;
   @IsOptional() @IsUUID() collectCoordinatorId?: string;
   @IsOptional() @IsUUID() operatorId?: string;
   @IsOptional() @IsString() @MaxLength(200) agencyName?: string;
@@ -236,9 +255,11 @@ export class TourGuideQueryDto extends GuideServiceTimeDto {
   })
   @Transform(trim)
   @IsString()
-  @MinLength(1)
+  @IsOptional()
   @MaxLength(150)
-  keyword: string;
+  keyword?: string;
+  @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 20;
   @Transform(trim) @IsString() @MinLength(1) @MaxLength(100) language: string;
   @IsIn(UNITS) businessUnit: (typeof UNITS)[number];
   @IsOptional() @IsUUID() excludeTourId?: string;
@@ -259,8 +280,8 @@ export class TourGuideOptionResponse {
 export class GuideConflictTourResponse {
   @ApiProperty() tourNo: string;
   @ApiProperty({ enum: UNITS }) businessUnit: (typeof UNITS)[number];
-  @ApiProperty() serviceStartAt: string;
-  @ApiProperty() serviceEndAt: string;
+  @ApiProperty() serviceStartDate: string;
+  @ApiProperty() serviceEndDate: string;
 }
 
 export class GuideConflictLeaveResponse {
@@ -271,8 +292,8 @@ export class GuideConflictLeaveResponse {
 export class GuideConflictSiblingResponse {
   @ApiProperty({ description: '请求 otherServices 数组中的零基下标' })
   otherServiceIndex: number;
-  @ApiProperty() serviceStartAt: string;
-  @ApiProperty() serviceEndAt: string;
+  @ApiProperty() serviceStartDate: string;
+  @ApiProperty() serviceEndDate: string;
 }
 
 export class GuideUnavailableReasonResponse {
@@ -306,6 +327,8 @@ export class GuideUnavailableReasonResponse {
 export class UnavailableTourGuideResponse extends TourGuideOptionResponse {
   @ApiProperty({ type: [GuideUnavailableReasonResponse] })
   reasons: GuideUnavailableReasonResponse[];
+  @ApiProperty() canOverride: boolean;
+  @ApiPropertyOptional() scheduleConflictToken?: string;
 }
 
 export class TourGuideSearchResponse {
@@ -314,6 +337,9 @@ export class TourGuideSearchResponse {
   @ApiProperty({ description: '本次姓名搜索的后端提示，不是响应外层 message' })
   message: string;
   @ApiProperty() matchedCount: number;
+  @ApiProperty() total: number;
+  @ApiProperty() page: number;
+  @ApiProperty() pageSize: number;
   @ApiProperty({ type: [TourGuideOptionResponse] })
   list: TourGuideOptionResponse[];
   @ApiProperty({ type: [UnavailableTourGuideResponse] })

@@ -47,7 +47,7 @@ export class CitiesService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(city.code ILIKE :keyword OR city.name ILIKE :keyword OR city.province ILIKE :keyword)',
+        '(city.code ILIKE :keyword OR city.name ILIKE :keyword OR city.province ILIKE :keyword OR city.englishName ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -65,12 +65,19 @@ export class CitiesService {
       where: {
         status: ResourceStatus.Enabled,
       },
-      select: { id: true, name: true, province: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        englishName: true,
+        province: true,
+        status: true,
+      },
       order: { createdAt: 'ASC', id: 'ASC' },
     });
-    return entities.map(({ id, name, province, status }) => ({
+    return entities.map(({ id, name, englishName, province, status }) => ({
       id,
       name,
+      englishName,
       province,
       status,
     }));
@@ -149,6 +156,7 @@ export class CitiesService {
       ...auditResponse(entity),
       code: entity.code,
       name: entity.name,
+      englishName: entity.englishName,
       province: entity.province,
       longitude: entity.longitude ?? null,
       latitude: entity.latitude ?? null,

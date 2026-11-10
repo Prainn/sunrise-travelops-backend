@@ -36,12 +36,18 @@ export class VersionDto {
   @IsInt() @Min(1) version: number;
 }
 export class InquiryInput {
-  @IsUUID() agencyId: string;
-  @IsUUID() contactId: string;
+  @IsOptional() @IsBoolean() isSeries?: boolean;
+  @ValidateIf((o: InquiryInput) => !o.isSeries || o.agencyId !== undefined)
+  @IsUUID()
+  agencyId: string;
+  @ValidateIf((o: InquiryInput) => !o.isSeries || o.contactId !== undefined)
+  @IsUUID()
+  contactId: string;
   @IsUUID() countryItemId: string;
   @IsOptional() @IsUUID() ownerId?: string;
   @IsOptional() @IsIn(['shengxu', 'linxi', 'website']) businessUnit?:
     'shengxu' | 'linxi' | 'website';
+  @ValidateIf((o: InquiryInput) => !o.isSeries || o.sourceChannel !== undefined)
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -53,17 +59,31 @@ export class InquiryInput {
     typeof value === 'string' ? value.trim() : value,
   )
   @IsString()
-  @MinLength(1)
   @MaxLength(200000)
-  originalMessage: string;
+  originalMessage = '';
   @IsString() @MaxLength(20000) internalRemark = '';
-  @IsInt() @Min(1) @Max(365) plannedDays: number;
+  @ValidateIf((o: InquiryInput) => !o.isSeries || o.plannedDays !== undefined)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  plannedDays: number;
   @IsOptional() @IsDateString() nextFollowUpAt?: string | null;
   @IsOptional() @IsIn(['new', 'planning', 'quoted', 'lost']) status?: string;
   @IsString() @MaxLength(2000) lostReason = '';
 }
 export class UpdateInquiryDto extends InquiryInput {
   @IsInt() @Min(1) version: number;
+}
+export class FollowUpInput extends VersionDto {
+  @IsUUID() requestId: string;
+  @IsString() @MaxLength(20000) remark: string;
+  @IsOptional()
+  @IsDateString()
+  @Matches(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/,
+  )
+  nextFollowUpAt?: string | null;
+  @IsOptional() @IsIn([1, 3, 5, 15]) reminderDays?: 1 | 3 | 5 | 15 | null;
 }
 export class InquiryQuery extends PaginationQueryDto {
   @IsOptional()
@@ -116,6 +136,8 @@ class PriceInput {
   @IsOptional() @IsString() @MaxLength(2000) adjustmentReason?: string | null;
 }
 class ItemInput extends PriceInput {
+  @IsOptional() @IsString() @MaxLength(500) resourceNameEn?: string;
+  @IsOptional() @IsString() @MaxLength(10000) remarkEn?: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -156,6 +178,16 @@ class MealsInput {
   @IsBoolean() dinner: boolean;
 }
 class DayInput {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(365)
+  @ArrayUnique()
+  @IsString({ each: true })
+  viaDestinations?: string[];
+  @IsOptional() @IsString() @MaxLength(300) departureEn?: string;
+  @IsOptional() @IsString() @MaxLength(300) destinationEn?: string;
+  @IsOptional() @IsString() @MaxLength(100) transportEn?: string;
+  @IsOptional() @IsString() @MaxLength(20000) descriptionEn?: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -309,7 +341,7 @@ class StaffRoomCostInput {
 }
 class QuoteOptionInput {
   @IsString() @MinLength(1) @MaxLength(100) id: string;
-  @IsIn([3, 4, 5]) hotelTier: 3 | 4 | 5;
+  @IsIn([null, 3, 4, 5]) hotelTier: 3 | 4 | 5 | null;
   @IsIn(['standard', 'vip']) vehicleTier: 'standard' | 'vip';
   @IsArray()
   @ArrayMaxSize(20)
@@ -318,6 +350,8 @@ class QuoteOptionInput {
   paxPrices: PaxPriceInput[];
 }
 class TransportFeeInput {
+  @IsOptional() @IsString() @MaxLength(100) departureCityEn?: string;
+  @IsOptional() @IsString() @MaxLength(100) arrivalCityEn?: string;
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -357,6 +391,9 @@ class PaxOtherCostInput {
   staffRoomOtherReason: string = '';
 }
 class QuoteInput {
+  @IsOptional() @IsString() @MaxLength(20000) customerNotesEn?: string;
+  @IsOptional() @IsString() @MaxLength(10000) holidayRestrictionsEn?: string;
+  @IsOptional() @IsString() @MaxLength(10000) hotelReplacementTermsEn?: string;
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -416,6 +453,11 @@ class DeletedDayInput {
   originalDate: string | null;
 }
 export class ItineraryInput {
+  @IsOptional() @IsString() @MaxLength(300) titleEn?: string;
+  @IsOptional() @IsIn(['same', 'returnArrival']) customerDisplayMode?:
+    'same' | 'returnArrival';
+  @IsOptional() @IsString() @MaxLength(2000) returnArrivalText?: string;
+  @IsOptional() @IsString() @MaxLength(2000) returnArrivalTextEn?: string;
   /** Request-only acknowledgement; consumed before persistence and auditing. */
   @IsOptional() @IsBoolean() confirmVehicleModeChange?: boolean;
   @Transform(({ value }: { value: unknown }) =>
@@ -484,7 +526,11 @@ export class CopyItineraryDto extends VersionDto {
   @MaxLength(300)
   title: string;
 }
+export class ExportQueryDto {
+  @IsOptional() @IsIn(['zh', 'en']) language?: 'zh' | 'en';
+}
 export class ConfirmPdfDto extends VersionDto {
+  @IsOptional() @IsIn(['zh', 'en']) language?: 'zh' | 'en';
   @IsInt() @Min(1) inquiryVersion: number;
 }
 

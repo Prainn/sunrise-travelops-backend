@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from './inquiry-reminders.service';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { InquiriesService } from './inquiries.service';
 import { ItineraryInput } from './inquiry.dto';
@@ -106,6 +107,7 @@ function serviceFor(manager: EntityManager) {
     { manager } as DataSource,
     {} as ItineraryValidation,
     {} as AgenciesService,
+    {} as InquiryRemindersService,
   );
 }
 

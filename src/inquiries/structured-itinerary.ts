@@ -20,6 +20,11 @@ export const ITINERARY_TABLES = {
     dinner: 'boolean',
     transport: 'text',
     description: 'text?',
+    viaDestinations: 'text[]',
+    departureEn: 'text',
+    destinationEn: 'text',
+    transportEn: 'text',
+    descriptionEn: 'text',
   },
   itinerary_items: {
     dayId: 'text',
@@ -27,6 +32,8 @@ export const ITINERARY_TABLES = {
     type: 'text',
     resourceId: 'uuid?',
     resourceName: 'text',
+    resourceNameEn: 'text',
+    remarkEn: 'text',
     priceName: 'text',
     quantity: 'numeric',
     dinerCount: 'integer?',
@@ -112,10 +119,13 @@ export const ITINERARY_TABLES = {
     customerNotes: 'text',
     holidayRestrictions: 'text',
     hotelReplacementTerms: 'text',
+    customerNotesEn: 'text',
+    holidayRestrictionsEn: 'text',
+    hotelReplacementTermsEn: 'text',
   },
   itinerary_quote_options: {
     id: 'text',
-    hotelTier: 'integer',
+    hotelTier: 'integer?',
     vehicleTier: 'text',
   },
   itinerary_shared_staff_room_costs: {
@@ -139,6 +149,8 @@ export const ITINERARY_TABLES = {
     type: 'text',
     departureCity: 'text',
     arrivalCity: 'text',
+    departureCityEn: 'text',
+    arrivalCityEn: 'text',
     cabin: 'text',
     unitPrice: 'numeric?',
   },
@@ -225,7 +237,7 @@ export async function saveItineraryData(
 ) {
   const data = row.data;
   await manager.query(
-    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5,child_without_bed_rate=$6 WHERE id=$1',
+    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5,child_without_bed_rate=$6,title_en=$7,customer_display_mode=$8,return_arrival_text=$9,return_arrival_text_en=$10 WHERE id=$1',
     [
       row.id,
       data.title,
@@ -233,6 +245,10 @@ export async function saveItineraryData(
       data.paxTiers,
       data.childRate,
       data.childWithoutBedRate,
+      data.titleEn ?? '',
+      data.customerDisplayMode ?? 'same',
+      data.returnArrivalText ?? '返回温馨的家',
+      data.returnArrivalTextEn ?? 'Arrive home',
     ],
   );
   const rows = itineraryRows(data);
@@ -242,7 +258,11 @@ export async function saveItineraryData(
   for (const table of Object.keys(ITINERARY_TABLES) as Table[]) {
     const fields = Object.keys(ITINERARY_TABLES[table]);
     for (const [position, item] of rows[table].entries()) {
-      const values = fields.map((field) => item[field] ?? null);
+      const values = fields.map(
+        (field) =>
+          item[field] ??
+          (field === 'viaDestinations' ? [] : field.endsWith('En') ? '' : null),
+      );
       await manager.query(
         `INSERT INTO ${table}(itinerary_id,position,${fields.map(columnName).join(',')}) VALUES ($1,$2,${values.map((_, index) => `$${index + 3}`).join(',')})`,
         [row.id, position, ...values],
@@ -290,6 +310,10 @@ export async function loadItineraryData(
   // The shape is assembled exclusively from the declared columns above.
   row.data = plainToInstance(ItineraryInput, {
     title: row.title,
+    titleEn: row.titleEn,
+    customerDisplayMode: row.customerDisplayMode,
+    returnArrivalText: row.returnArrivalText,
+    returnArrivalTextEn: row.returnArrivalTextEn,
     startDate: row.startDate,
     paxTiers: row.paxTiers,
     childRate: row.childRate,
