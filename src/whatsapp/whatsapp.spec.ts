@@ -25,6 +25,36 @@ const event = {
   Timestamp: Date.now(),
 };
 describe('WhatsApp identity, event and window boundaries', () => {
+  it('uses From for status account verification even when OriginPhoneNumber differs', () => {
+    const receipt = {
+      ...event,
+      From: account.phone,
+      To: '0000000001',
+      OriginPhoneNumber: '0000000001',
+      Status: 'Delivered',
+    };
+    expect(normalizeEvent(receipt, 'status', account).status).toBe('delivered');
+    expect(() =>
+      normalizeEvent(
+        { ...receipt, From: '0000000002', OriginPhoneNumber: account.phone },
+        'status',
+        account,
+      ),
+    ).toThrow('ACCOUNT_MISMATCH');
+    expect(() =>
+      normalizeEvent({ ...receipt, CustSpaceId: 'other' }, 'status', account),
+    ).toThrow('ACCOUNT_MISMATCH');
+    expect(() =>
+      normalizeEvent({ ...receipt, WabaId: 'other' }, 'status', account),
+    ).toThrow('ACCOUNT_MISMATCH');
+    expect(
+      normalizeEvent(
+        { ...receipt, From: undefined, OriginPhoneNumber: account.phone },
+        'status',
+        account,
+      ).status,
+    ).toBe('delivered');
+  });
   it('supports BSUID without a phone', () => {
     expect(normalizeEvent(event, 'inbound', account)).toMatchObject({
       bsuid: 'ZZ.synthetic',
@@ -183,7 +213,7 @@ describe('WhatsApp configuration and permissions', () => {
           null,
           username,
         ).filter((p) => p.startsWith('whatsapp:')),
-      ).toHaveLength(6);
+      ).toHaveLength(7);
       expect(
         effectiveAccountPermissions(
           'linxi',

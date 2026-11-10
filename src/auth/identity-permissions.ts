@@ -176,6 +176,7 @@ export function effectivePermissions(
                 ![
                   'whatsapp:conversation:assign',
                   'whatsapp:integration:manage',
+                  'whatsapp:quick-reply:manage',
                 ].includes(p),
             )
           : []

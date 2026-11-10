@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { CreateWhatsappWorkbench1795651200000 } from '../src/migrations/1795651200000-CreateWhatsappWorkbench';
+import { AddWhatsappQuickReplies1795824000000 } from '../src/migrations/1795824000000-AddWhatsappQuickReplies';
 import { Actor, IsolationHarness, Page } from './business-isolation.harness';
 import { WhatsappEvents } from '../src/whatsapp/whatsapp.events';
 import { WhatsappService } from '../src/whatsapp/whatsapp.service';
@@ -27,9 +28,11 @@ async function undoWhatsappMigration() {
   assert.match(String(h.db.options.database), /^travelops_isolation_/);
   await h.db.transaction(async (manager) => {
     assert(manager.queryRunner);
+    await new AddWhatsappQuickReplies1795824000000().down(manager.queryRunner);
     await new CreateWhatsappWorkbench1795651200000().down(manager.queryRunner);
-    await manager.query('DELETE FROM migrations WHERE name=$1', [
+    await manager.query('DELETE FROM migrations WHERE name IN ($1,$2)', [
       'CreateWhatsappWorkbench1795651200000',
+      'AddWhatsappQuickReplies1795824000000',
     ]);
   });
 }
@@ -67,6 +70,7 @@ async function main() {
   const events = h.get(WhatsappEvents),
     service = h.get(WhatsappService),
     provider = h.get(WhatsappProvider);
+  provider.reactionTarget = () => Promise.resolve('wamid.synthetic-original');
   const manager = await h.actor('website', 'BUSINESS_MANAGER'),
     a = await h.actor('website'),
     b = await h.actor('website');
@@ -113,7 +117,7 @@ async function main() {
         plannedDays: 1,
         requirements: 'Synthetic baseline',
       });
-      assert.equal((await h.db.runMigrations()).length, 1);
+      assert.equal((await h.db.runMigrations()).length, 2);
       assert.equal((await h.db.runMigrations()).length, 0);
       assert.equal(
         (await call<{ id: string }>(a, 'GET', `/website/inquiries/${old.id}`))
@@ -335,7 +339,7 @@ async function main() {
       const sent = await call<ChatMessage>(a, 'POST', path, input);
       assert.equal(sent.kind, 'reaction');
       assert.equal(sent.attachment?.targetMessageId, message.id);
-      assert.equal(sent.attachment?.messageId, message.providerId);
+      assert.equal(sent.attachment?.messageId, 'wamid.synthetic-original');
       assert.equal(
         (await call<ChatMessage>(a, 'POST', path, input)).id,
         sent.id,
@@ -355,7 +359,7 @@ async function main() {
         assert.equal(text, '👍');
         assert.equal(taskId, sent.id);
         assert.deepEqual(reaction, {
-          messageId: message.providerId,
+          messageId: 'wamid.synthetic-original',
           emoji: '👍',
         });
         return Promise.resolve({
@@ -380,6 +384,91 @@ async function main() {
         projected.list.find((item) => item.id === message.id)?.presentation
           .reactions[0].emoji,
         '👍',
+      );
+    },
+  );
+  await check(
+    'quick reply maintenance is scoped, versioned and excludes disabled content from composer',
+    async () => {
+      const path = '/whatsapp/quick-replies';
+      const input = {
+        stage: 'Synthetic stage',
+        scenario: 'Synthetic scenario',
+        content: '*Synthetic reply*',
+        enabled: true,
+        sortOrder: 2,
+      };
+      await call(a, 'POST', path, input, 403, 'AUTH_FORBIDDEN');
+      await call(other, 'GET', path, undefined, 403, 'AUTH_FORBIDDEN');
+      await call(a, 'GET', `${path}/manage`, undefined, 403, 'AUTH_FORBIDDEN');
+      await call(
+        manager,
+        'POST',
+        path,
+        { ...input, content: 'x'.repeat(4097) },
+        400,
+      );
+      const row = await call<{ id: string; version: number }>(
+        manager,
+        'POST',
+        path,
+        input,
+      );
+      await call(
+        manager,
+        'POST',
+        path,
+        input,
+        409,
+        'DATABASE_CONSTRAINT_VIOLATION',
+      );
+      assert.equal(
+        (await call<Page>(a, 'GET', `${path}?stage=Synthetic%20stage`)).total,
+        1,
+      );
+      assert.deepEqual(
+        (await call<{ stages: string[] }>(a, 'GET', `${path}/options`)).stages,
+        ['Synthetic stage'],
+      );
+      assert.deepEqual(
+        (
+          await call<{ scenarios: string[] }>(
+            a,
+            'GET',
+            `${path}/options?stage=Synthetic%20stage`,
+          )
+        ).scenarios,
+        ['Synthetic scenario'],
+      );
+      await call(
+        a,
+        'PUT',
+        `${path}/${row.id}`,
+        { ...input, version: row.version },
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      await call(manager, 'PUT', `${path}/${row.id}`, {
+        ...input,
+        enabled: false,
+        version: row.version,
+      });
+      await call(
+        manager,
+        'PUT',
+        `${path}/${row.id}`,
+        { ...input, version: row.version },
+        409,
+        'CONFLICT',
+      );
+      assert.equal((await call<Page>(a, 'GET', path)).total, 0);
+      assert.equal(
+        (await call<Page>(manager, 'GET', `${path}/manage`)).total,
+        1,
+      );
+      assert.deepEqual(
+        (await call<{ stages: string[] }>(a, 'GET', `${path}/options`)).stages,
+        [],
       );
     },
   );

@@ -25,6 +25,13 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters'],
   },
   {
+    key: 'whatsapp-quick-replies',
+    title: 'whatsappQuickReplies',
+    group: 'whatsappWorkbench',
+    permissions: ['whatsapp:quick-reply:manage'],
+    scopes: ['headquarters', 'website'],
+  },
+  {
     key: 'shengxu-agency-summary',
     title: 'shengxuAgencySummary',
     group: 'dataLedgers',
@@ -286,6 +293,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     routeName: 'WhatsappWorkbench',
     children: [
       menuItem('whatsapp-inbox', 'WhatsappInbox'),
+      menuItem('whatsapp-quick-replies', 'WhatsappQuickReplies'),
       menuItem('whatsapp-integration', 'WhatsappIntegration'),
     ],
   },

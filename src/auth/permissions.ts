@@ -100,6 +100,7 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'whatsapp:inquiry:create': '会话创建询盘',
   'whatsapp:conversation:update': '管理WhatsApp咨询',
   'whatsapp:integration:manage': '管理WhatsApp接入',
+  'whatsapp:quick-reply:manage': '维护WhatsApp快捷回复',
   'sys:account-link:manage': '管理账号关联',
   'sys:business-group:list': '查看业务组',
   'sys:business-group:create': '新增业务组',
@@ -223,4 +224,5 @@ export const WHATSAPP_PERMISSIONS = [
   'whatsapp:inquiry:create',
   'whatsapp:conversation:update',
   'whatsapp:integration:manage',
+  'whatsapp:quick-reply:manage',
 ] as const;

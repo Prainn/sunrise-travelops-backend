@@ -70,7 +70,7 @@ export function normalizeEvent(
   const from = field(p, 'From').replace(/^\+/, ''),
     to = field(p, 'To').replace(/^\+/, '');
   const businessPhone = isStatus
-    ? field(p, 'OriginPhoneNumber').replace(/^\+/, '') || from
+    ? from || field(p, 'OriginPhoneNumber').replace(/^\+/, '')
     : echo
       ? from
       : to;
@@ -116,6 +116,7 @@ export function normalizeEvent(
     name: field(p, 'Name') || (!echo ? field(p, 'DisplayName') : ''),
     status: statuses[field(p, 'Status')],
     taskId: field(p, 'TaskId'),
+    errorCode: field(p, 'ErrorCode'),
     messageKind,
     text,
     attachment,
@@ -260,8 +261,15 @@ export class WhatsappEvents {
     if (message.direction !== 'outbound') throw new Error('INVALID_EVENT');
     const status = nextMessageStatus(message.status, e.status);
     await manager.query(
-      `UPDATE whatsapp_messages SET provider_id=$2,status=$3,error_code=CASE WHEN $3='failed' THEN 'PROVIDER_DELIVERY_FAILED' ELSE NULL END,updated_at=now() WHERE id=$1`,
-      [message.id, e.providerId, status],
+      `UPDATE whatsapp_messages SET provider_id=$2,status=$3,error_code=CASE WHEN $3='failed' THEN $4 ELSE NULL END,updated_at=now() WHERE id=$1`,
+      [
+        message.id,
+        e.providerId,
+        status,
+        /^[A-Za-z0-9_.-]{1,128}$/.test(e.errorCode)
+          ? e.errorCode
+          : 'PROVIDER_DELIVERY_FAILED',
+      ],
     );
     await manager.query(
       'UPDATE whatsapp_conversations SET updated_at=now() WHERE id=$1',

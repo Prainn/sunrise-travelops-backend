@@ -1,6 +1,8 @@
 import Cams, {
   SendChatappMessageResponse,
   SendChatappMessageResponseBody,
+  ListChatappMessageResponse,
+  ListChatappMessageResponseBody,
 } from '@alicloud/cams20200606';
 import { ConfigService } from '@nestjs/config';
 import { WhatsappConfig } from './whatsapp.config';
@@ -30,6 +32,68 @@ describe('WhatsApp official SDK adapter', () => {
   };
   const provider = new WhatsappProvider(config);
   afterEach(() => jest.restoreAllMocks());
+  it('resolves the exact provider ID to its WhatsApp ID within the fixed business account', async () => {
+    const send = jest.spyOn(Cams.prototype, 'sendChatappMessageWithOptions');
+    const lookup = jest
+      .spyOn(Cams.prototype, 'listChatappMessageWithOptions')
+      .mockResolvedValue(
+        new ListChatappMessageResponse({
+          body: new ListChatappMessageResponseBody({
+            code: 'OK',
+            data: [
+              {
+                messageId: 'other',
+                businessNumber: account.phone,
+                uniqueMessageId: 'wamid.wrong',
+              },
+              {
+                messageId: 'target',
+                businessNumber: '0000000001',
+                uniqueMessageId: 'wamid.wrong-account',
+              },
+              {
+                messageId: 'target',
+                businessNumber: account.phone,
+                uniqueMessageId: 'wamid.correct',
+              },
+            ],
+          }),
+        }),
+      );
+    expect(await provider.reactionTarget(account, 'target', new Date())).toBe(
+      'wamid.correct',
+    );
+    expect(lookup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        businessNumber: account.phone,
+        custSpaceId: account.spaceId,
+        page: { index: 1, size: 100 },
+      }),
+      expect.objectContaining({ autoretry: false, maxAttempts: 1 }),
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+  it('does not guess a WhatsApp ID from numeric provider IDs or failed lookups', async () => {
+    jest
+      .spyOn(Cams.prototype, 'listChatappMessageWithOptions')
+      .mockResolvedValue(
+        new ListChatappMessageResponse({
+          body: new ListChatappMessageResponseBody({
+            code: 'OK',
+            data: [
+              {
+                messageId: 'target',
+                businessNumber: account.phone,
+                uniqueMessageId: '12345',
+              },
+            ],
+          }),
+        }),
+      );
+    expect(
+      await provider.reactionTarget(account, 'target', new Date()),
+    ).toBeNull();
+  });
   it('uses text content, BSUID and TaskId and disables transport retries', async () => {
     const transport = jest
       .spyOn(Cams.prototype, 'sendChatappMessageWithOptions')
@@ -73,13 +137,13 @@ describe('WhatsApp official SDK adapter', () => {
         }),
       );
     await provider.send(account, 'ZZ.synthetic', '👍', 'task', {
-      messageId: 'original-id',
+      messageId: 'wamid.original-id',
       emoji: '👍',
     });
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         messageType: 'reaction',
-        content: '{"messageId":"original-id","emoji":"👍"}',
+        content: '{"messageId":"wamid.original-id","emoji":"👍"}',
       }),
       expect.anything(),
     );

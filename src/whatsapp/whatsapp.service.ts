@@ -589,7 +589,36 @@ export class WhatsappService {
           interaction(target)
         )
           chatFail('CONFLICT', '只能回应客户的原始消息', 409);
-        attachment = { ...reaction, messageId: target.providerId };
+        const aliases = await manager.query<{ messageId: string }[]>(
+          `SELECT coalesce(payload->'record'->>'UniqueMessageId',payload->>'UniqueMessageId') AS "messageId" FROM whatsapp_events WHERE message_id=$1
+           UNION ALL SELECT attachment->>'messageId' FROM whatsapp_messages WHERE kind='reaction' AND attachment->>'targetMessageId'=$1::text`,
+          [target.id],
+        );
+        const known = aliases.find(
+          (row) =>
+            typeof row.messageId === 'string' &&
+            /^wamid\.[A-Za-z0-9+/=_-]+$/.test(row.messageId),
+        )?.messageId;
+        const [account] = await manager.query<ChatAccount[]>(
+          'SELECT id,space_id AS "spaceId",waba_id AS "wabaId",phone FROM whatsapp_accounts WHERE id=$1',
+          [c.accountId],
+        );
+        const messageId =
+          known ??
+          (target.providerId.startsWith('wamid.')
+            ? target.providerId
+            : await this.provider.reactionTarget(
+                account,
+                target.providerId,
+                target.occurredAt,
+              ));
+        if (!messageId)
+          chatFail(
+            'CONFLICT',
+            '暂无法取得原消息的WhatsApp ID，请稍后再试',
+            409,
+          );
+        attachment = { ...reaction, messageId };
       }
       const messageId = randomUUID();
       await manager.query(

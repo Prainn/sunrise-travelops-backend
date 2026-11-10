@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { request } from 'node:http';
-import Cams, { SendChatappMessageRequest } from '@alicloud/cams20200606';
+import Cams, {
+  SendChatappMessageRequest,
+  ListChatappMessageRequest,
+} from '@alicloud/cams20200606';
 import Credentials from '@alicloud/credentials';
 import { $OpenApiUtil } from '@alicloud/openapi-core';
 import { RuntimeOptions } from '@darabonba/typescript';
@@ -12,6 +15,101 @@ export type SendResult =
 @Injectable()
 export class WhatsappProvider {
   constructor(private readonly config: WhatsappConfig) {}
+  async reactionTarget(
+    account: ChatAccount,
+    providerId: string,
+    occurredAt: Date,
+  ): Promise<string | null> {
+    const socketPath = this.config.get('SEND_SOCKET');
+    if (socketPath) {
+      return new Promise((resolve) => {
+        const req = request(
+          {
+            socketPath,
+            path: '/message-id',
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+          },
+          (res) => {
+            let data = '';
+            res.on('data', (chunk: Buffer) => {
+              data += chunk.toString('utf8');
+              if (data.length > 8192) res.destroy();
+            });
+            res.on('error', () => resolve(null));
+            res.on('end', () => {
+              try {
+                const value = JSON.parse(data) as {
+                  found?: boolean;
+                  messageId?: string;
+                };
+                resolve(
+                  res.statusCode === 200 &&
+                    value.found &&
+                    typeof value.messageId === 'string' &&
+                    /^wamid\.[A-Za-z0-9+/=_-]+$/.test(value.messageId)
+                    ? value.messageId
+                    : null,
+                );
+              } catch {
+                resolve(null);
+              }
+            });
+          },
+        );
+        req.setTimeout(18000, () => req.destroy());
+        req.on('error', () => resolve(null));
+        req.end(
+          JSON.stringify({
+            providerId,
+            occurredAt: new Date(occurredAt).getTime(),
+          }),
+        );
+      });
+    }
+    const client = new Cams(
+      new $OpenApiUtil.Config({
+        credential: new Credentials(),
+        endpoint: 'cams.ap-southeast-1.aliyuncs.com',
+      }),
+    );
+    try {
+      for (let index = 1; index <= 3; index++) {
+        const result = await client.listChatappMessageWithOptions(
+          new ListChatappMessageRequest({
+            channelType: 'WHATSAPP',
+            custSpaceId: account.spaceId,
+            businessNumber: account.phone,
+            startTime: new Date(occurredAt).getTime() - 60000,
+            endTime: new Date(occurredAt).getTime() + 60000,
+            page: { index, size: 100 },
+          }),
+          new RuntimeOptions({
+            autoretry: false,
+            maxAttempts: 1,
+            connectTimeout: 2000,
+            readTimeout: 3000,
+          }),
+        );
+        if (result.body?.code !== 'OK') return null;
+        const rows = result.body.data ?? [];
+        const matched = rows.find(
+          (row) =>
+            row.messageId === providerId &&
+            row.businessNumber === account.phone,
+        );
+        if (matched)
+          return matched.uniqueMessageId &&
+            /^wamid\.[A-Za-z0-9+/=_-]+$/.test(matched.uniqueMessageId)
+            ? matched.uniqueMessageId
+            : null;
+        if (rows.length < 100) break;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
   async send(
     account: ChatAccount,
     recipient: string,
@@ -21,6 +119,8 @@ export class WhatsappProvider {
     contextMessageId?: string,
   ): Promise<SendResult> {
     this.config.assertSend(recipient);
+    if (reaction && !/^wamid\.[A-Za-z0-9+/=_-]+$/.test(reaction.messageId))
+      return { status: 'failed', errorCode: 'REACTION_TARGET_UNAVAILABLE' };
     const socketPath = this.config.get('SEND_SOCKET');
     if (socketPath)
       return this.sendViaSocket(socketPath, {

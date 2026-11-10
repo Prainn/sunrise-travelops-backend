@@ -8,9 +8,17 @@ import { WhatsappWorker } from './whatsapp.worker';
 import { WhatsappQueueToken } from './whatsapp.queue-token';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappIngressController } from './whatsapp-ingress.controller';
+import {
+  WhatsappQuickReplies,
+  WhatsappQuickRepliesController,
+} from './whatsapp-quick-replies.controller';
 @Module({
   imports: [WebsiteModule],
-  controllers: [WhatsappController, WhatsappIngressController],
+  controllers: [
+    WhatsappController,
+    WhatsappIngressController,
+    WhatsappQuickRepliesController,
+  ],
   providers: [
     WhatsappConfig,
     WhatsappProvider,
@@ -18,6 +26,7 @@ import { WhatsappIngressController } from './whatsapp-ingress.controller';
     WhatsappService,
     WhatsappWorker,
     WhatsappQueueToken,
+    WhatsappQuickReplies,
   ],
   exports: [WhatsappEvents, WhatsappService],
 })
