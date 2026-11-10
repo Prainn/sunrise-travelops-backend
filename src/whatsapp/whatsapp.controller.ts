@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -20,6 +21,7 @@ import {
   ChatStateDto,
   ChatVersionDto,
   CreateChatInquiryDto,
+  CustomerNotesDto,
   MessageListQuery,
   ReadChatDto,
   RetryMessageDto,
@@ -35,6 +37,11 @@ export class WhatsappController {
   @Permissions('whatsapp:conversation:list')
   list(@Query() query: ChatListQuery, @CurrentUser() user: AuthenticatedUser) {
     return this.service.list(query, user);
+  }
+  @Get('summary')
+  @Permissions('whatsapp:conversation:list')
+  summary(@CurrentUser() user: AuthenticatedUser) {
+    return this.service.summary(user);
   }
   @Get('owners')
   @Permissions('whatsapp:conversation:assign')
@@ -57,6 +64,23 @@ export class WhatsappController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.messages(id, query, user);
+  }
+  @Get('conversations/:id/customer-notes')
+  @Permissions('whatsapp:conversation:list')
+  customerNotes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.customerNotes(id, user);
+  }
+  @Put('conversations/:id/customer-notes')
+  @Permissions('whatsapp:conversation:update')
+  saveCustomerNotes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: CustomerNotesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.saveCustomerNotes(id, input, user);
   }
   @Get('conversations/:id/actions')
   @Permissions('whatsapp:conversation:list')
@@ -162,6 +186,16 @@ export class WhatsappController {
       input.clientRequestId,
       user,
     );
+  }
+  @Post('conversations/:id/messages/:messageId/confirm-failed')
+  @HttpCode(200)
+  @Permissions('whatsapp:message:send')
+  confirmFailed(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.confirmFailed(id, messageId, user);
   }
   @Get('integration')
   @Permissions('whatsapp:integration:manage')

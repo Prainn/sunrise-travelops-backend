@@ -177,6 +177,29 @@ describe('WhatsApp configuration and permissions', () => {
       ),
     ).not.toThrow();
   });
+  it('send capability and actual send use the same blocked reasons', () => {
+    expect(
+      config({ WHATSAPP_CHAT_ENABLED: 'false' }).sendBlockedReason(
+        'ZZ.synthetic',
+      ),
+    ).toBe('not_configured');
+    expect(
+      config({ WHATSAPP_CHAT_SEND_ENABLED: 'false' }).sendBlockedReason(
+        'ZZ.synthetic',
+      ),
+    ).toBe('send_disabled');
+    expect(config().sendBlockedReason('ZZ.synthetic')).toBe('test_recipient');
+    expect(
+      config({
+        WHATSAPP_CHAT_TEST_RECIPIENTS: 'ZZ.synthetic',
+      }).sendBlockedReason('ZZ.synthetic'),
+    ).toBeNull();
+    expect(
+      config({ WHATSAPP_CHAT_ENVIRONMENT: 'production' }).sendBlockedReason(
+        'ZZ.other',
+      ),
+    ).toBeNull();
+  });
   it('HTTP token requires strong exact bearer auth', () => {
     const c = config({
       WHATSAPP_CHAT_HTTP_TOKEN: 'synthetic-token-32-characters-long-only',

@@ -123,6 +123,17 @@ export class WhatsappQuickReplies {
       scenarios: scenarios.map((x) => x.value),
     };
   }
+  async detail(id: string, user: AuthenticatedUser) {
+    chatPermission(user, 'whatsapp:quick-reply:manage');
+    if (!chatManager(user))
+      chatFail('AUTH_FORBIDDEN', '只有主管可维护快捷回复', 403);
+    const [row] = await this.db.query<QuickReplyRecord[]>(
+      `SELECT ${COLUMNS} FROM whatsapp_quick_replies WHERE id=$1`,
+      [id],
+    );
+    if (!row) chatFail('NOT_FOUND', '快捷回复不存在', 404);
+    return row;
+  }
   async save(
     input: QuickReplyInput | UpdateQuickReplyInput,
     user: AuthenticatedUser,
@@ -188,6 +199,14 @@ export class WhatsappQuickRepliesController {
   @Permissions('whatsapp:conversation:list')
   list(@Query() q: QuickReplyQuery, @CurrentUser() u: AuthenticatedUser) {
     return this.service.list(q, u);
+  }
+  @Get(':id')
+  @Permissions('whatsapp:quick-reply:manage')
+  detail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.detail(id, user);
   }
   @Post()
   @Permissions('whatsapp:quick-reply:manage')

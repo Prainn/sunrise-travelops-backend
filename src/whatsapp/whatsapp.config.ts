@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'node:crypto';
+import { BusinessException } from '../common/exceptions/business.exception';
 import { chatFail } from './whatsapp.policy';
 @Injectable()
 export class WhatsappConfig {
@@ -25,11 +26,17 @@ export class WhatsappConfig {
       chatFail('CONFLICT', 'WhatsApp接入尚未配置', 409);
     return { spaceId, wabaId, phone };
   }
-  assertSend(recipient: string) {
-    this.account();
-    if (this.get('SEND_ENABLED') !== 'true')
-      chatFail('CONFLICT', 'WhatsApp发送尚未启用', 409);
-    // Defaults to test. Only an explicit production environment may omit the allowlist.
+  sendBlockedReason(
+    recipient: string,
+  ): 'not_configured' | 'send_disabled' | 'test_recipient' | null {
+    try {
+      this.account();
+    } catch (error) {
+      if (error instanceof BusinessException) return 'not_configured';
+      throw error;
+    }
+    if (this.get('SEND_ENABLED') !== 'true') return 'send_disabled';
+    // Only an explicit production environment may omit the allowlist.
     if (
       this.get('ENVIRONMENT') !== 'production' &&
       !this.get('TEST_RECIPIENTS')
@@ -38,6 +45,16 @@ export class WhatsappConfig {
         .filter(Boolean)
         .includes(recipient)
     )
+      return 'test_recipient';
+    return null;
+  }
+  assertSend(recipient: string) {
+    const reason = this.sendBlockedReason(recipient);
+    if (reason === 'not_configured')
+      chatFail('CONFLICT', 'WhatsApp接入尚未配置', 409);
+    if (reason === 'send_disabled')
+      chatFail('CONFLICT', 'WhatsApp发送尚未启用', 409);
+    if (reason === 'test_recipient')
       chatFail('AUTH_FORBIDDEN', '测试环境只能向已授权测试对象发送', 403);
   }
   authorize(header: string | undefined, key: 'HTTP_TOKEN' | 'SOURCE_TOKEN') {

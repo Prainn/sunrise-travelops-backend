@@ -1,8 +1,12 @@
 /** Isolated local PostgreSQL only; mock sends, no cloud credentials or real customer data. */
 import assert from 'node:assert/strict';
+import { ConfigService } from '@nestjs/config';
+import { MessagePresentation } from '../src/whatsapp/whatsapp.presentation';
 import { randomUUID } from 'node:crypto';
 import { CreateWhatsappWorkbench1795651200000 } from '../src/migrations/1795651200000-CreateWhatsappWorkbench';
 import { AddWhatsappQuickReplies1795824000000 } from '../src/migrations/1795824000000-AddWhatsappQuickReplies';
+import { AddWhatsappCustomerNotes1795910400000 } from '../src/migrations/1795910400000-AddWhatsappCustomerNotes';
+import { AddWhatsappEventMessageIndex1795996800000 } from '../src/migrations/1795996800000-AddWhatsappEventMessageIndex';
 import { Actor, IsolationHarness, Page } from './business-isolation.harness';
 import { WhatsappEvents } from '../src/whatsapp/whatsapp.events';
 import { WhatsappService } from '../src/whatsapp/whatsapp.service';
@@ -28,11 +32,17 @@ async function undoWhatsappMigration() {
   assert.match(String(h.db.options.database), /^travelops_isolation_/);
   await h.db.transaction(async (manager) => {
     assert(manager.queryRunner);
+    await new AddWhatsappEventMessageIndex1795996800000().down(
+      manager.queryRunner,
+    );
+    await new AddWhatsappCustomerNotes1795910400000().down(manager.queryRunner);
     await new AddWhatsappQuickReplies1795824000000().down(manager.queryRunner);
     await new CreateWhatsappWorkbench1795651200000().down(manager.queryRunner);
-    await manager.query('DELETE FROM migrations WHERE name IN ($1,$2)', [
+    await manager.query('DELETE FROM migrations WHERE name IN ($1,$2,$3,$4)', [
       'CreateWhatsappWorkbench1795651200000',
       'AddWhatsappQuickReplies1795824000000',
+      'AddWhatsappCustomerNotes1795910400000',
+      'AddWhatsappEventMessageIndex1795996800000',
     ]);
   });
 }
@@ -117,7 +127,7 @@ async function main() {
         plannedDays: 1,
         requirements: 'Synthetic baseline',
       });
-      assert.equal((await h.db.runMigrations()).length, 2);
+      assert.equal((await h.db.runMigrations()).length, 4);
       assert.equal((await h.db.runMigrations()).length, 0);
       assert.equal(
         (await call<{ id: string }>(a, 'GET', `/website/inquiries/${old.id}`))
@@ -193,6 +203,73 @@ async function main() {
     },
   );
   await check(
+    'summary is scoped, read-only, excludes imported and archived messages',
+    async () => {
+      const summary = (actor: Actor) =>
+        call<{ unreadCount: number; unassignedCount: number | null }>(
+          actor,
+          'GET',
+          '/whatsapp/summary',
+        );
+      const initial = await summary(manager);
+      assert(initial.unreadCount > 0);
+      assert.equal(initial.unassignedCount, 1);
+      assert.deepEqual(await summary(a), {
+        unreadCount: 0,
+        unassignedCount: null,
+      });
+      assert.deepEqual(await summary(root), initial);
+      await call(
+        other,
+        'GET',
+        '/whatsapp/summary',
+        undefined,
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      const ordinaryRoot = await h.actor('headquarters', 'ROOT');
+      await call(
+        ordinaryRoot,
+        'GET',
+        '/whatsapp/summary',
+        undefined,
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      assert.deepEqual(await summary(manager), initial);
+      const [{ count: reads }] = await h.db.query<{ count: string }[]>(
+        'SELECT count(*) FROM whatsapp_reads',
+      );
+      assert.equal(reads, '0');
+      const [{ id: targetId }] = await h.db.query<{ id: string }[]>(
+        "SELECT id FROM whatsapp_messages WHERE conversation_id=$1 AND direction='inbound' LIMIT 1",
+        [c.id],
+      );
+      const eventId = randomUUID();
+      await h.db.query(
+        "INSERT INTO whatsapp_events(id,account_id,event_key,kind,payload,state,message_id) VALUES($1::uuid,$2,$1::text,'history_import','{}','done',$3)",
+        [eventId, c.accountId, targetId],
+      );
+      assert.equal(
+        (await summary(manager)).unreadCount,
+        initial.unreadCount - 1,
+      );
+      await h.db.query('DELETE FROM whatsapp_events WHERE id=$1', [eventId]);
+      await h.db.query(
+        "UPDATE whatsapp_conversations SET state='archived',archived_at=now() WHERE id=$1",
+        [c.id],
+      );
+      assert.deepEqual(await summary(manager), {
+        unreadCount: 0,
+        unassignedCount: 0,
+      });
+      await h.db.query(
+        "UPDATE whatsapp_conversations SET state='open',archived_at=NULL WHERE id=$1",
+        [c.id],
+      );
+    },
+  );
+  await check(
     'supervisor assignment, stale version and owner-only reply visibility',
     async () => {
       await call(
@@ -237,6 +314,22 @@ async function main() {
         `/whatsapp/conversations/${c.id}/messages`,
       );
       message = messages.list[0];
+      const assignedSummary = await call<{
+        unreadCount: number;
+        unassignedCount: number | null;
+      }>(a, 'GET', '/whatsapp/summary');
+      assert(assignedSummary.unreadCount > 0);
+      assert.equal(assignedSummary.unassignedCount, null);
+      assert.equal(
+        (
+          await call<{ unassignedCount: number }>(
+            manager,
+            'GET',
+            '/whatsapp/summary',
+          )
+        ).unassignedCount,
+        0,
+      );
       assert.equal(
         (await call<Page>(a, 'GET', '/whatsapp/conversations?unread=true'))
           .total,
@@ -266,6 +359,87 @@ async function main() {
         400,
         'VALIDATION_ERROR',
       );
+    },
+  );
+  await check(
+    'reaction lookup releases the row lock and rechecks scope, state and window',
+    async () => {
+      const path = `/whatsapp/conversations/${c.id}/messages/${message.id}/reactions`;
+      const originalLookup = provider.reactionTarget.bind(provider);
+      const before = await h.db.query<{ id: string }[]>(
+        'SELECT id FROM whatsapp_messages WHERE conversation_id=$1',
+        [c.id],
+      );
+      for (const change of ['owner', 'state', 'window']) {
+        provider.reactionTarget = async () => {
+          await h.db.transaction(async (tx) => {
+            await tx.query("SET LOCAL lock_timeout='500ms'");
+            await tx.query(
+              'SELECT id FROM whatsapp_conversations WHERE id=$1 FOR UPDATE',
+              [c.id],
+            );
+            if (change === 'owner')
+              await tx.query(
+                'UPDATE whatsapp_conversations SET owner_id=$2 WHERE id=$1',
+                [c.id, b.id],
+              );
+            if (change === 'state')
+              await tx.query(
+                "UPDATE whatsapp_conversations SET state='closed' WHERE id=$1",
+                [c.id],
+              );
+            if (change === 'window')
+              await tx.query(
+                "UPDATE whatsapp_contacts SET last_inbound_at=now()-interval '25 hours' WHERE id=$1",
+                [c.contactId],
+              );
+          });
+          return 'wamid.synthetic-original';
+        };
+        await call(
+          a,
+          'POST',
+          path,
+          { clientRequestId: randomUUID(), emoji: '👍' },
+          change === 'owner' ? 404 : 409,
+          change === 'owner' ? 'NOT_FOUND' : 'CONFLICT',
+        );
+        await h.db.query(
+          "UPDATE whatsapp_conversations SET owner_id=$2,state='open' WHERE id=$1",
+          [c.id, a.id],
+        );
+        await h.db.query(
+          'UPDATE whatsapp_contacts SET last_inbound_at=now() WHERE id=$1',
+          [c.contactId],
+        );
+      }
+      provider.reactionTarget = () => Promise.resolve(null);
+      await call(
+        a,
+        'POST',
+        path,
+        { clientRequestId: randomUUID(), emoji: '👍' },
+        409,
+        'CONFLICT',
+      );
+      provider.reactionTarget = originalLookup;
+      assert.equal(
+        (
+          await h.db.query<{ id: string }[]>(
+            'SELECT id FROM whatsapp_messages WHERE conversation_id=$1',
+            [c.id],
+          )
+        ).length,
+        before.length,
+      );
+      assert.deepEqual(await call(a, 'GET', '/whatsapp/summary'), {
+        unreadCount: 0,
+        unassignedCount: null,
+      });
+      assert.deepEqual(await call(b, 'GET', '/whatsapp/summary'), {
+        unreadCount: 0,
+        unassignedCount: null,
+      });
     },
   );
   await check(
@@ -340,6 +514,9 @@ async function main() {
       assert.equal(sent.kind, 'reaction');
       assert.equal(sent.attachment?.targetMessageId, message.id);
       assert.equal(sent.attachment?.messageId, 'wamid.synthetic-original');
+      provider.reactionTarget = () => {
+        throw new Error('Replay must not query provider');
+      };
       assert.equal(
         (await call<ChatMessage>(a, 'POST', path, input)).id,
         sent.id,
@@ -460,6 +637,37 @@ async function main() {
         { ...input, version: row.version },
         409,
         'CONFLICT',
+      );
+      const current = await call<{ version: number; enabled: boolean }>(
+        manager,
+        'GET',
+        `${path}/${row.id}`,
+      );
+      assert.equal(current.version, row.version + 1);
+      assert.equal(current.enabled, false);
+      await call(
+        a,
+        'GET',
+        `${path}/${row.id}`,
+        undefined,
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      await call(
+        other,
+        'GET',
+        `${path}/${row.id}`,
+        undefined,
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      await call(
+        manager,
+        'GET',
+        `${path}/${randomUUID()}`,
+        undefined,
+        404,
+        'NOT_FOUND',
       );
       assert.equal((await call<Page>(a, 'GET', path)).total, 0);
       assert.equal(
@@ -793,6 +1001,57 @@ async function main() {
       await service.dispatchOne();
     },
   );
+  await check(
+    'supervisor confirms a stale unknown send as failed, audited, then it can be retried',
+    async () => {
+      provider.send = () =>
+        Promise.resolve({
+          status: 'unknown',
+          errorCode: 'PROVIDER_RESULT_UNKNOWN',
+        });
+      const sent = await call<ChatMessage>(
+        a,
+        'POST',
+        `/whatsapp/conversations/${c.id}/messages`,
+        { clientRequestId: randomUUID(), text: 'Synthetic stale unknown' },
+      );
+      await service.dispatchOne();
+      const path = `/whatsapp/conversations/${c.id}/messages/${sent.id}/confirm-failed`;
+      await call(a, 'POST', path, undefined, 403, 'AUTH_FORBIDDEN');
+      await call(manager, 'POST', path, undefined, 409, 'CONFLICT');
+      await h.db.query(
+        "UPDATE whatsapp_messages SET updated_at=now()-interval '11 minutes' WHERE id=$1",
+        [sent.id],
+      );
+      const confirmed = await call<{ status: string; errorCode: string }>(
+        manager,
+        'POST',
+        path,
+        undefined,
+        200,
+      );
+      assert.equal(confirmed.status, 'failed');
+      assert.equal(confirmed.errorCode, 'MANUALLY_CONFIRMED_FAILED');
+      await call(manager, 'POST', path, undefined, 409, 'CONFLICT');
+      const [audit] = await h.db.query<{ total: number }[]>(
+        "SELECT count(*)::int total FROM whatsapp_actions WHERE conversation_id=$1 AND action='message_confirmed_failed' AND details->>'messageId'=$2",
+        [c.id, sent.id],
+      );
+      assert.equal(audit.total, 1);
+      provider.send = () =>
+        Promise.resolve({
+          status: 'accepted',
+          providerId: 'confirmed-retry-out',
+        });
+      await call(
+        a,
+        'POST',
+        `/whatsapp/conversations/${c.id}/messages/${sent.id}/retry`,
+        { clientRequestId: randomUUID() },
+      );
+      await service.dispatchOne();
+    },
+  );
   await check('24h restriction and worker rechecks queued sends', async () => {
     const queued = await call<ChatMessage>(
       a,
@@ -1107,6 +1366,191 @@ async function main() {
         '/whatsapp/integration/failed-events',
       );
       assert(!JSON.stringify(errors).includes('Synthetic inquiry'));
+    },
+  );
+  await check(
+    'reply capability follows send switch and test allowlist without widening send access',
+    async () => {
+      const current = (await page()).list[0];
+      const cfg = h.get(ConfigService);
+      const detail = () =>
+        call<{
+          capabilities: { canReply: boolean };
+          sendBlockedReason: string | null;
+        }>(manager, 'GET', `/whatsapp/conversations/${current.id}`);
+      assert.equal((await detail()).capabilities.canReply, true);
+      cfg.set('WHATSAPP_CHAT_SEND_ENABLED', 'false');
+      assert.deepEqual((await detail()).sendBlockedReason, 'send_disabled');
+      assert.equal((await detail()).capabilities.canReply, false);
+      await call(
+        manager,
+        'POST',
+        `/whatsapp/conversations/${current.id}/messages`,
+        { clientRequestId: randomUUID(), text: 'blocked' },
+        409,
+        'CONFLICT',
+      );
+      cfg.set('WHATSAPP_CHAT_SEND_ENABLED', 'true');
+      cfg.set('WHATSAPP_CHAT_TEST_RECIPIENTS', '');
+      assert.equal((await detail()).sendBlockedReason, 'test_recipient');
+      assert.equal((await detail()).capabilities.canReply, false);
+      await call(
+        manager,
+        'POST',
+        `/whatsapp/conversations/${current.id}/messages`,
+        { clientRequestId: randomUUID(), text: 'blocked' },
+        403,
+        'AUTH_FORBIDDEN',
+      );
+      cfg.set(
+        'WHATSAPP_CHAT_TEST_RECIPIENTS',
+        config.WHATSAPP_CHAT_TEST_RECIPIENTS,
+      );
+      assert.equal((await detail()).capabilities.canReply, true);
+      assert.equal((await detail()).sendBlockedReason, null);
+    },
+  );
+  await check(
+    'page-limited projection resolves off-page originals, history aliases, latest reactions and edits',
+    async () => {
+      const current = (await page()).list[0];
+      const insert = async (
+        kind: string,
+        attachment: Record<string, unknown> | null,
+        providerId: string | null = null,
+      ) => {
+        const [row] = await h.db.query<{ id: string; seq: string }[]>(
+          `INSERT INTO whatsapp_messages(account_id,conversation_id,provider_id,direction,source,kind,text,status,occurred_at,attachment)
+        VALUES($1,$2,$3,'inbound','customer',$4,'original','received',now(),$5::jsonb) RETURNING id,seq::text`,
+          [
+            current.accountId,
+            current.id,
+            providerId,
+            kind,
+            attachment ? JSON.stringify(attachment) : null,
+          ],
+        );
+        return row;
+      };
+      const original = await insert('text', null, 'page-projection-original');
+      await h.db.query(
+        `INSERT INTO whatsapp_events(account_id,event_key,payload,kind,state,message_id) VALUES($1,'page-history',$2::jsonb,'history_import','done',$3)`,
+        [
+          current.accountId,
+          JSON.stringify({
+            record: { UniqueMessageId: 'wamid.page-original' },
+          }),
+          original.id,
+        ],
+      );
+      await h.db.query(
+        `INSERT INTO whatsapp_messages(account_id,conversation_id,direction,source,kind,text,status,occurred_at)
+      SELECT $1,$2,'inbound','customer','text','unrelated','received',now() FROM generate_series(1,120)`,
+        [current.accountId, current.id],
+      );
+      await insert('reaction', {
+        messageCode: 'page-projection-original',
+        emoji: '👍',
+      });
+      const reaction = await insert('reaction', {
+        message_id: 'wamid.page-original',
+        emoji: '❤️',
+      });
+      const edit = await insert('text', {
+        type: 'edit',
+        edit: {
+          original_message_id: 'wamid.page-original',
+          message: { text: { body: 'edited across pages' } },
+        },
+      });
+      const unlinked = await insert('reaction', {
+        messageId: 'missing-original',
+        emoji: '😮',
+      });
+      const one = async (seq: string) =>
+        (
+          await call<Page<ChatMessage & { presentation: MessagePresentation }>>(
+            manager,
+            'GET',
+            `/whatsapp/conversations/${current.id}/messages?pageSize=1&beforeSeq=${BigInt(seq) + 1n}`,
+          )
+        ).list[0];
+      const bubble = await one(original.seq);
+      assert.equal(bubble.id, original.id);
+      assert.equal(bubble.presentation.text, 'edited across pages');
+      assert.deepEqual(
+        bubble.presentation.reactions.map((r) => r.emoji),
+        ['❤️'],
+      );
+      assert.equal(
+        (await one(reaction.seq)).presentation.targetMessageId,
+        original.id,
+      );
+      assert.equal((await one(reaction.seq)).presentation.hidden, true);
+      assert.equal(
+        (await one(edit.seq)).presentation.targetMessageId,
+        original.id,
+      );
+      assert.equal((await one(unlinked.seq)).presentation.hidden, false);
+      assert.equal(
+        (await one(unlinked.seq)).presentation.targetMessageId,
+        null,
+      );
+    },
+  );
+  await check(
+    'outbound diagnostics count system backlog and oldest unfinished record only',
+    async () => {
+      type Status = {
+        outbound: {
+          queued: number;
+          sending: number;
+          unknown: number;
+          failed: number;
+          oldestPendingAt: string | null;
+        };
+        worker: {
+          scope: string;
+          events: { state: string };
+          outbound: { state: string };
+        };
+      };
+      const current = (await page()).list[0];
+      const before = await call<Status>(root, 'GET', '/whatsapp/integration');
+      const oldest = '2000-01-01T00:00:00.000Z';
+      for (const status of [
+        'queued',
+        'sending',
+        'unknown',
+        'failed',
+        'accepted',
+      ]) {
+        await h.db.query(
+          `INSERT INTO whatsapp_messages(account_id,conversation_id,direction,source,kind,text,status,occurred_at,created_at)
+        VALUES($1,$2,'outbound','system','text','synthetic',$3,now(),$4::timestamptz)`,
+          [current.accountId, current.id, status, oldest],
+        );
+      }
+      await h.db.query(
+        `INSERT INTO whatsapp_messages(account_id,conversation_id,direction,source,kind,text,status,occurred_at)
+      VALUES($1,$2,'outbound','mobile','text','synthetic','failed',now())`,
+        [current.accountId, current.id],
+      );
+      const after = await call<Status>(root, 'GET', '/whatsapp/integration');
+      for (const status of ['queued', 'sending', 'unknown', 'failed'] as const)
+        assert.equal(after.outbound[status], before.outbound[status] + 1);
+      assert.equal(after.outbound.oldestPendingAt, oldest);
+      assert.equal(after.worker.scope, 'current_process');
+      assert.equal(after.worker.events.state, 'disabled');
+      assert.equal(after.worker.outbound.state, 'disabled');
+      await call(
+        manager,
+        'GET',
+        '/whatsapp/integration',
+        undefined,
+        403,
+        'AUTH_FORBIDDEN',
+      );
     },
   );
   await check(

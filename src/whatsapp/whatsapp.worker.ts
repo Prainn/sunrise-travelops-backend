@@ -27,18 +27,36 @@ export class WhatsappWorker implements OnModuleInit, OnModuleDestroy {
     this.jobs.push(
       this.loop(async () => {
         for (let i = 0; i < 25 && !this.stopped; i++)
-          if (!(await this.events.processOne())) break;
+          if (!(await this.runStep('events', () => this.events.processOne())))
+            break;
       }, 1000),
     );
     this.jobs.push(
       this.loop(async () => {
         for (let i = 0; i < 10 && !this.stopped; i++)
-          if (!(await this.service.dispatchOne())) break;
+          if (
+            !(await this.runStep('outbound', () => this.service.dispatchOne()))
+          )
+            break;
       }, 1000),
     );
     if (this.config.mode === 'queue')
       for (const kind of ['inbound', 'status'] as const)
         this.jobs.push(this.consume(kind));
+  }
+  private async runStep(
+    loop: 'events' | 'outbound',
+    work: () => Promise<boolean>,
+  ) {
+    this.service.recordWorkerActivity(loop, 'started');
+    try {
+      const result = await work();
+      this.service.recordWorkerActivity(loop, 'completed');
+      return result;
+    } catch (error) {
+      this.service.recordWorkerActivity(loop, 'failed');
+      throw error;
+    }
   }
   private pause(ms: number) {
     return new Promise<void>((resolve) => {
@@ -108,6 +126,7 @@ export class WhatsappWorker implements OnModuleInit, OnModuleDestroy {
   }
   async onModuleDestroy() {
     this.stopped = true;
+    this.service.stopWorker();
     for (const [timer, resolve] of this.timers) {
       clearTimeout(timer);
       resolve();
