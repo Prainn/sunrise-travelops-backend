@@ -89,9 +89,7 @@ export function normalizeEvent(
   };
   if (isStatus && !statuses[field(p, 'Status')])
     throw new Error('UNSUPPORTED_STATUS');
-  const messageKind = isStatus
-    ? 'status'
-    : field(p, 'Type', true).toLowerCase();
+  let messageKind = isStatus ? 'status' : field(p, 'Type', true).toLowerCase();
   let text = '',
     attachment: ObjectValue | null = null;
   if (!isStatus) {
@@ -107,6 +105,7 @@ export function normalizeEvent(
       );
     }
   }
+  if (attachment?.type === 'edit') messageKind = 'edit';
   return {
     providerId,
     occurredAt,

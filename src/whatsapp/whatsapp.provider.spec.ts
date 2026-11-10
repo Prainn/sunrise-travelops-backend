@@ -61,6 +61,29 @@ describe('WhatsApp official SDK adapter', () => {
       expect.objectContaining({ autoretry: false, maxAttempts: 1 }),
     );
   });
+  it('sends a reaction against the provider message ID, not as an emoji text message', async () => {
+    const transport = jest
+      .spyOn(Cams.prototype, 'sendChatappMessageWithOptions')
+      .mockResolvedValue(
+        new SendChatappMessageResponse({
+          body: new SendChatappMessageResponseBody({
+            code: 'OK',
+            messageId: 'reaction-id',
+          }),
+        }),
+      );
+    await provider.send(account, 'ZZ.synthetic', '👍', 'task', {
+      messageId: 'original-id',
+      emoji: '👍',
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageType: 'reaction',
+        content: '{"messageId":"original-id","emoji":"👍"}',
+      }),
+      expect.anything(),
+    );
+  });
   it.each([
     ['OK', 'unknown'],
     ['InvalidParameter', 'failed'],

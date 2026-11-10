@@ -54,6 +54,11 @@ export class WhatsappConfig {
   validate() {
     if (!this.enabled) return;
     this.account();
+    if (
+      this.get('SEND_SOCKET') &&
+      this.get('SEND_SOCKET') !== '/run/sunrise-whatsapp-send/send.sock'
+    )
+      throw new Error('Invalid WHATSAPP_CHAT_SEND_SOCKET');
     if (!['disabled', 'queue', 'http'].includes(this.mode))
       throw new Error('Invalid WHATSAPP_CHAT_RECEIVE_MODE');
     if (this.mode === 'http' && this.get('HTTP_TOKEN').length < 32)

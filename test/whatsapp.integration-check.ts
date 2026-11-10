@@ -317,6 +317,73 @@ async function main() {
     },
   );
   await check(
+    'reaction outbox validates target scope, keeps idempotency and dispatches actual reactions',
+    async () => {
+      const path = `/whatsapp/conversations/${c.id}/messages/${message.id}/reactions`;
+      const input = { clientRequestId: randomUUID(), emoji: '👍' };
+      await call(b, 'POST', path, input, 404, 'NOT_FOUND');
+      await call(other, 'POST', path, input, 403, 'AUTH_FORBIDDEN');
+      await call(a, 'POST', path, { ...input, emoji: 'not-an-emoji' }, 400);
+      await call(
+        a,
+        'POST',
+        `/whatsapp/conversations/${c.id}/messages/${randomUUID()}/reactions`,
+        input,
+        404,
+        'NOT_FOUND',
+      );
+      const sent = await call<ChatMessage>(a, 'POST', path, input);
+      assert.equal(sent.kind, 'reaction');
+      assert.equal(sent.attachment?.targetMessageId, message.id);
+      assert.equal(sent.attachment?.messageId, message.providerId);
+      assert.equal(
+        (await call<ChatMessage>(a, 'POST', path, input)).id,
+        sent.id,
+      );
+      await call(a, 'POST', path, { ...input, emoji: '❤️' }, 409, 'CONFLICT');
+      await call(
+        a,
+        'POST',
+        `/whatsapp/conversations/${c.id}/messages`,
+        { clientRequestId: input.clientRequestId, text: '👍' },
+        409,
+        'CONFLICT',
+      );
+      let sends = 0;
+      provider.send = (_account, _recipient, text, taskId, reaction) => {
+        sends++;
+        assert.equal(text, '👍');
+        assert.equal(taskId, sent.id);
+        assert.deepEqual(reaction, {
+          messageId: message.providerId,
+          emoji: '👍',
+        });
+        return Promise.resolve({
+          status: 'accepted',
+          providerId: 'out-reaction-1',
+        });
+      };
+      await service.dispatchOne();
+      assert.equal(sends, 1);
+      const projected = await call<
+        Page<
+          ChatMessage & {
+            presentation: { hidden: boolean; reactions: { emoji: string }[] };
+          }
+        >
+      >(a, 'GET', `/whatsapp/conversations/${c.id}/messages?pageSize=100`);
+      assert.equal(
+        projected.list.find((item) => item.id === sent.id)?.presentation.hidden,
+        true,
+      );
+      assert.equal(
+        projected.list.find((item) => item.id === message.id)?.presentation
+          .reactions[0].emoji,
+        '👍',
+      );
+    },
+  );
+  await check(
     'text outbox idempotency, provider accepted and out-of-order receipts',
     async () => {
       let sends = 0;

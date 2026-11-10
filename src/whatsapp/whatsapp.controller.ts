@@ -24,6 +24,7 @@ import {
   ReadChatDto,
   RetryMessageDto,
   SendTextDto,
+  SendReactionDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
 @ApiBearerAuth()
@@ -130,6 +131,22 @@ export class WhatsappController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.enqueue(id, input, user);
+  }
+  @Post('conversations/:id/messages/:messageId/reactions')
+  @Permissions('whatsapp:message:send')
+  react(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() input: SendReactionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.enqueue(
+      id,
+      { clientRequestId: input.clientRequestId, text: input.emoji },
+      user,
+      undefined,
+      { targetMessageId: messageId, emoji: input.emoji },
+    );
   }
   @Post('conversations/:id/messages/:messageId/retry')
   @Permissions('whatsapp:message:send')

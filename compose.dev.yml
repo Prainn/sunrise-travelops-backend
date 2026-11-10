@@ -6,8 +6,12 @@ services:
       - path: ./whatsapp-receive.env
         required: false
     environment:
-      # This dev integration is receive-only, including after future API releases.
-      WHATSAPP_CHAT_SEND_ENABLED: "false"
+      # Private env explicitly enables dev sends; absent configuration remains disabled.
+      WHATSAPP_CHAT_SEND_SOCKET: /run/sunrise-whatsapp-send/send.sock
+    group_add:
+      - "${WHATSAPP_SEND_GID:-1999}"
+    volumes:
+      - /run/sunrise-whatsapp-send:/run/sunrise-whatsapp-send:ro
   postgres:
     networks:
       app: {}

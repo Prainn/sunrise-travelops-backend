@@ -53,6 +53,10 @@ export class SendTextDto {
   @MaxLength(4096)
   text: string;
 }
+export class SendReactionDto {
+  @IsUUID() clientRequestId: string;
+  @IsIn(['👍', '❤️', '😂', '😮', '😢', '🙏', '']) emoji: string;
+}
 export class RetryMessageDto {
   @IsUUID() clientRequestId: string;
 }

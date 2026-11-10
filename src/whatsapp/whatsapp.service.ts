@@ -9,6 +9,11 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { WhatsappConfig } from './whatsapp.config';
 import { WhatsappProvider } from './whatsapp.provider';
 import {
+  interaction,
+  MessageAlias,
+  presentMessages,
+} from './whatsapp.presentation';
+import {
   AssignChatDto,
   ChatListQuery,
   ChatStateDto,
@@ -187,7 +192,7 @@ export class WhatsappService {
     );
     const list = await this.db.query<Conversation[]>(
       `SELECT ${CONVERSATION_COLUMNS},${unread} AS "unreadCount",
-      (SELECT text FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) AS "lastMessageText"
+      (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' ELSE text END FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) AS "lastMessageText"
       ${CONVERSATION_FROM} WHERE ${sql} ORDER BY c.updated_at DESC,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
@@ -217,8 +222,21 @@ export class WhatsappService {
       WHERE ${clauses.join(' AND ')} ORDER BY m.seq ${query.afterSeq ? 'ASC' : 'DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
+    const [aliases, changes] = await Promise.all([
+      this.db.query<MessageAlias[]>(
+        `SELECT m.id,m.provider_id AS "providerId",e.payload->'record'->>'UniqueMessageId' AS "externalId"
+         FROM whatsapp_messages m LEFT JOIN whatsapp_events e ON e.message_id=m.id AND e.kind='history_import' AND e.state='done'
+         WHERE m.conversation_id=$1`,
+        [id],
+      ),
+      this.db.query<ChatMessage[]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND
+         (kind IN ('reaction','edit') OR attachment->>'type'='edit')`,
+        [id],
+      ),
+    ]);
     return {
-      list,
+      list: presentMessages(list, aliases, changes),
       total: Number(count.total),
       page: query.page,
       pageSize: query.pageSize,
@@ -472,6 +490,7 @@ export class WhatsappService {
     input: SendTextDto,
     user: AuthenticatedUser,
     retryOf?: string,
+    reaction?: { targetMessageId: string; emoji: string },
   ) {
     chatPermission(user, 'whatsapp:message:send');
     return this.db.transaction(async (manager) => {
@@ -483,11 +502,26 @@ export class WhatsappService {
       if (existing) {
         if (
           existing.text !== input.text ||
+          existing.kind !== (reaction ? 'reaction' : 'text') ||
+          (existing.attachment?.targetMessageId ?? null) !==
+            (reaction?.targetMessageId ?? null) ||
           existing.actorId !== user.id ||
           existing.retryOf !== (retryOf ?? null)
         )
           chatFail('CONFLICT', '请求编号已被其他消息使用', 409);
-        return existing;
+        return reaction
+          ? presentMessages(
+              [existing],
+              [
+                {
+                  id: reaction.targetMessageId,
+                  providerId: null,
+                  externalId: null,
+                },
+              ],
+              [existing],
+            )[0]
+          : existing;
       }
       mutableChat(c);
       assertWindow(c.lastInboundAt);
@@ -507,10 +541,25 @@ export class WhatsappService {
         if (retried)
           chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
       }
+      let attachment: Record<string, unknown> | null = null;
+      if (reaction) {
+        const [target] = await manager.query<ChatMessage[]>(
+          `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
+          [reaction.targetMessageId, id],
+        );
+        if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
+        if (
+          target.direction !== 'inbound' ||
+          !target.providerId ||
+          interaction(target)
+        )
+          chatFail('CONFLICT', '只能回应客户的原始消息', 409);
+        attachment = { ...reaction, messageId: target.providerId };
+      }
       const messageId = randomUUID();
       await manager.query(
-        `INSERT INTO whatsapp_messages(id,account_id,conversation_id,task_id,client_request_id,retry_of,direction,source,kind,text,status,actor_id,actor_identity_id,occurred_at)
-        VALUES($1::uuid,$2,$3,$1::text,$4,$5,'outbound','system','text',$6,'queued',$7,$8,now())`,
+        `INSERT INTO whatsapp_messages(id,account_id,conversation_id,task_id,client_request_id,retry_of,direction,source,kind,text,status,actor_id,actor_identity_id,occurred_at,attachment)
+        VALUES($1::uuid,$2,$3,$1::text,$4,$5,'outbound','system',$9,$6,'queued',$7,$8,now(),$10::jsonb)`,
         [
           messageId,
           c.accountId,
@@ -520,6 +569,8 @@ export class WhatsappService {
           input.text,
           user.id,
           user.identityId,
+          reaction ? 'reaction' : 'text',
+          attachment ? JSON.stringify(attachment) : null,
         ],
       );
       await manager.query(
@@ -537,7 +588,19 @@ export class WhatsappService {
         `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1`,
         [messageId],
       );
-      return message;
+      return reaction
+        ? presentMessages(
+            [message],
+            [
+              {
+                id: reaction.targetMessageId,
+                providerId: null,
+                externalId: null,
+              },
+            ],
+            [message],
+          )[0]
+        : message;
     });
   }
   async retryMessage(
@@ -557,6 +620,15 @@ export class WhatsappService {
       { clientRequestId, text: old.text },
       user,
       messageId,
+      old.kind === 'reaction'
+        ? {
+            targetMessageId:
+              typeof old.attachment?.targetMessageId === 'string'
+                ? old.attachment.targetMessageId
+                : '',
+            emoji: old.text,
+          }
+        : undefined,
     );
   }
   async dispatchOne() {
@@ -612,6 +684,15 @@ export class WhatsappService {
       job.c.bsuid || job.c.phone || '',
       job.m.text,
       job.m.id,
+      job.m.kind === 'reaction'
+        ? {
+            messageId:
+              typeof job.m.attachment?.messageId === 'string'
+                ? job.m.attachment.messageId
+                : '',
+            emoji: job.m.text,
+          }
+        : undefined,
     );
     await this.db.transaction(async (manager) => {
       await manager.query(
