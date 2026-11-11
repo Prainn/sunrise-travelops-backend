@@ -84,6 +84,22 @@ describe('OperationLogInterceptor', () => {
 
   it('covers mutations and exports not audited within their business transaction', async () => {
     const excluded = new Set([
+      // Provider callbacks persist events/source attribution, without an internal actor.
+      'WhatsappIngressController.inbound',
+      'WhatsappIngressController.status',
+      'WhatsappIngressController.source',
+      // Read cursors retain their reader and timestamp in whatsapp_reads.
+      'WhatsappController.read',
+      // These mutations persist whatsapp_actions in the business transaction.
+      'WhatsappController.saveCustomerNotes',
+      'WhatsappController.assign',
+      'WhatsappController.state',
+      'WhatsappController.newConsultation',
+      'WhatsappController.inquiry',
+      'WhatsappController.send',
+      'WhatsappController.react',
+      'WhatsappController.retry',
+      'WhatsappController.confirmFailed',
       'AuthController.refresh', // Token renewal is not a user operation.
       'ToursController.availableGuides', // POST body is a read-only scheduling query.
       'WebsiteController.validateItinerary', // Read-only validation does not record operation logs.
@@ -570,6 +586,9 @@ describe('OperationLogInterceptor', () => {
   );
 
   it.each([
+    ['InquiriesController', 'addFollowUp', 'inquiry'],
+    ['WhatsappQuickRepliesController', 'update', 'business-category'],
+    ['WhatsappController', 'retryEvent', 'system-category'],
     ['InquiriesController', 'transfer', 'inquiry'],
     ['InquiriesController', 'archive', 'inquiry'],
     ['ItinerariesController', 'confirm', 'quotation'],

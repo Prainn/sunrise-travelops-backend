@@ -50,6 +50,18 @@ function actionFor(
 ): Action | null {
   if (controller === 'InspectionAlertController' && handler === 'report')
     return { category: 'system-category', label: '报告巡检异常' };
+  if (controller === 'WhatsappController' && handler === 'retryEvent')
+    return { category: 'system-category', label: '重试WhatsApp接收事件' };
+  if (controller === 'WhatsappQuickRepliesController') {
+    if (handler === 'create')
+      return {
+        category: 'business-category',
+        label: '新增WhatsApp快捷回复',
+        resultId: true,
+      };
+    if (handler === 'update')
+      return { category: 'business-category', label: '编辑WhatsApp快捷回复' };
+  }
   if (controller === 'MenuPermissionsController' && handler === 'save')
     return { category: 'system-category', label: '配置菜单权限' };
   if (controller === 'AuthController') {
@@ -105,6 +117,7 @@ function actionFor(
     const actions: Record<string, Action> = {
       create: { category: 'inquiry', label: '新增询盘', resultId: true },
       update: { category: 'inquiry', label: '编辑询盘' },
+      addFollowUp: { category: 'inquiry', label: '新增询盘跟进' },
       transfer: { category: 'inquiry', label: '转交询盘' },
       archive: { category: 'inquiry', label: '归档询盘' },
       delete: { category: 'inquiry', label: '删除询盘' },

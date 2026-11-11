@@ -7,6 +7,7 @@ describe('shared city options', () => {
       {
         id: 'city',
         name: '昆明',
+        englishName: 'Kunming',
         status: 'enabled',
         code: 'CITY001',
         province: '云南',
@@ -18,11 +19,23 @@ describe('shared city options', () => {
       typeof CitiesService
     >;
     expect(await new CitiesService(...args).options()).toEqual([
-      { id: 'city', name: '昆明', province: '云南', status: 'enabled' },
+      {
+        id: 'city',
+        name: '昆明',
+        englishName: 'Kunming',
+        province: '云南',
+        status: 'enabled',
+      },
     ]);
     expect(find).toHaveBeenCalledWith({
       where: { status: ResourceStatus.Enabled },
-      select: { id: true, name: true, province: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        englishName: true,
+        province: true,
+        status: true,
+      },
       order: { createdAt: 'ASC', id: 'ASC' },
     });
     // Repository.find excludes @DeleteDateColumn rows by default (no withDeleted).
