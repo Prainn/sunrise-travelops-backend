@@ -20,8 +20,21 @@ export interface RoleMenuConfig {
   locked: boolean;
 }
 
-function fixedMenu(role: string) {
-  return role === 'ROOT' || role === 'BOSS';
+function configuredMenuKeys(
+  row: {
+    code: string;
+    version: number;
+    menuKeys: string[];
+  },
+  allowed: string[],
+): string[] {
+  // The deployed BOSS migration registered an empty version-1 row while its menus were fixed.
+  if (
+    row.code === 'ROOT' ||
+    (row.code === 'BOSS' && row.version === 1 && !row.menuKeys.length)
+  )
+    return allowed;
+  return row.menuKeys.filter((key) => allowed.includes(key));
 }
 
 @Injectable()
@@ -48,14 +61,11 @@ export class MenuPermissionsService {
     menuKeys: string[];
   }): RoleMenuConfig {
     const allowed = roleMenuKeys(row.code);
-    const locked = fixedMenu(row.code);
     return {
       ...row,
       allowedMenuKeys: allowed,
-      menuKeys: locked
-        ? allowed
-        : row.menuKeys.filter((key) => allowed.includes(key)),
-      locked,
+      menuKeys: configuredMenuKeys(row, allowed),
+      locked: row.code === 'ROOT',
     };
   }
 
@@ -98,12 +108,18 @@ export class MenuPermissionsService {
 
   async snapshot(scope: LoginScope, roles: string[]): Promise<string[]> {
     const allowed = allowedMenuKeys(scope, roles);
-    if (scope === 'headquarters' && roles.some(fixedMenu)) return allowed;
-    const rows = await this.db.query<Array<{ menuKeys: string[] }>>(
-      'SELECT c.menu_keys AS "menuKeys" FROM role_menu_configs c JOIN roles r ON r.id=c.role_id WHERE r.code=ANY($1::text[]) AND r.is_enabled=true',
-      [roles],
+    const boss = isHeadquartersBoss({ scope, roles });
+    if (scope === 'headquarters' && !boss && roles.includes('ROOT'))
+      return allowed;
+    const rows = await this.db.query<
+      Array<{ code: string; version: number; menuKeys: string[] }>
+    >(
+      'SELECT r.code,c.version,c.menu_keys AS "menuKeys" FROM role_menu_configs c JOIN roles r ON r.id=c.role_id WHERE r.code=ANY($1::text[]) AND r.is_enabled=true',
+      [boss ? ['BOSS'] : roles],
     );
-    const configured = new Set(rows.flatMap((row) => row.menuKeys));
+    const configured = new Set(
+      rows.flatMap((row) => configuredMenuKeys(row, allowed)),
+    );
     return allowed.filter((key) => configured.has(key));
   }
 
@@ -133,7 +149,7 @@ export class MenuPermissionsService {
           status: HttpStatus.NOT_FOUND,
         });
       if (
-        fixedMenu(code) ||
+        code === 'ROOT' ||
         !MENU_ROLES.includes(code as (typeof MENU_ROLES)[number]) ||
         input.menuKeys.some((key) => !roleMenuKeys(code).includes(key))
       )
@@ -160,7 +176,8 @@ export class MenuPermissionsService {
           version: row.version + 1,
           menuKeys: input.menuKeys,
         }),
-        beforeMenuKeys: row.menuKeys,
+        beforeMenuKeys:
+          code === 'BOSS' ? this.present(row).menuKeys : row.menuKeys,
       };
     });
   }

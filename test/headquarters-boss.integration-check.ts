@@ -162,7 +162,8 @@ async function main() {
   );
   assert(!roles.some((role) => role.code === 'SUNRISE'));
   const boss = roles.find((role) => role.code === 'BOSS');
-  assert(boss?.locked);
+  assert(boss && !boss.locked);
+  assert.deepEqual(boss.menuKeys, boss.allowedMenuKeys);
   assert.equal(boss.name, '老板');
   for (const key of blockedMenus) assert(!boss.allowedMenuKeys.includes(key));
   await h.call(
@@ -175,6 +176,76 @@ async function main() {
     },
     400,
     'VALIDATION_ERROR',
+  );
+  await h.call(
+    sunrise,
+    'PUT',
+    `${path}/BOSS`,
+    {
+      version: boss.version,
+      menuKeys: ['users'],
+    },
+    403,
+    'AUTH_FORBIDDEN',
+  );
+  const saved = await h.call<RoleMenuConfig>(mango, 'PUT', `${path}/BOSS`, {
+    version: boss.version,
+    menuKeys: ['users', 'guide-leaves'],
+  });
+  assert.equal(saved.version, boss.version + 1);
+  assert.deepEqual(saved.menuKeys, ['users', 'guide-leaves']);
+  await h.call(
+    mango,
+    'PUT',
+    `${path}/BOSS`,
+    {
+      version: boss.version,
+      menuKeys: [],
+    },
+    409,
+    'CONFLICT',
+  );
+  const mePath = '/auth/me';
+  const previous = await h.call<{ menuKeys: string[] }>(sunrise, 'GET', mePath);
+  assert(previous.menuKeys.includes('inquiries'));
+  async function loginBoss() {
+    const login = await h.call<{ accessToken: string }>(
+      undefined,
+      'POST',
+      '/auth/login',
+      {
+        username: 'sunrise',
+        password: 'isolation-fixture-password',
+        scope: 'headquarters',
+      },
+    );
+    return { ...sunrise, token: login.accessToken };
+  }
+  const updated = await loginBoss();
+  const current = await h.call<{ menuKeys: string[]; permissions: string[] }>(
+    updated,
+    'GET',
+    mePath,
+  );
+  assert.deepEqual(current.menuKeys.sort(), ['guide-leaves', 'users']);
+  assert(current.permissions.includes('inquiry:update'));
+  await h.call(updated, 'GET', '/resources/guide-people');
+  await h.call(
+    updated,
+    'GET',
+    '/ledgers/summaries/shengxu-agency-summary',
+    undefined,
+    403,
+    'AUTH_FORBIDDEN',
+  );
+  await h.call(mango, 'PUT', `${path}/BOSS`, {
+    version: saved.version,
+    menuKeys: [],
+  });
+  const empty = await loginBoss();
+  assert.deepEqual(
+    (await h.call<{ menuKeys: string[] }>(empty, 'GET', mePath)).menuKeys,
+    [],
   );
   await h.call(
     mango,

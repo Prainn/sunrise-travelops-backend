@@ -1,4 +1,4 @@
-import { isHeadquartersBusinessAdmin } from '../auth/account-access';
+import { isHeadquartersBoss } from '../auth/account-access';
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -24,8 +24,11 @@ export class LedgerSummariesService {
         ? 'linxi'
         : 'website';
     if (actor.scope !== unit && actor.scope !== 'headquarters') forbidden();
-    if (!isHeadquartersBusinessAdmin(actor) && !actor.menuKeys.includes(report))
-      forbidden();
+    const root =
+      actor.scope === 'headquarters' &&
+      actor.roles.includes('ROOT') &&
+      !isHeadquartersBoss(actor);
+    if (!root && !actor.menuKeys.includes(report)) forbidden();
     return unit;
   }
 
