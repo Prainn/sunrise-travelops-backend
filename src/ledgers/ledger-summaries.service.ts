@@ -28,7 +28,11 @@ export class LedgerSummariesService {
         ? 'linxi'
         : 'website';
     if (actor.scope !== unit && actor.scope !== 'headquarters') forbidden();
-    if (!isLedgerRoot(actor) && !actor.menuKeys.includes(report)) forbidden();
+    if (
+      (!isLedgerRoot(actor) || actor.username === 'sunrise') &&
+      !actor.menuKeys.includes(report)
+    )
+      forbidden();
     return unit;
   }
 

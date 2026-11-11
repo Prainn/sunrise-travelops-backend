@@ -43,7 +43,9 @@ export class MenuPermissionsController {
   constructor(private readonly service: MenuPermissionsService) {}
   @Get()
   @Permissions('sys:menu-permission:list')
-  @ApiOperation({ summary: '读取角色菜单配置（仅总部 ROOT）' })
+  @ApiOperation({
+    summary: '读取角色菜单配置（仅总部 ROOT；mango 可读取 Sunrise 配置）',
+  })
   @ApiSuccessResponse({ type: MenuPermissionsResponse })
   list(@CurrentUser() actor: AuthenticatedUser) {
     return this.service.list(actor);
@@ -58,7 +60,9 @@ export class MenuPermissionsController {
 
   @Put(':roleCode')
   @Permissions('sys:menu-permission:update')
-  @ApiOperation({ summary: '保存角色菜单配置（下次登录生效）' })
+  @ApiOperation({
+    summary: '保存角色或 Sunrise 账号菜单配置（Sunrise 实时生效）',
+  })
   @ApiSuccessResponse({ type: RoleMenuConfigResponse })
   async save(
     @Param('roleCode') code: string,

@@ -1,3 +1,5 @@
+import { effectiveAccountPermissions } from '../auth/identity-permissions';
+import { sunrisePermissions } from '../auth/sunrise-menu-access';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -5,6 +7,7 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import { LoginScope } from '../users/user-identity.entity';
 import {
   allowedMenuKeys,
+  MENU_DEFINITIONS,
   MENU_GROUPS,
   MENU_ROLES,
   roleMenuKeys,
@@ -64,12 +67,18 @@ export class MenuPermissionsService {
     );
     return {
       groups: MENU_GROUPS,
-      roles: rows.map((row) => this.present(row)),
+      roles: [
+        ...rows.map((row) => this.present(row)),
+        ...(actor.username === 'mango' ? [await this.sunriseConfig()] : []),
+      ],
     };
   }
 
   navigation(actor: AuthenticatedUser) {
-    const root = actor.scope === 'headquarters' && actor.roles.includes('ROOT');
+    const root =
+      actor.username !== 'sunrise' &&
+      actor.scope === 'headquarters' &&
+      actor.roles.includes('ROOT');
     return {
       groups: MENU_GROUPS.map((group) => ({
         ...group,
@@ -86,6 +95,102 @@ export class MenuPermissionsService {
         ),
       })).filter((group) => group.children.length > 0),
     };
+  }
+
+  private sunriseAllowed(): string[] {
+    const permissions = effectiveAccountPermissions(
+      'headquarters',
+      ['ROOT'],
+      null,
+      'sunrise',
+    );
+    return MENU_DEFINITIONS.filter(
+      (menu) =>
+        roleMenuKeys('ROOT').includes(menu.key) &&
+        menu.permissions.some((permission) => permissions.includes(permission)),
+    ).map((menu) => menu.key);
+  }
+
+  async sunriseConfig(): Promise<RoleMenuConfig> {
+    const [row] = await this.db.query<
+      { menuKeys: string[]; version: number }[]
+    >(
+      'SELECT menu_keys AS "menuKeys",version FROM account_menu_configs WHERE username=$1',
+      ['sunrise'],
+    );
+    const allowed = this.sunriseAllowed();
+    return {
+      code: 'SUNRISE',
+      name: 'Sunrise',
+      version: row?.version ?? 1,
+      menuKeys: row
+        ? row.menuKeys.filter((key) => allowed.includes(key))
+        : allowed,
+      allowedMenuKeys: allowed,
+      locked: false,
+    };
+  }
+
+  async sunriseAccess(permissions: string[]) {
+    const config = await this.sunriseConfig();
+    return {
+      menuKeys: config.menuKeys,
+      permissions: sunrisePermissions(permissions, config.menuKeys),
+    };
+  }
+
+  private async saveSunrise(
+    input: { version: number; menuKeys: string[] },
+    actor: AuthenticatedUser,
+  ) {
+    if (actor.username !== 'mango')
+      throw new BusinessException({
+        code: 'AUTH_FORBIDDEN',
+        message: '仅mango可配置Sunrise权限',
+        status: HttpStatus.FORBIDDEN,
+      });
+    const allowed = this.sunriseAllowed();
+    if (input.menuKeys.some((key) => !allowed.includes(key)))
+      throw new BusinessException({
+        code: 'VALIDATION_ERROR',
+        message: '菜单不适用于Sunrise账号',
+        status: HttpStatus.BAD_REQUEST,
+      });
+    return this.db.transaction(async (manager) => {
+      await manager.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('account-menu:sunrise',0))",
+      );
+      const [row] = await manager.query<
+        { menuKeys: string[]; version: number }[]
+      >(
+        'SELECT menu_keys AS "menuKeys",version FROM account_menu_configs WHERE username=$1 FOR UPDATE',
+        ['sunrise'],
+      );
+      const version = row?.version ?? 1;
+      if (input.version !== version)
+        throw new BusinessException({
+          code: 'CONFLICT',
+          message: '菜单配置已更新，请重新加载',
+          status: HttpStatus.CONFLICT,
+          details: { currentVersion: version },
+        });
+      await manager.query(
+        `INSERT INTO account_menu_configs(username,menu_keys,version,updated_by) VALUES('sunrise',$1,$2,$3)
+        ON CONFLICT(username) DO UPDATE SET menu_keys=EXCLUDED.menu_keys,version=EXCLUDED.version,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+        [input.menuKeys, version + 1, actor.id],
+      );
+      return {
+        role: {
+          code: 'SUNRISE',
+          name: 'Sunrise',
+          version: version + 1,
+          menuKeys: input.menuKeys,
+          allowedMenuKeys: allowed,
+          locked: false,
+        },
+        beforeMenuKeys: row?.menuKeys ?? allowed,
+      };
+    });
   }
 
   async snapshot(scope: LoginScope, roles: string[]): Promise<string[]> {
@@ -105,6 +210,7 @@ export class MenuPermissionsService {
     actor: AuthenticatedUser,
   ) {
     this.assertRoot(actor, 'sys:menu-permission:update');
+    if (code === 'SUNRISE') return this.saveSunrise(input, actor);
     return this.db.transaction(async (manager) => {
       const [row] = await manager.query<
         Array<{
