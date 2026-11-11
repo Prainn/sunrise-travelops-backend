@@ -6,7 +6,11 @@ import { WhatsappConfig } from './whatsapp.config';
 import { assertWindow, nextMessageStatus, sequence } from './whatsapp.policy';
 import { eventKey, normalizeEvent } from './whatsapp.events';
 import { ChatAccount } from './whatsapp.types';
-import { CreateChatInquiryDto, SendTextDto } from './whatsapp.dto';
+import {
+  AssignChatDto,
+  CreateChatInquiryDto,
+  SendTextDto,
+} from './whatsapp.dto';
 import { randomUUID } from 'node:crypto';
 const account: ChatAccount = {
   id: 'synthetic-account',
@@ -315,5 +319,34 @@ describe('WhatsApp DTO boundary', () => {
     expect(errors.map((e) => e.property)).toEqual(
       expect.arrayContaining(['ownerId', 'businessUnit']),
     );
+  });
+});
+
+describe('WhatsApp optional assignment reason', () => {
+  const input = { version: 1, ownerId: '00000000-0000-4000-8000-000000000001' };
+  it.each([{}, { reason: '' }, { reason: '   ' }])(
+    'accepts an empty reason: %j',
+    (reason) => {
+      const dto = plainToInstance(AssignChatDto, { ...input, ...reason });
+      expect(validateSync(dto)).toHaveLength(0);
+      expect(dto.reason).toBe('');
+    },
+  );
+  it('trims supplied reasons and preserves the 2000 character limit', () => {
+    const dto = plainToInstance(AssignChatDto, {
+      ...input,
+      reason: '  note  ',
+    });
+    expect(validateSync(dto)).toHaveLength(0);
+    expect(dto.reason).toBe('note');
+    for (const reason of ['x'.repeat(2001), null, 123]) {
+      expect(
+        validateSync(plainToInstance(AssignChatDto, { ...input, reason })),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ property: 'reason' }),
+        ]),
+      );
+    }
   });
 });

@@ -40,9 +40,8 @@ export class AssignChatDto extends ChatVersionDto {
     typeof value === 'string' ? value.trim() : value,
   )
   @IsString()
-  @MinLength(1)
   @MaxLength(2000)
-  reason: string;
+  reason = '';
 }
 export class ChatStateDto extends ChatVersionDto {
   @IsIn(['open', 'closed']) state: 'open' | 'closed';

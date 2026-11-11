@@ -319,7 +319,7 @@ async function main() {
     },
   );
   await check(
-    'read position is explicit, per user and cannot reference another conversation',
+    'read position is explicit, shared across viewers and never moves backwards',
     async () => {
       const messages = await call<Page<ChatMessage>>(
         a,
@@ -351,19 +351,64 @@ async function main() {
       await call(manager, 'POST', `/whatsapp/conversations/${c.id}/read`, {
         lastSeq: message.seq,
       });
-      assert.equal(
-        (await call<Page>(a, 'GET', '/whatsapp/conversations?unread=true'))
-          .total,
-        1,
+      const unreadCount = async (actor: Actor) =>
+        (await call<{ unreadCount: number }>(actor, 'GET', '/whatsapp/summary'))
+          .unreadCount;
+      for (const actor of [manager, a, root]) {
+        assert.equal(await unreadCount(actor), 0);
+        const unread = await call<Page<Conversation>>(
+          actor,
+          'GET',
+          '/whatsapp/conversations?unread=true',
+        );
+        assert.equal(unread.total, 0);
+        const read = await call<Page<Conversation & { unreadCount: number }>>(
+          actor,
+          'GET',
+          '/whatsapp/conversations?unread=false',
+        );
+        assert.equal(read.list.find((row) => row.id === c.id)?.unreadCount, 0);
+      }
+      // Existing reader records are sufficient: no backfill and no reset for a newly logged-in colleague.
+      assert.deepEqual(
+        await call(a, 'POST', `/whatsapp/conversations/${c.id}/read`, {
+          lastSeq: '0',
+        }),
+        { lastSeq: message.seq },
       );
+      await events.receive(payload('shared-read-new-message'), 'inbound');
+      await events.processOne();
+      for (const actor of [manager, a, root])
+        assert.equal(await unreadCount(actor), 1);
+      await call(
+        b,
+        'POST',
+        `/whatsapp/conversations/${c.id}/read`,
+        {
+          lastSeq: message.seq,
+        },
+        404,
+        'NOT_FOUND',
+      );
+      assert.equal(await unreadCount(manager), 1);
+      const latest = (
+        await call<Page<ChatMessage>>(
+          a,
+          'GET',
+          `/whatsapp/conversations/${c.id}/messages`,
+        )
+      ).list[0];
       await call(a, 'POST', `/whatsapp/conversations/${c.id}/read`, {
-        lastSeq: message.seq,
+        lastSeq: latest.seq,
       });
-      assert.equal(
-        (await call<Page>(a, 'GET', '/whatsapp/conversations?unread=true'))
-          .total,
-        0,
+      assert.deepEqual(
+        await call(manager, 'POST', `/whatsapp/conversations/${c.id}/read`, {
+          lastSeq: message.seq,
+        }),
+        { lastSeq: latest.seq },
       );
+      for (const actor of [manager, a, root])
+        assert.equal(await unreadCount(actor), 0);
       await call(
         a,
         'POST',

@@ -240,7 +240,6 @@ export class WhatsappService {
   async summary(user: AuthenticatedUser) {
     const params: unknown[] = [];
     const scope = this.scope(user, params);
-    const userParam = params.push(user.id);
     const [counts] = await this.db.query<
       { unreadCount: number; unassignedCount: number }[]
     >(
@@ -250,8 +249,7 @@ export class WhatsappService {
       )
       SELECT (SELECT count(*)::int FROM whatsapp_messages m
         JOIN visible c ON c.id=m.conversation_id
-        LEFT JOIN whatsapp_reads r ON r.conversation_id=c.id AND r.user_id=$${userParam}
-        WHERE m.direction='inbound' AND m.seq>coalesce(r.last_seq,0)
+        WHERE m.direction='inbound' AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=c.id),0)
         AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done')) AS "unreadCount",
         (SELECT count(*)::int FROM visible WHERE owner_id IS NULL AND state='open') AS "unassignedCount"`,
       params,
@@ -282,11 +280,9 @@ export class WhatsappService {
         `(coalesce(p.manual_name,p.name) ILIKE $${p} OR p.phone ILIKE $${p} OR p.bsuid ILIKE $${p})`,
       );
     }
-    const userParam = params.push(user.id);
-    const unread = `(SELECT count(*)::int FROM whatsapp_messages m WHERE m.conversation_id=c.id AND m.direction='inbound' AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done') AND m.seq>coalesce((SELECT last_seq FROM whatsapp_reads r WHERE r.conversation_id=c.id AND r.user_id=$${userParam}),0))`;
+    const unread = `(SELECT count(*)::int FROM whatsapp_messages m WHERE m.conversation_id=c.id AND m.direction='inbound' AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done') AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=c.id),0))`;
     if (query.unread)
       where.push(`${unread}${query.unread === 'true' ? '>0' : '=0'}`);
-    where.push(`$${userParam}::uuid IS NOT NULL`);
     const sql = where.join(' AND ');
     const [count] = await this.db.query<{ total: string }[]>(
       `SELECT count(*)::text total ${CONVERSATION_FROM} WHERE ${sql}`,
@@ -627,10 +623,15 @@ export class WhatsappService {
         );
         if (!m) chatFail('VALIDATION_ERROR', '阅读位置不属于当前会话', 400);
       }
-      const [row] = await manager.query<{ lastSeq: string }[]>(
+      // Keep reader records; every viewer uses the furthest read position in this conversation.
+      await manager.query(
         `INSERT INTO whatsapp_reads(conversation_id,user_id,last_seq) VALUES($1,$2,$3::bigint)
-        ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_seq=greatest(whatsapp_reads.last_seq,EXCLUDED.last_seq),updated_at=now() RETURNING last_seq::text AS "lastSeq"`,
+        ON CONFLICT(conversation_id,user_id) DO UPDATE SET last_seq=greatest(whatsapp_reads.last_seq,EXCLUDED.last_seq),updated_at=now()`,
         [id, user.id, lastSeq],
+      );
+      const [row] = await manager.query<{ lastSeq: string }[]>(
+        'SELECT coalesce(max(last_seq),0)::text AS "lastSeq" FROM whatsapp_reads WHERE conversation_id=$1',
+        [id],
       );
       return row;
     });
