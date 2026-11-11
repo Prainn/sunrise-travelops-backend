@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from './inquiry-reminders.service';
 import { DataSource, EntityManager } from 'typeorm';
 import { effectivePermissions } from '../auth/identity-permissions';
 import { AgenciesService } from '../resources/agencies/agencies.service';
@@ -48,6 +49,7 @@ function setup(
     db,
     {} as ItineraryValidation,
     { createContact } as unknown as AgenciesService,
+    {} as InquiryRemindersService,
   );
   return { service, actor, createContact, manager, query };
 }

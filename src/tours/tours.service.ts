@@ -1,3 +1,5 @@
+import { cancelInquiryReminders } from '../inquiries/follow-ups';
+import { diagnoseGuide, loadGuideAvailability } from './guide-availability';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import {
   guideServicesJson,
@@ -36,10 +38,6 @@ import {
   TourFlightOptionResponse,
   TourGuideQueryDto,
   TourGuideSearchResponse,
-  TourGuideOptionResponse,
-  GuideUnavailableReasonResponse,
-  GuideConflictLeaveResponse,
-  GuideConflictTourResponse,
   TourLanguageQueryDto,
   TourInputDto,
   TourQueryDto,
@@ -55,7 +53,7 @@ import {
   manualTourSchedule,
   tourNumberBase,
   tourSchedule,
-  validateServiceTimes,
+  validateServiceDates,
 } from './tour-rules';
 
 type Unit = 'shengxu' | 'linxi' | 'website';
@@ -75,7 +73,7 @@ const invalid = (message: string): never =>
 const conflict = (message: string): never =>
   fail(ErrorCode.CONFLICT, message, HttpStatus.CONFLICT);
 const forbidden = (): never =>
-  fail(ErrorCode.AUTH_FORBIDDEN, '没有权限执行此操作', HttpStatus.FORBIDDEN);
+  fail(ErrorCode.AUTH_FORBIDDEN, '', HttpStatus.FORBIDDEN);
 const notFound = (): never =>
   fail(ErrorCode.NOT_FOUND, '旅行团不存在', HttpStatus.NOT_FOUND);
 
@@ -99,7 +97,7 @@ const RATING_SELECT = RATING_FIELDS.map(
 ).join(',');
 
 const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModule", t.business_unit AS "businessUnit",
-  t.direct_ledger_id AS "directLedgerId",
+  t.is_series_source AS "isSeriesSource", t.direct_ledger_id AS "directLedgerId",
   (SELECT dl.order_no FROM direct_ledgers dl WHERE dl.id=t.direct_ledger_id) AS "directLedgerOrderNo",
   t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
   t.inquiry_code AS "inquiryCode", t.itinerary_code AS "itineraryCode", t.quote_code AS "quoteCode",
@@ -120,6 +118,7 @@ const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModu
 const TOUR_FROM = `tours t`;
 
 interface Resolved {
+  isSeries?: boolean;
   module: Source | 'manual';
   inquiryId: string | null;
   inquiryCode: string | null;
@@ -264,8 +263,7 @@ export class ToursService {
       for (const row of rows) {
         row.todayGuideServices = row.guideServices.filter(
           (service) =>
-            service.serviceStartAt.slice(0, 10) <= date &&
-            service.serviceEndAt.slice(0, 10) >= date,
+            service.serviceStartDate <= date && service.serviceEndDate >= date,
         );
       }
       return buildTourMap(date, unit, canSelect, rows, cities, plans);
@@ -361,6 +359,8 @@ export class ToursService {
       where += ` AND t.operator_id=$${params.push(query.operatorId)}`;
     if (query.agencyName !== undefined)
       where += ` AND t.agency_name=$${params.push(query.agencyName)}`;
+    if (query.inquiryId)
+      where += ` AND t.inquiry_id=$${params.push(query.inquiryId)}`;
     if (query.status) where += ` AND t.status = $${params.push(query.status)}`;
     if (query.guideId)
       where += ` AND EXISTS (SELECT 1 FROM tour_guide_services sg WHERE sg.tour_id=t.id AND sg.guide_id=$${params.push(query.guideId)})`;
@@ -457,7 +457,7 @@ export class ToursService {
         scope += ` AND i.owner_id = $${params.push(user.id)}`;
     }
     return this.db.query<Row[]>(
-      `SELECT i.id AS "inquiryId", i.code AS "inquiryCode", i.agency_name AS "agencyName", i.contact_name AS "contactName",
+      `SELECT i.is_series AS "isSeries", i.id AS "inquiryId", i.code AS "inquiryCode", i.agency_name AS "agencyName", i.contact_name AS "contactName",
         i.owner AS "ownerName", i.business_unit AS "businessUnit", i.country_code AS "countryCode",
         i.country_or_region AS "countryName", q.id AS "quoteId", q.quote_code AS "quoteCode",
         q.snapshot->'itinerary'->>'code' AS "itineraryCode", q.snapshot->'itinerary'->>'startDate' AS "startDate",
@@ -465,7 +465,7 @@ export class ToursService {
        FROM inquiries i
        JOIN LATERAL (SELECT * FROM itinerary_quotes WHERE inquiry_id = i.id ORDER BY created_at DESC, id DESC LIMIT 1) q ON true
        WHERE i.deleted_at IS NULL AND i.status NOT IN ('lost','archived')${scope}
-         AND NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='standard' AND t.inquiry_id=i.id AND t.status='active')
+         AND (i.is_series OR NOT EXISTS (SELECT 1 FROM tours t WHERE t.source_module='standard' AND t.inquiry_id=i.id AND t.status='active'))
          ${like ? `AND (i.code ILIKE ${like} OR i.agency_name ILIKE ${like} OR i.contact_name ILIKE ${like})` : ''}
        ORDER BY q.created_at DESC LIMIT 50`,
       params,
@@ -563,111 +563,40 @@ export class ToursService {
       ? await this.get(query.excludeTourId, user)
       : null;
     if (existing && existing.businessUnit !== query.businessUnit) forbidden();
-    const keyword = query.keyword?.trim();
-    if (!keyword || keyword.length > 150)
-      invalid('请输入导游姓名，最多150字符');
     try {
-      validateServiceTimes(query.serviceStartAt, query.serviceEndAt);
+      validateServiceDates(query.serviceStartDate, query.serviceEndDate);
       for (const other of query.otherServices ?? [])
-        validateServiceTimes(other.serviceStartAt, other.serviceEndAt, true);
+        validateServiceDates(other.serviceStartDate, other.serviceEndDate);
     } catch {
-      invalid('服务起止时间无效');
+      invalid('服务起止日期无效');
     }
-    // A single snapshot keeps name matches and their database blockers consistent.
-    // Cross-business disclosure is limited to the scheduling summary below.
-    const matches = await this.db.query<
-      (TourGuideOptionResponse & {
-        status: string;
-        leaves: GuideConflictLeaveResponse[];
-        tours: GuideConflictTourResponse[];
-      })[]
-    >(
-      `SELECT g.id,g.code,g.name,g.language,g.status,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object(
-         'startDate',l.start_date::text,'endDate',l.end_date::text)
-         ORDER BY l.start_date,l.end_date,l.id)
-         FROM resource_guide_leaves l WHERE l.guide_person_id=g.id AND l.deleted_at IS NULL
-         AND l.start_date <= $2::timestamp::date AND l.end_date >= $1::timestamp::date),'[]'::jsonb) AS leaves,
-       COALESCE((SELECT jsonb_agg(jsonb_build_object(
-         'tourNo',t.tour_no,'businessUnit',t.business_unit,
-         'serviceStartAt',to_char(s.service_start_at,'YYYY-MM-DD HH24:MI'),
-         'serviceEndAt',to_char(s.service_end_at,'YYYY-MM-DD HH24:MI'))
-         ORDER BY s.service_start_at,s.service_end_at,t.tour_no,s.id)
-         FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
-         WHERE s.guide_id=g.id AND t.status='active' AND s.service_start_at <= $2::timestamp
-         AND s.service_end_at >= $1::timestamp AND ($3::uuid IS NULL OR t.id<>$3)),'[]'::jsonb) AS tours
-       FROM resource_guide_people g
-       WHERE g.deleted_at IS NULL AND strpos(lower(g.name),lower($4::text))>0
-       ORDER BY g.code,g.id`,
-      [
-        query.serviceStartAt,
-        query.serviceEndAt,
-        query.excludeTourId ?? null,
-        keyword,
-      ],
-    );
+    const { total, rows } = await loadGuideAvailability(this.db.manager, query);
     const result: TourGuideSearchResponse = {
       status: 'not_found',
-      message: '未找到该姓名的导游',
-      matchedCount: matches.length,
+      message: '未找到符合条件的导游',
+      matchedCount: total,
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
       list: [],
       unavailable: [],
     };
-    for (const guide of matches) {
-      const option: TourGuideOptionResponse = {
-        id: guide.id,
-        code: guide.code,
-        name: guide.name,
-        language: guide.language,
+    for (const row of rows) {
+      const option = {
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        language: row.language,
       };
-      const reasons: GuideUnavailableReasonResponse[] = [];
-      if (guide.status !== 'enabled')
-        reasons.push({ code: 'GUIDE_DISABLED', message: '该导游已停用' });
-      if (guide.language?.trim() !== query.language.trim())
-        reasons.push({
-          code: 'LANGUAGE_MISMATCH',
-          message: '该导游语种与本段要求不符',
-          expectedLanguage: query.language.trim(),
-          actualLanguage: guide.language,
-        });
-      if (guide.leaves.length)
-        reasons.push({
-          code: 'LEAVE_CONFLICT',
-          message: '该导游在服务期间请假',
-          leaves: guide.leaves,
-        });
-      if (guide.tours.length)
-        reasons.push({
-          code: 'SCHEDULE_CONFLICT',
-          message: '该导游与已有团队服务排期冲突',
-          tours: guide.tours,
-        });
-      const services = (query.otherServices ?? []).flatMap((other, index) =>
-        other.guideId.toLowerCase() === guide.id &&
-        other.serviceStartAt <= query.serviceEndAt &&
-        other.serviceEndAt >= query.serviceStartAt
-          ? [
-              {
-                otherServiceIndex: index,
-                serviceStartAt: other.serviceStartAt,
-                serviceEndAt: other.serviceEndAt,
-              },
-            ]
-          : [],
-      );
-      if (services.length)
-        reasons.push({
-          code: 'FORM_CONFLICT',
-          message: '该导游与当前表单其他服务段冲突',
-          services,
-        });
-      if (reasons.length) result.unavailable.push({ ...option, reasons });
+      const diagnosis = diagnoseGuide(row, query);
+      if (diagnosis.reasons.length)
+        result.unavailable.push({ ...option, ...diagnosis });
       else result.list.push(option);
     }
     if (result.list.length) {
       result.status = 'available';
       result.message = '已找到可用导游';
-    } else if (matches.length) {
+    } else if (result.unavailable.length) {
       result.status = 'unavailable';
       result.message = '匹配的导游当前均不可用，请查看具体原因';
     }
@@ -916,7 +845,7 @@ export class ToursService {
       });
     }
     const rows = await manager.query<Row[]>(
-      `SELECT i.id, i.code, i.status, i.owner_id, i.owner, i.business_unit, i.agency_name, i.contact_name,
+      `SELECT i.is_series, i.id, i.code, i.status, i.owner_id, i.owner, i.business_unit, i.agency_name, i.contact_name,
          i.country_item_id, i.country_code, i.country_or_region FROM inquiries i WHERE i.id = $1 AND i.deleted_at IS NULL FOR UPDATE`,
       [inquiryId],
     );
@@ -964,6 +893,7 @@ export class ToursService {
     if (!q) conflict('询盘没有已冻结报价');
     return {
       module,
+      isSeries: i.is_series === true,
       inquiryId: i.id as string,
       inquiryCode: i.code as string,
       businessUnit: unit,
@@ -1100,11 +1030,16 @@ export class ToursService {
         `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
         [src.module, src.inquiryId],
       );
-      if (active.length) conflict('询盘已有有效旅行团');
+      if (active.length && !src.isSeries) conflict('询盘已有有效旅行团');
       if (src.quoteId !== input.quoteId)
         conflict('只能选择该询盘最新的已冻结报价');
       if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
     }
+    if (src.isSeries) {
+      if (!input.seriesStartDate) invalid('请填写系列团本次出发日期');
+      src.startDate = input.seriesStartDate!;
+    } else if (input.seriesStartDate !== undefined)
+      invalid('普通成团不能覆盖来源行程日期');
     if (!src.startDate || !DATE_RE.test(src.startDate))
       invalid('行程缺少开始日期，不能成团');
     if (!src.countryItemId || !src.countryCode)
@@ -1217,6 +1152,8 @@ export class ToursService {
       ],
     );
     await saveGuideServices(manager, inserted[0].id, services, user.id);
+    if (src.module === 'standard' && src.inquiryId)
+      await cancelInquiryReminders(manager, src.inquiryId);
     return inserted[0].id;
   }
 
@@ -1268,6 +1205,8 @@ export class ToursService {
       if (!this.canManage(user, tour)) forbidden();
       if (tour.status !== 'active') conflict('已撤销的旅行团不能修改');
       this.versionCheck(tour.version, input.version);
+      if (input.seriesStartDate !== undefined && !tour.is_series_source)
+        invalid('普通成团不能覆盖来源行程日期');
       const unit = tour.business_unit as Unit;
       if (
         tour.source_module !== 'manual' &&
@@ -1288,7 +1227,7 @@ export class ToursService {
       } = await this.booking(
         manager,
         input,
-        src?.startDate ?? (tour.start_date as string),
+        input.seriesStartDate ?? src?.startDate ?? (tour.start_date as string),
         src?.days ?? (tour.days as number),
         {
           pickupFlightId: tour.pickup_flight_id,
@@ -1336,7 +1275,7 @@ export class ToursService {
           src?.itinerarySummary ?? tour.itinerary_summary,
           src?.agencyName ?? tour.agency_name,
           src?.contactName ?? tour.contact_name,
-          src?.startDate ?? tour.start_date,
+          input.seriesStartDate ?? src?.startDate ?? tour.start_date,
           src?.days ?? tour.days,
           src?.ownerId ?? tour.collect_coordinator_id,
           src?.ownerName ?? tour.collect_coordinator_name,

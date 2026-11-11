@@ -22,7 +22,13 @@ type QuoteFixture = Pick<
   > & {
     items: Pick<
       ItineraryResourceItem,
-      'type' | 'resourceName' | 'unit' | 'unitCost' | 'quantity' | 'dinerCount'
+      | 'type'
+      | 'resourceName'
+      | 'unit'
+      | 'unitCost'
+      | 'quantity'
+      | 'dinerCount'
+      | 'tableCount'
     >[];
   })[];
   hotelPlans: (Pick<ItineraryHotelPlan, 'tier'> & {
@@ -82,6 +88,69 @@ function quoteInput(
 }
 
 describe('calculateItineraryQuote', () => {
+  it('rounds each table meal before summing per-person costs', () => {
+    const result = calculateItineraryQuote(
+      quoteInput({
+        paxTiers: [3],
+        dailyPlans: [
+          {
+            dayNumber: 1,
+            overnightDestination: '',
+            items: [1, 2].map((id) => ({
+              type: 'restaurant' as const,
+              resourceName: String(id),
+              unit: 'table',
+              unitCost: 1,
+              quantity: 1,
+              dinerCount: null,
+              tableCount: 1,
+            })),
+          },
+        ],
+      }),
+    );
+    expect(result.tableMealTotal).toBe(2);
+    expect(result.options[0].paxPrices[0].baseCostPerPerson).toBe(0.66);
+  });
+
+  it('shares one table total across all PAX tiers before dividing by each tier', () => {
+    const result = calculateItineraryQuote(
+      quoteInput({
+        paxTiers: [10, 15, 25],
+        dailyPlans: [
+          {
+            dayNumber: 1,
+            overnightDestination: '',
+            items: [
+              {
+                type: 'restaurant',
+                resourceName: 'Table meal',
+                unit: 'table',
+                unitCost: 650,
+                quantity: 1,
+                dinerCount: 10,
+                tableCount: 2,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result.tableMealTotal).toBe(1300);
+    expect(result.mealDetails![0]).toMatchObject({ groupTotal: 1300 });
+    expect(
+      result.options[0].paxPrices.map((p) => [
+        p.pax,
+        p.mealCost,
+        p.baseCostPerPerson,
+      ]),
+    ).toEqual([
+      [10, 130, 130],
+      [15, 86.67, 86.67],
+      [25, 52, 52],
+    ]);
+  });
+
   it('sums guide services, meals and attractions and defaults the adult price to cost', () => {
     const result = calculateItineraryQuote(
       quoteInput({
@@ -476,6 +545,7 @@ describe('calculateItineraryQuote', () => {
         {
           dayNumber: 1,
           resourceName: 'Table meal',
+          city: null,
           unitCost,
           quantity: 1,
           totalCost: unitCost,

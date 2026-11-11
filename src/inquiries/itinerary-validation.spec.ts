@@ -280,3 +280,51 @@ describe('draft money save/response round trip', () => {
     expect(second).toEqual(first);
   });
 });
+
+describe('table meal counts', () => {
+  it('normalizes and preserves the group total without requiring diners per table', async () => {
+    const plan = await input('restaurant', 650);
+    Object.assign(plan.dailyPlans[0].items[0], {
+      resourceId: null,
+      unit: 'table',
+      adjustmentReason: '餐标确认',
+      tableCount: 2,
+      dinerCount: null,
+      totalCost: 1,
+    });
+    const valid = (await pipe.transform(plan, {
+      type: 'body',
+      metatype: ItineraryInput,
+    })) as ItineraryInput;
+    const saved = await new ItineraryValidation().normalize(
+      manager('restaurant', '', null),
+      valid,
+    );
+    expect(saved.dailyPlans[0].items[0]).toMatchObject({
+      tableCount: 2,
+      totalCost: 1300,
+    });
+    expect(moneyResponse(saved.dailyPlans[0].items[0])).toMatchObject({
+      tableCount: 2,
+      totalCost: '1300.00',
+    });
+  });
+  it.each([0, -1, 1.5, 10001])(
+    'rejects invalid table count %s',
+    async (tableCount) => {
+      const plan = await input('restaurant', 650);
+      Object.assign(plan.dailyPlans[0].items[0], {
+        resourceId: null,
+        unit: 'table',
+        adjustmentReason: '餐标确认',
+        tableCount,
+      });
+      await expect(
+        new ItineraryValidation().normalize(
+          manager('restaurant', '', null),
+          plan,
+        ),
+      ).rejects.toMatchObject({ code: 'ITINERARY_INVALID' });
+    },
+  );
+});

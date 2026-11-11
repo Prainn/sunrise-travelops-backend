@@ -37,8 +37,8 @@ export async function saveFrozenDetails(
     );
     for (const [order, price] of option.paxPrices.entries()) {
       await manager.query(
-        `INSERT INTO quote_pax_prices(quote_id,option_id,position,pax,vehicle_unit_cost,guide_service_unit_cost,staff_room_unit_cost,base_cost_per_person,adult_unit_price,child_unit_price,leader_unit_price,single_supplement_unit_cost,tip_unit_price,profit_per_person,actual_margin_rate,child_without_bed_unit_price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        `INSERT INTO quote_pax_prices(quote_id,option_id,position,pax,vehicle_unit_cost,guide_service_unit_cost,staff_room_unit_cost,base_cost_per_person,adult_unit_price,child_unit_price,leader_unit_price,single_supplement_unit_cost,tip_unit_price,profit_per_person,actual_margin_rate,child_without_bed_unit_price,vehicle_total)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [
           id,
           option.optionId,
@@ -56,6 +56,7 @@ export async function saveFrozenDetails(
           price.profitPerPerson,
           price.actualMarginRate,
           price.childWithoutBedUnitPrice,
+          price.vehicleTotal,
         ],
       );
     }
@@ -76,6 +77,7 @@ export async function saveFrozenDetails(
         unit: i.unit,
         quantity: i.quantity,
         dinerCount: i.dinerCount,
+        tableCount: i.tableCount ?? null,
         price: i.unitCost,
         total: i.totalCost,
         day: d.dayNumber,
@@ -96,6 +98,7 @@ export async function saveFrozenDetails(
         unit: h.unit,
         quantity: null,
         dinerCount: null,
+        tableCount: null,
         price: h.unitCost,
         total: null,
         day: null,
@@ -115,6 +118,7 @@ export async function saveFrozenDetails(
       unit: 'day',
       quantity: g.serviceDays,
       dinerCount: null,
+      tableCount: null,
       price: g.dailyPrice,
       total: null,
       day: null,
@@ -133,6 +137,7 @@ export async function saveFrozenDetails(
       unit: 'trip',
       quantity: 1,
       dinerCount: null,
+      tableCount: null,
       price: v.totalPrice,
       total: v.totalPrice,
       day: null,
@@ -141,7 +146,7 @@ export async function saveFrozenDetails(
   ];
   for (const [position, item] of items.entries())
     await manager.query(
-      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason,diner_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason,diner_count,table_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',
       [
         id,
         position,
@@ -161,6 +166,7 @@ export async function saveFrozenDetails(
         item.referenceBasis ?? null,
         item.adjustmentReason ?? null,
         item.dinerCount,
+        item.tableCount,
       ],
     );
   for (const vehicle of plan.vehiclePlans)
@@ -192,6 +198,29 @@ export async function saveFrozenDetails(
           ],
         );
     }
+  for (const vehicle of plan.vehiclePlans) {
+    if (!vehicle.quotationMode) continue;
+    for (const price of vehicle.paxPrices ?? [])
+      await manager.query(
+        'INSERT INTO quote_vehicle_pax_prices(quote_id,tier,pax,quotation_mode,total_price,pricing_mode,segment_total,adjustment_reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+        [
+          id,
+          vehicle.tier,
+          price.pax,
+          vehicle.quotationMode,
+          price.totalPrice,
+          price.pricingMode,
+          price.segmentTotal,
+          price.adjustmentReason ?? '',
+        ],
+      );
+    for (const range of vehicle.arrangements)
+      for (const price of range.paxPrices ?? [])
+        await manager.query(
+          'INSERT INTO quote_vehicle_range_pax_prices(quote_id,tier,range_id,pax,total_price) VALUES($1,$2,$3,$4,$5)',
+          [id, vehicle.tier, range.id, price.pax, price.totalPrice],
+        );
+  }
   const extras = [
     ...plan.quote.transportFees.map((f) => ({
       id: f.id,

@@ -18,11 +18,16 @@ export class HttpLogContextInterceptor implements NestInterceptor {
         context: context.getClass().name,
         handler: context.getHandler().name,
         params: request.params,
-        query: request.query,
-        body:
-          context.getClass().name === 'InspectionAlertController'
-            ? undefined
-            : (request.body as unknown),
+        query: context.getClass().name.startsWith('Whatsapp')
+          ? undefined
+          : request.query,
+        body: [
+          'InspectionAlertController',
+          'WhatsappController',
+          'WhatsappIngressController',
+        ].includes(context.getClass().name)
+          ? undefined
+          : (request.body as unknown),
       };
     }
 

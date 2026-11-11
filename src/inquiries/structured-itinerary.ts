@@ -20,6 +20,11 @@ export const ITINERARY_TABLES = {
     dinner: 'boolean',
     transport: 'text',
     description: 'text?',
+    viaDestinations: 'text[]',
+    departureEn: 'text',
+    destinationEn: 'text',
+    transportEn: 'text',
+    descriptionEn: 'text',
   },
   itinerary_items: {
     dayId: 'text',
@@ -27,9 +32,12 @@ export const ITINERARY_TABLES = {
     type: 'text',
     resourceId: 'uuid?',
     resourceName: 'text',
+    resourceNameEn: 'text',
+    remarkEn: 'text',
     priceName: 'text',
     quantity: 'numeric',
     dinerCount: 'integer?',
+    tableCount: 'integer?',
     unit: 'text',
     unitCost: 'numeric?',
     totalCost: 'numeric?',
@@ -55,6 +63,7 @@ export const ITINERARY_TABLES = {
   },
   itinerary_vehicle_plans: {
     tier: 'text',
+    quotationMode: 'text?',
     totalPrice: 'numeric?',
     pricingMode: 'text?',
     segmentTotal: 'numeric?',
@@ -65,6 +74,20 @@ export const ITINERARY_TABLES = {
     id: 'text',
     startDate: 'text',
     endDate: 'text',
+    totalPrice: 'numeric?',
+  },
+  itinerary_vehicle_pax_prices: {
+    tier: 'text',
+    pax: 'integer',
+    totalPrice: 'numeric?',
+    pricingMode: 'text',
+    segmentTotal: 'numeric?',
+    adjustmentReason: 'text',
+  },
+  itinerary_vehicle_range_pax_prices: {
+    tier: 'text',
+    rangeId: 'text',
+    pax: 'integer',
     totalPrice: 'numeric?',
   },
   itinerary_vehicles: {
@@ -97,10 +120,13 @@ export const ITINERARY_TABLES = {
     customerNotes: 'text',
     holidayRestrictions: 'text',
     hotelReplacementTerms: 'text',
+    customerNotesEn: 'text',
+    holidayRestrictionsEn: 'text',
+    hotelReplacementTermsEn: 'text',
   },
   itinerary_quote_options: {
     id: 'text',
-    hotelTier: 'integer',
+    hotelTier: 'integer?',
     vehicleTier: 'text',
   },
   itinerary_shared_staff_room_costs: {
@@ -124,6 +150,8 @@ export const ITINERARY_TABLES = {
     type: 'text',
     departureCity: 'text',
     arrivalCity: 'text',
+    departureCityEn: 'text',
+    arrivalCityEn: 'text',
     cabin: 'text',
     unitPrice: 'numeric?',
   },
@@ -166,6 +194,22 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     itinerary_vehicle_ranges: data.vehiclePlans.flatMap((p) =>
       p.arrangements.map((a) => ({ ...a, tier: p.tier })),
     ),
+    itinerary_vehicle_pax_prices: data.vehiclePlans.flatMap((p) =>
+      (p.paxPrices ?? []).map((price) => ({
+        ...price,
+        adjustmentReason: price.adjustmentReason ?? '',
+        tier: p.tier,
+      })),
+    ),
+    itinerary_vehicle_range_pax_prices: data.vehiclePlans.flatMap((p) =>
+      p.arrangements.flatMap((a) =>
+        (a.paxPrices ?? []).map((price) => ({
+          ...price,
+          tier: p.tier,
+          rangeId: a.id,
+        })),
+      ),
+    ),
     itinerary_vehicles: data.vehiclePlans.flatMap((p) =>
       p.arrangements.flatMap((a) =>
         a.vehicles.map((v) => ({ ...v, tier: p.tier, rangeId: a.id })),
@@ -194,7 +238,7 @@ export async function saveItineraryData(
 ) {
   const data = row.data;
   await manager.query(
-    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5,child_without_bed_rate=$6 WHERE id=$1',
+    'UPDATE itineraries SET title=$2,start_date=$3,pax_tiers=$4,child_rate=$5,child_without_bed_rate=$6,title_en=$7,customer_display_mode=$8,return_arrival_text=$9,return_arrival_text_en=$10 WHERE id=$1',
     [
       row.id,
       data.title,
@@ -202,6 +246,10 @@ export async function saveItineraryData(
       data.paxTiers,
       data.childRate,
       data.childWithoutBedRate,
+      data.titleEn ?? '',
+      data.customerDisplayMode ?? 'same',
+      data.returnArrivalText ?? '返回温馨的家',
+      data.returnArrivalTextEn ?? 'Arrive home',
     ],
   );
   const rows = itineraryRows(data);
@@ -211,7 +259,11 @@ export async function saveItineraryData(
   for (const table of Object.keys(ITINERARY_TABLES) as Table[]) {
     const fields = Object.keys(ITINERARY_TABLES[table]);
     for (const [position, item] of rows[table].entries()) {
-      const values = fields.map((field) => item[field] ?? null);
+      const values = fields.map(
+        (field) =>
+          item[field] ??
+          (field === 'viaDestinations' ? [] : field.endsWith('En') ? '' : null),
+      );
       await manager.query(
         `INSERT INTO ${table}(itinerary_id,position,${fields.map(columnName).join(',')}) VALUES ($1,$2,${values.map((_, index) => `$${index + 3}`).join(',')})`,
         [row.id, position, ...values],
@@ -259,6 +311,10 @@ export async function loadItineraryData(
   // The shape is assembled exclusively from the declared columns above.
   row.data = plainToInstance(ItineraryInput, {
     title: row.title,
+    titleEn: row.titleEn,
+    customerDisplayMode: row.customerDisplayMode,
+    returnArrivalText: row.returnArrivalText,
+    returnArrivalTextEn: row.returnArrivalTextEn,
     startDate: row.startDate,
     paxTiers: row.paxTiers,
     childRate: row.childRate,
@@ -275,11 +331,27 @@ export async function loadItineraryData(
         .map((h) => omit(h, ['tier'])),
     })),
     vehiclePlans: rows.itinerary_vehicle_plans.map((p) => ({
-      ...p,
+      ...omit(p, p.quotationMode ? [] : ['quotationMode']),
+      ...(p.quotationMode
+        ? {
+            paxPrices: rows.itinerary_vehicle_pax_prices
+              .filter((price) => price.tier === p.tier)
+              .map((price) => omit(price, ['tier'])),
+          }
+        : {}),
       arrangements: rows.itinerary_vehicle_ranges
         .filter((a) => a.tier === p.tier)
         .map((a) => ({
           ...omit(a, ['tier']),
+          ...(p.quotationMode
+            ? {
+                paxPrices: rows.itinerary_vehicle_range_pax_prices
+                  .filter(
+                    (price) => price.tier === p.tier && price.rangeId === a.id,
+                  )
+                  .map((price) => omit(price, ['tier', 'rangeId'])),
+              }
+            : {}),
           vehicles: rows.itinerary_vehicles
             .filter((v) => v.tier === p.tier && v.rangeId === a.id)
             .map((v) => omit(v, ['tier', 'rangeId'])),

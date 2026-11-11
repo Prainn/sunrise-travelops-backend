@@ -4,7 +4,13 @@ import type { EntityManager } from 'typeorm';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import type { TourGuideServiceInputDto } from './tour.dto';
-import { validateServiceTimes } from './tour-rules';
+import { validateServiceDates } from './tour-rules';
+import {
+  diagnoseGuide,
+  loadGuideAvailability,
+  ConflictConfirmation,
+} from './guide-availability';
+import type { GuideUnavailableReasonResponse } from './tour.dto';
 
 export interface TourGuideService {
   id: string;
@@ -13,12 +19,13 @@ export interface TourGuideService {
   guideName: string;
   guideCode: string;
   language: string;
-  serviceStartAt: string;
-  serviceEndAt: string;
+  serviceStartDate: string;
+  serviceEndDate: string;
   remark: string;
   timeSource: 'legacy' | 'manual';
   invalidDuration: boolean;
   outsideTourWindow: boolean;
+  conflictConfirmation: ConflictConfirmation | null;
   createdAt: string;
   createdBy: string | null;
   updatedAt: string;
@@ -32,12 +39,13 @@ export function guideServicesJson(
 ): string {
   return `COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'id',gs.id,'tourId',gs.tour_id,'guideId',gs.guide_id,'guideName',gs.guide_name,'guideCode',gs.guide_code,
-    'language',gs.language,'serviceStartAt',to_char(gs.service_start_at,'YYYY-MM-DD HH24:MI'),
-    'serviceEndAt',to_char(gs.service_end_at,'YYYY-MM-DD HH24:MI'),'remark',gs.remark,'timeSource',gs.time_source,
-    'invalidDuration',gs.service_start_at>=gs.service_end_at,
-    'outsideTourWindow',gs.service_start_at<${tourAlias}.pickup_at OR gs.service_end_at>${tourAlias}.drop_at,
+    'language',gs.language,'serviceStartDate',gs.service_start_at::date::text,
+    'serviceEndDate',gs.service_end_at::date::text,'remark',gs.remark,'timeSource',gs.time_source,
+    'invalidDuration',gs.service_start_at::date>gs.service_end_at::date,
+    'conflictConfirmation',gs.conflict_confirmation,
+    'outsideTourWindow',gs.service_start_at::date<${tourAlias}.pickup_at::date OR gs.service_end_at::date>${tourAlias}.drop_at::date,
     'createdAt',gs.created_at,'createdBy',gs.created_by,'updatedAt',gs.updated_at,'updatedBy',gs.updated_by
-  ) ORDER BY gs.service_start_at,gs.service_end_at,gs.id)
+  ) ORDER BY gs.service_start_at::date,gs.service_end_at::date,gs.id)
   FROM tour_guide_services gs WHERE gs.tour_id=${tourAlias}.id${guideExpression ? ` AND gs.guide_id=${guideExpression}` : ''}),'[]'::jsonb)`;
 }
 
@@ -59,6 +67,7 @@ interface StoredService {
   service_end_at: string;
   remark: string;
   time_source: 'legacy' | 'manual';
+  conflict_confirmation: ConflictConfirmation | null;
 }
 interface Guide {
   id: string;
@@ -75,6 +84,8 @@ interface PreparedService {
   guideName: string;
   guideCode: string;
   timeSource: 'legacy' | 'manual';
+  confirmation?: { token: string; reasons: GuideUnavailableReasonResponse[] };
+  retainedConfirmation?: ConflictConfirmation | null;
 }
 
 function reject(
@@ -112,7 +123,7 @@ export async function prepareGuideServices(
 ): Promise<PreparedService[]> {
   const stored = tourId
     ? await manager.query<StoredService[]>(
-        `SELECT id,guide_id,guide_name,guide_code,language,remark,time_source,
+        `SELECT id,guide_id,guide_name,guide_code,language,remark,time_source,conflict_confirmation,
       to_char(service_start_at,'YYYY-MM-DD HH24:MI') AS service_start_at,
       to_char(service_end_at,'YYYY-MM-DD HH24:MI') AS service_end_at
      FROM tour_guide_services WHERE tour_id=$1 ORDER BY service_start_at,service_end_at,id`,
@@ -152,8 +163,8 @@ export async function prepareGuideServices(
     if (input.id) seen.add(input.id);
     const timeUnchanged =
       !!old &&
-      old.service_start_at === input.serviceStartAt &&
-      old.service_end_at === input.serviceEndAt;
+      old.service_start_at.slice(0, 10) === input.serviceStartDate &&
+      old.service_end_at.slice(0, 10) === input.serviceEndDate;
     const retained =
       old?.guide_id === input.guideId &&
       old.language === input.language &&
@@ -163,57 +174,96 @@ export async function prepareGuideServices(
         ? 'legacy'
         : 'manual';
     try {
-      validateServiceTimes(
-        input.serviceStartAt,
-        input.serviceEndAt,
-        timeSource === 'legacy' && retained,
-      );
+      validateServiceDates(input.serviceStartDate, input.serviceEndDate);
     } catch {
-      reject('服务开始须早于结束，且必须为真实日期时间', index, input.id);
-    }
-    for (const sibling of prepared) {
-      if (
-        sibling.input.guideId === input.guideId &&
-        sibling.input.serviceStartAt <= input.serviceEndAt &&
-        sibling.input.serviceEndAt >= input.serviceStartAt
-      )
-        reject(
-          '同一导游的服务段时间冲突，同一分钟不能交接',
-          index,
-          input.id,
-          true,
-        );
+      reject('服务开始日期不能晚于结束日期，且必须为真实日期', index, input.id);
     }
     const guide = byGuide.get(input.guideId);
-    if (!retained) {
-      if (!guide || guide.status !== 'enabled' || guide.deleted_at != null)
+    let confirmation: PreparedService['confirmation'];
+    // Untouched historical rows retain their raw timestamps and do not invent consent.
+    if (
+      !retained ||
+      input.scheduleConflictToken ||
+      old?.conflict_confirmation
+    ) {
+      if (
+        !retained &&
+        (!guide || guide.status !== 'enabled' || guide.deleted_at != null)
+      )
         reject('导游不可选', index, input.id);
-      if (!input.language || guide.language?.trim() !== input.language)
-        reject('导游语种与本段语种不匹配', index, input.id);
-      const leave = await manager.query<unknown[]>(
-        `SELECT 1 FROM resource_guide_leaves WHERE guide_person_id=$1 AND deleted_at IS NULL
-         AND start_date < $3::timestamp + INTERVAL '1 day' AND end_date >= $2::timestamp::date LIMIT 1`,
-        [
-          input.guideId,
-          input.serviceStartAt.slice(0, 10),
-          input.serviceEndAt.slice(0, 10),
-        ],
+      const query = {
+        language: input.language,
+        serviceStartDate: input.serviceStartDate,
+        serviceEndDate: input.serviceEndDate,
+        excludeTourId: tourId ?? undefined,
+        otherServices: inputs.filter((_, i) => i !== index),
+        page: 1,
+        pageSize: 1,
+      };
+      const availability = await loadGuideAvailability(
+        manager,
+        query,
+        input.guideId,
       );
-      if (leave.length) reject('导游在该服务时段已请假', index, input.id, true);
-      const busy = await manager.query<unknown[]>(
-        `SELECT 1 FROM tour_guide_services s JOIN tours t ON t.id=s.tour_id
-         WHERE s.guide_id=$1 AND t.status='active' AND s.service_start_at <= $3::timestamp
-         AND s.service_end_at >= $2::timestamp AND ($4::uuid IS NULL OR t.id<>$4) LIMIT 1`,
-        [input.guideId, input.serviceStartAt, input.serviceEndAt, tourId],
-      );
-      if (busy.length)
-        reject('导游在该服务时段已有安排', index, input.id, true);
+      const row = availability.rows[0];
+      if (!row) {
+        if (!retained) reject('导游不可选', index, input.id);
+      } else {
+        const diagnosis = diagnoseGuide(
+          retained
+            ? {
+                ...row,
+                status: 'enabled',
+                language: input.language,
+                leaves: [],
+              }
+            : row,
+          query,
+        );
+        const blockers = diagnosis.reasons.filter(
+          (r) => r.code !== 'SCHEDULE_CONFLICT' && r.code !== 'FORM_CONFLICT',
+        );
+        if (!retained && blockers.length)
+          reject(
+            blockers.map((r) => r.message).join('；'),
+            index,
+            input.id,
+            true,
+          );
+        if (
+          diagnosis.reasons.some(
+            (r) => r.code === 'SCHEDULE_CONFLICT' || r.code === 'FORM_CONFLICT',
+          )
+        ) {
+          // Never turn a blocked candidate into an overrideable candidate.
+          const token = diagnosis.scheduleConflictToken;
+          const accepted =
+            input.scheduleConflictToken ??
+            (retained ? old?.conflict_confirmation?.token : undefined);
+          if (!token || accepted !== token)
+            throw new BusinessException({
+              code: ErrorCode.CONFLICT,
+              status: HttpStatus.CONFLICT,
+              message: '排期冲突或冲突内容已变化，请重新查询并确认使用',
+              details: {
+                serviceIndex: index,
+                serviceId: input.id ?? null,
+                reason: 'GUIDE_SCHEDULE_CONFIRMATION_REQUIRED',
+                ...diagnosis,
+              },
+            });
+          if (token !== old?.conflict_confirmation?.token)
+            confirmation = { token, reasons: diagnosis.reasons };
+        }
+      }
     }
     prepared.push({
       input,
       old,
       id: old?.id ?? randomUUID(),
       timeSource,
+      confirmation,
+      retainedConfirmation: retained ? old?.conflict_confirmation : null,
       guideName: old?.guide_id === input.guideId ? old.guide_name : guide!.name,
       guideCode: old?.guide_id === input.guideId ? old.guide_code : guide!.code,
     });
@@ -245,19 +295,38 @@ export async function saveGuideServices(
       old &&
       old.guide_id === input.guideId &&
       old.language === input.language &&
-      old.service_start_at === input.serviceStartAt &&
-      old.service_end_at === input.serviceEndAt &&
+      old.service_start_at.slice(0, 10) === input.serviceStartDate &&
+      old.service_end_at.slice(0, 10) === input.serviceEndDate &&
       old.remark === input.remark &&
-      old.time_source === service.timeSource
+      old.time_source === service.timeSource &&
+      !service.confirmation
     )
       continue;
+    const [confirmer] = service.confirmation
+      ? await manager.query<{ nickname: string }[]>(
+          'SELECT nickname FROM users WHERE id=$1',
+          [actorId],
+        )
+      : [];
+    const confirmation: ConflictConfirmation | null = service.confirmation
+      ? {
+          ...service.confirmation,
+          confirmedBy: actorId,
+          confirmedByName: confirmer.nickname,
+          confirmedAt: new Date().toISOString(),
+        }
+      : (service.retainedConfirmation ?? null);
+    const datesUnchanged =
+      !input.confirmTime &&
+      old?.service_start_at.slice(0, 10) === input.serviceStartDate &&
+      old?.service_end_at.slice(0, 10) === input.serviceEndDate;
     await manager.query(
       `INSERT INTO tour_guide_services
-      (id,tour_id,guide_id,guide_name,guide_code,language,service_start_at,service_end_at,remark,time_source,created_by,updated_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
+      (id,tour_id,guide_id,guide_name,guide_code,language,service_start_at,service_end_at,remark,time_source,created_by,updated_by,conflict_confirmation)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,$12::jsonb)
       ON CONFLICT (id) DO UPDATE SET guide_id=EXCLUDED.guide_id,guide_name=EXCLUDED.guide_name,guide_code=EXCLUDED.guide_code,
       language=EXCLUDED.language,service_start_at=EXCLUDED.service_start_at,service_end_at=EXCLUDED.service_end_at,
-      remark=EXCLUDED.remark,time_source=EXCLUDED.time_source,updated_by=EXCLUDED.updated_by,updated_at=now()`,
+      conflict_confirmation=EXCLUDED.conflict_confirmation,remark=EXCLUDED.remark,time_source=EXCLUDED.time_source,updated_by=EXCLUDED.updated_by,updated_at=now()`,
       [
         service.id,
         tourId,
@@ -265,13 +334,27 @@ export async function saveGuideServices(
         service.guideName,
         service.guideCode,
         input.language,
-        input.serviceStartAt,
-        input.serviceEndAt,
+        datesUnchanged
+          ? old.service_start_at
+          : `${input.serviceStartDate} 00:00`,
+        datesUnchanged ? old.service_end_at : `${input.serviceEndDate} 23:59`,
         input.remark,
         service.timeSource,
         actorId,
+        confirmation ? JSON.stringify(confirmation) : null,
       ],
     );
+    if (service.confirmation)
+      await manager.query(
+        `INSERT INTO tour_guide_conflict_confirmations(tour_id,service_id,guide_id,confirmation,created_by) VALUES($1,$2,$3,$4::jsonb,$5)`,
+        [
+          tourId,
+          service.id,
+          input.guideId,
+          JSON.stringify(confirmation),
+          actorId,
+        ],
+      );
   }
   // Only empty rows can be detached; valued ratings were protected under the same tour lock.
   await manager.query(

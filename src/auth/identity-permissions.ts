@@ -11,6 +11,7 @@ import {
   RESOURCE_PERMISSIONS,
   TOUR_PERMISSIONS,
   WEBSITE_PERMISSIONS,
+  WHATSAPP_PERMISSIONS,
 } from './permissions';
 import type { CoordinatorDuty } from '../users/coordinator-assignment';
 import { LoginScope } from '../users/user-identity.entity';
@@ -149,6 +150,7 @@ export function effectivePermissions(
   if (scope === 'headquarters' && selected.includes('ROOT'))
     return [
       ...ROLE_PERMISSIONS.ROOT,
+      ...WHATSAPP_PERMISSIONS,
       ...WEBSITE_ROLE_PERMISSIONS.ROOT,
       ...summaryPermissions,
       ...ledgerPermissions,
@@ -163,6 +165,22 @@ export function effectivePermissions(
       ...visitPermissions,
     ];
   return [
+    ...(scope === 'website'
+      ? selected.includes('BUSINESS_MANAGER')
+        ? WHATSAPP_PERMISSIONS.filter(
+            (p) => p !== 'whatsapp:integration:manage',
+          )
+        : selected.includes('COORDINATOR')
+          ? WHATSAPP_PERMISSIONS.filter(
+              (p) =>
+                ![
+                  'whatsapp:conversation:assign',
+                  'whatsapp:integration:manage',
+                  'whatsapp:quick-reply:manage',
+                ].includes(p),
+            )
+          : []
+      : []),
     ...summaryPermissions,
     ...ledgerPermissions,
     ...visitPermissions,
@@ -206,7 +224,18 @@ export function effectiveAccountPermissions(
 ): string[] {
   if (isFullAdministrator({ scope, roles, username }))
     return Object.keys(PERMISSION_DEFINITIONS).sort();
-  const permissions = effectivePermissions(scope, roles, coordinatorDuty);
+  const permissions = effectivePermissions(
+    scope,
+    roles,
+    coordinatorDuty,
+  ).filter(
+    (p) =>
+      !p.startsWith('whatsapp:') ||
+      scope === 'website' ||
+      (scope === 'headquarters' &&
+        roles.includes('ROOT') &&
+        ['sunrise', 'mango'].includes(username)),
+  );
   return username === 'sunrise'
     ? permissions.filter((p) => !SUNRISE_DENIED_PERMISSIONS.includes(p))
     : permissions;

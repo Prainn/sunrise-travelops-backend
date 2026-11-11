@@ -94,7 +94,7 @@ describe('agency resource business access', () => {
       ] as const;
       for (const [method, path] of endpoints) {
         const response = await request(server)[method](path).send({});
-        const body = response.body as { code: string };
+        const body = response.body as { code: string; message: string };
         expect({
           method,
           path,
@@ -106,6 +106,7 @@ describe('agency resource business access', () => {
           status: 403,
           code: 'AUTH_FORBIDDEN',
         });
+        expect(body.message).toBe('');
       }
       expect(readAgency).not.toHaveBeenCalled();
       expect(readOptions).not.toHaveBeenCalled();

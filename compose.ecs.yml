@@ -75,10 +75,19 @@ services:
 
   api:
     image: ${API_IMAGE:?required}
-    environment: *api-environment
+    # Private, environment-local WhatsApp configuration is never loaded by migrate.
+    env_file:
+      - path: ./whatsapp-receive.env
+        required: false
+    environment:
+      <<: *api-environment
+      WHATSAPP_CHAT_SEND_SOCKET: /run/sunrise-whatsapp-send/send.sock
+    group_add:
+      - "${WHATSAPP_SEND_GID:-1999}"
     volumes:
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
+      - /run/sunrise-whatsapp-send:/run/sunrise-whatsapp-send:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,7 +116,8 @@ services:
     ports:
       - "127.0.0.1:${DOZZLE_PORT:-8081}:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Directory mount survives proxy socket recreation; never mount the raw engine socket.
+      - /run/sunrise-docker-readonly:/var/run:ro
       - dozzle_data:/data
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/share/ca-certificates:/usr/share/ca-certificates:ro

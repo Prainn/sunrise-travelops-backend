@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../inquiries/inquiry-reminders.service';
 /* eslint-disable @typescript-eslint/unbound-method -- Jest assertions inspect spies without invoking the methods. */
 import type { Request } from 'express';
 import type { DataSource } from 'typeorm';
@@ -37,6 +38,7 @@ describe('Dashboard permission composition and calendar', () => {
     db,
     {} as ItineraryValidation,
     {} as AgenciesService,
+    {} as InquiryRemindersService,
   );
   const website = new WebsiteService(db);
   const tours = new ToursService(db);

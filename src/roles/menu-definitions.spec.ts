@@ -1,5 +1,10 @@
 import { DataSource } from 'typeorm';
-import { allowedMenuKeys, MENU_GROUPS, roleMenuKeys } from './menu-definitions';
+import {
+  allowedMenuKeys,
+  MENU_GROUPS,
+  roleMenuKeys,
+  validMenuSnapshot,
+} from './menu-definitions';
 import { MenuPermissionsService } from './menu-permissions.service';
 
 describe('website configuration menu scope', () => {
@@ -114,5 +119,72 @@ describe('separate direct ledger entries', () => {
       'DirectLedger',
       'WebsiteLedger',
     ]);
+  });
+});
+
+describe('unified WhatsApp inbox', () => {
+  it.each([
+    [
+      'website',
+      'COORDINATOR',
+      ['whatsapp:conversation:list'],
+      ['WhatsappInbox'],
+    ],
+    [
+      'website',
+      'BUSINESS_MANAGER',
+      ['whatsapp:conversation:list', 'whatsapp:conversation:assign'],
+      ['WhatsappInbox'],
+    ],
+    [
+      'headquarters',
+      'ROOT',
+      [
+        'whatsapp:conversation:list',
+        'whatsapp:conversation:assign',
+        'whatsapp:integration:manage',
+      ],
+      ['WhatsappInbox', 'WhatsappIntegration'],
+    ],
+  ] as const)(
+    'keeps one inbox for %s %s and restricts integration',
+    (scope, role, permissions, expected) => {
+      const service = new MenuPermissionsService({} as DataSource);
+      const navigation = service.navigation({
+        scope,
+        roles: [role],
+        permissions: [...permissions],
+        menuKeys: [
+          'whatsapp-inbox',
+          'whatsapp-management',
+          'whatsapp-integration',
+        ],
+      } as Parameters<MenuPermissionsService['navigation']>[0]);
+      expect(
+        navigation.groups
+          .find((group) => group.key === 'whatsapp-workbench')
+          ?.children.map((item) => item.routeName),
+      ).toEqual(expected);
+    },
+  );
+
+  it('ignores retired stored grants without granting a disabled inbox', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValue([{ menuKeys: ['whatsapp-management'] }]);
+    const service = new MenuPermissionsService({
+      query,
+    } as unknown as DataSource);
+    expect(await service.snapshot('website', ['BUSINESS_MANAGER'])).toEqual([]);
+    query.mockResolvedValue([
+      { menuKeys: ['whatsapp-inbox', 'whatsapp-management'] },
+    ]);
+    expect(await service.snapshot('website', ['BUSINESS_MANAGER'])).toEqual([
+      'whatsapp-inbox',
+    ]);
+    expect(validMenuSnapshot(['whatsapp-inbox'])).toBe(true);
+    expect(validMenuSnapshot(['whatsapp-inbox', 'whatsapp-management'])).toBe(
+      false,
+    );
   });
 });

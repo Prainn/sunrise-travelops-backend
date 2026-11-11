@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 /** Disposable PostgreSQL only: localhost:55446, no environment-file database configuration. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -152,6 +153,7 @@ async function run() {
       db,
       validation,
       {} as AgenciesService,
+      {} as InquiryRemindersService,
     );
     const actor = {
       id: user.id,

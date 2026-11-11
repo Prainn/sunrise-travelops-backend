@@ -12,6 +12,8 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
   `(longitude IS NULL AND latitude IS NULL) OR (longitude IS NOT NULL AND latitude IS NOT NULL AND longitude BETWEEN -180 AND 180 AND latitude BETWEEN -90 AND 90)`,
 )
 export class CityEntity extends TopLevelResourceEntity {
+  @Column({ name: 'english_name', type: 'varchar', length: 100, default: '' })
+  englishName: string;
   @Column({ type: 'varchar', length: 100, default: '' })
   province: string;
 

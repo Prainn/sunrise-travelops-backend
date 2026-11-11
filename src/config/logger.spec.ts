@@ -64,14 +64,18 @@ describe('certificate log protection', () => {
     });
     expect(createTypeOrmOptions(config).logging).toBe(false);
   });
-  it('omits raw database error text and stack on guide routes', () => {
+  it.each([
+    '/api/resources/guide-people',
+    '/api/whatsapp/ingress/inbound',
+    '/api/whatsapp/conversations',
+  ])('omits raw database error text and stack on %s', (path) => {
     const spy = jest
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
     try {
       const request = {
-        path: '/api/resources/guide-people',
-        originalUrl: '/api/resources/guide-people',
+        path,
+        originalUrl: path,
         method: 'POST',
         headers: {},
       };

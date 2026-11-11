@@ -76,7 +76,7 @@ class ContractController {
   forbidden(): never {
     throw new BusinessException({
       code: ErrorCode.AUTH_FORBIDDEN,
-      message: '没有权限执行此操作',
+      message: '',
       status: HttpStatus.FORBIDDEN,
     });
   }
@@ -209,7 +209,7 @@ describe('API response contract (e2e)', () => {
       .expect(HttpStatus.INTERNAL_SERVER_ERROR);
     expect(response.body).toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
-      message: '服务器内部错误',
+      message: '',
       data: null,
       details: {},
     });

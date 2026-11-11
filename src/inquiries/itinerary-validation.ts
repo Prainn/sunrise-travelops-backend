@@ -1,4 +1,8 @@
 import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
+import {
+  normalizeVehiclePaxPrices,
+  validateVehicleModeChange,
+} from './vehicle-pax-pricing';
 import { ResourceStatus } from '../resources/common/resource.constants';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { EntityManager, In } from 'typeorm';
@@ -142,6 +146,42 @@ export class ItineraryValidation {
     checkReason = true,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
+    plan.titleEn ??= '';
+    plan.customerDisplayMode ??= 'same';
+    plan.returnArrivalText ??= '返回温馨的家';
+    plan.returnArrivalTextEn ??= 'Arrive home';
+    if (
+      plan.customerDisplayMode === 'returnArrival' &&
+      !plan.returnArrivalText.trim()
+    )
+      invalid('请填写返程抵达展示内容');
+    // Explicitly no accommodation is distinct from an unfinished overnight selection.
+    const noAccommodation =
+      plan.dailyPlans.length > 0 &&
+      plan.dailyPlans.every((d) => d.overnightDestination === '');
+    if (noAccommodation) plan.hotelPlans = [];
+    for (const day of [
+      ...plan.dailyPlans,
+      ...(plan.deletedDays ?? []).map((d) => d.day),
+    ]) {
+      day.viaDestinations ??= [];
+      day.departureEn ??= '';
+      day.destinationEn ??= '';
+      day.transportEn ??= '';
+      day.descriptionEn ??= '';
+      for (const item of day.items) {
+        item.resourceNameEn ??= '';
+        item.remarkEn ??= '';
+      }
+    }
+    plan.quote.customerNotesEn ??= '';
+    plan.quote.holidayRestrictionsEn ??= '';
+    plan.quote.hotelReplacementTermsEn ??= '';
+    for (const fee of plan.quote.transportFees) {
+      fee.departureCityEn ??= '';
+      fee.arrivalCityEn ??= '';
+    }
+
     await this.assertUniqueResources(manager, plan);
     if (!previous && plan.dailyPlans.length !== plannedDays)
       invalid('新建行程天数必须与询盘计划天数一致');
@@ -177,10 +217,16 @@ export class ItineraryValidation {
     );
     unique(plan.hotelPlans.map((p) => String(p.tier)));
     unique(plan.vehiclePlans.map((p) => p.tier));
+    validateVehicleModeChange(plan, previous);
     unique(plan.guidePlans.map((p) => p.destination));
     unique(plan.quote.options.map((p) => p.id));
     unique(plan.quote.transportFees.map((p) => p.id));
     plan.dailyPlans.forEach((day, index) => {
+      unique(day.viaDestinations ?? []);
+      if (
+        day.viaDestinations?.some((city) => !plan.destinations.includes(city))
+      )
+        invalid('途经地必须先加入行程目的地');
       day.dayNumber = index + 1;
       day.date = dateAt(plan.startDate, index);
       day.overnightDestination ??= null;
@@ -254,6 +300,7 @@ export class ItineraryValidation {
       } else await this.validateDailyItem(manager, item, old, checkReason);
       if (
         item.unit === 'table' &&
+        item.tableCount == null &&
         !(
           item.dinerCount &&
           Number.isInteger(item.dinerCount) &&
@@ -261,16 +308,27 @@ export class ItineraryValidation {
         )
       )
         invalid('请补充按桌餐食的每桌人数');
+      if (
+        item.tableCount != null &&
+        (item.unit !== 'table' ||
+          item.type !== 'restaurant' ||
+          !Number.isInteger(item.tableCount) ||
+          item.tableCount < 1 ||
+          item.tableCount > 10000)
+      )
+        invalid('桌数必须为1至10000的整数且仅适用于按桌餐食');
       if (item.unit !== 'table') item.dinerCount = null;
       item.totalCost =
         item.unitCost === null
           ? null
-          : multiplyMoney(
-              item.unit === 'table'
-                ? divideMoney(item.unitCost, item.dinerCount!)
-                : item.unitCost,
-              item.quantity,
-            );
+          : item.tableCount != null
+            ? multiplyMoney(item.unitCost, item.tableCount)
+            : multiplyMoney(
+                item.unit === 'table'
+                  ? divideMoney(item.unitCost, item.dinerCount!)
+                  : item.unitCost,
+                item.quantity,
+              );
     }
     for (const group of plan.hotelPlans) {
       unique(group.hotels.map((h) => h.destination));
@@ -346,6 +404,8 @@ export class ItineraryValidation {
     const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
     for (const group of plan.vehiclePlans) {
       unique(group.arrangements.map((a) => a.id));
+      const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
+      normalizeVehiclePaxPrices(group, plan.paxTiers, old, checkReason);
       group.totalPrice ??= null;
       if (!group.arrangements.length) group.totalPrice = null;
       if (group.totalPrice !== null)
@@ -409,12 +469,15 @@ export class ItineraryValidation {
         );
         if (
           hasStartDate &&
-          (arrangement.vehicles.length > 0 || arrangement.totalPrice == null) &&
+          (group.quotationMode
+            ? group.quotationMode === 'itinerary'
+            : arrangement.vehicles.length > 0 ||
+              arrangement.totalPrice == null) &&
           seats < guestCount
         )
           invalid('Vehicle has insufficient seats');
       }
-      const old = previous?.vehiclePlans.find((p) => p.tier === group.tier);
+      if (group.quotationMode) continue;
       group.segmentTotal = vehicleSegmentTotal(group);
       group.pricingMode ??=
         old?.pricingMode ??
@@ -569,31 +632,32 @@ export class ItineraryValidation {
       if (option.paxPrices.some((price) => !plan.paxTiers.includes(price.pax)))
         invalid('报价档位不属于行程');
     }
-    plan.quote.options = plan.hotelPlans
-      .filter((p) => p.hotels.length)
-      .flatMap((h) =>
-        plan.vehiclePlans
-          .filter((p) => p.arrangements.length)
-          .map((v) => {
-            const option = options.find(
-              (o) => o.hotelTier === h.tier && o.vehicleTier === v.tier,
-            );
-            return {
-              id: option?.id ?? randomUUID(),
-              hotelTier: h.tier,
-              vehicleTier: v.tier,
-              paxPrices: plan.paxTiers.map((pax) => {
-                const price = option?.paxPrices.find(
-                  (price) => price.pax === pax,
-                )?.adultUnitPrice;
-                return {
-                  pax,
-                  adultUnitPrice: price == null ? null : roundMoney(price),
-                };
-              }),
-            };
-          }),
-      );
+    const hotelTiers = noAccommodation
+      ? [null]
+      : plan.hotelPlans.filter((p) => p.hotels.length).map((p) => p.tier);
+    plan.quote.options = hotelTiers.flatMap((hotelTier) =>
+      plan.vehiclePlans
+        .filter((p) => p.arrangements.length)
+        .map((v) => {
+          const option = options.find(
+            (o) => o.hotelTier === hotelTier && o.vehicleTier === v.tier,
+          );
+          return {
+            id: option?.id ?? randomUUID(),
+            hotelTier,
+            vehicleTier: v.tier,
+            paxPrices: plan.paxTiers.map((pax) => {
+              const price = option?.paxPrices.find(
+                (price) => price.pax === pax,
+              )?.adultUnitPrice;
+              return {
+                pax,
+                adultUnitPrice: price == null ? null : roundMoney(price),
+              };
+            }),
+          };
+        }),
+    );
     for (const fee of plan.quote.transportFees) {
       if (
         !(
@@ -616,9 +680,15 @@ export class ItineraryValidation {
     const issues: string[] = missingItineraryPrices(plan);
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
-      !hotels.length ||
+      (!hotels.length &&
+        !plan.dailyPlans.every((d) => d.overnightDestination === '')) ||
       !plan.vehiclePlans.some(
-        (p) => p.arrangements.length && p.totalPrice !== null,
+        (p) =>
+          p.arrangements.length &&
+          (p.quotationMode
+            ? p.paxPrices?.length === plan.paxTiers.length &&
+              p.paxPrices.every((price) => price.totalPrice != null)
+            : p.totalPrice !== null),
       ) ||
       !plan.quote.options.length
     )
@@ -626,12 +696,16 @@ export class ItineraryValidation {
     for (const vehicle of plan.vehiclePlans)
       if (
         vehicle.arrangements.length &&
-        (vehicle.totalPrice === null ||
+        ((vehicle.quotationMode
+          ? vehicle.paxPrices?.some((p) => p.totalPrice == null)
+          : vehicle.totalPrice === null) ||
           vehicle.arrangements.some(
             (a) =>
               !a.startDate ||
               !a.endDate ||
-              (!a.vehicles.length && a.totalPrice == null),
+              (vehicle.quotationMode
+                ? vehicle.quotationMode === 'itinerary' && !a.vehicles.length
+                : !a.vehicles.length && a.totalPrice == null),
           ))
       )
         issues.push('vehicleDays');

@@ -48,8 +48,8 @@ const segment = (
 ): TourGuideServiceInputDto => ({
   guideId,
   language: 'English',
-  serviceStartAt: start,
-  serviceEndAt: end,
+  serviceStartDate: start.slice(0, 10),
+  serviceEndDate: end.slice(0, 10),
   remark: '',
 });
 const inputs = (tour: Tour): TourGuideServiceInputDto[] =>
@@ -57,8 +57,8 @@ const inputs = (tour: Tour): TourGuideServiceInputDto[] =>
     id: s.id,
     guideId: s.guideId,
     language: s.language,
-    serviceStartAt: s.serviceStartAt,
-    serviceEndAt: s.serviceEndAt,
+    serviceStartDate: s.serviceStartDate,
+    serviceEndDate: s.serviceEndDate,
     remark: s.remark,
   }));
 async function guide(name: string) {
@@ -91,6 +91,14 @@ async function upgrade() {
   try {
     await admin.query(`CREATE DATABASE "${database}"`);
     await db.initialize();
+    const enhancements = db.migrations.filter((m) =>
+      m.name?.includes('179608320'),
+    );
+    db.migrations.splice(
+      0,
+      db.migrations.length,
+      ...db.migrations.filter((m) => !enhancements.includes(m)),
+    );
     const next = db.migrations.find(
       (m) => m.name === 'AddTourGuideServices1794182400000',
     )!;
@@ -209,6 +217,8 @@ async function upgrade() {
         );
       },
     );
+    db.migrations.push(...enhancements);
+    await db.runMigrations();
     const service = new ToursService(db);
     const actor: AuthenticatedUser = {
       id: u.id,
@@ -359,17 +369,18 @@ async function main() {
       },
     );
     await check(
-      'same-minute cross-business rejection, one minute later allowed; guests can remain on tour',
+      'same-day cross-business rejection and adjacent-day availability; guests can remain on tour',
       async () => {
         await create(
           website,
           [segment(g1, '2030-01-09 12:00', '2030-01-09 13:00')],
           409,
         );
-        const next = await create(website, [
-          segment(g1, '2030-01-09 12:01', '2030-01-09 13:00'),
-        ]);
-        assert(next.id);
+        await create(
+          website,
+          [segment(g1, '2030-01-09 12:01', '2030-01-09 13:00')],
+          409,
+        );
         const early = await create(website, [
           segment(g1, '2030-01-10 00:00', '2030-01-10 03:00'),
         ]);
@@ -385,7 +396,7 @@ async function main() {
       },
     );
     await check(
-      'request sibling overlap and invalid / zero duration reject atomically',
+      'request sibling overlap and invalid / inverted dates reject atomically',
       async () => {
         await create(
           linxi,
@@ -397,7 +408,7 @@ async function main() {
         );
         for (const s of [
           segment(g2, '2031-02-29 09:00', '2031-03-01 10:00'),
-          segment(g2, '2031-01-01 10:00', '2031-01-01 10:00'),
+          segment(g2, '2031-01-02 10:00', '2031-01-01 10:00'),
         ])
           await h.call(
             linxi,
@@ -416,14 +427,14 @@ async function main() {
           keyword: 'e',
           businessUnit: 'linxi',
           language: 'English',
-          serviceStartAt: '2030-01-09 11:00',
-          serviceEndAt: '2030-01-09 11:59',
+          serviceStartDate: '2030-01-09',
+          serviceEndDate: '2030-01-09',
           excludeTourId: a.id,
           otherServices: [
             {
               guideId: g1,
-              serviceStartAt: '2030-01-09 09:00',
-              serviceEndAt: '2030-01-09 12:00',
+              serviceStartDate: '2030-01-09',
+              serviceEndDate: '2030-01-09',
             },
           ],
         };
@@ -468,8 +479,8 @@ async function main() {
           'CONFLICT',
         );
         const ss = inputs(a);
-        ss.find((s) => s.guideId === g1)!.serviceEndAt = '2030-01-09 10:00';
-        ss.push(segment(g1, '2030-01-09 11:00', '2030-01-09 12:00'));
+        ss.find((s) => s.guideId === g1)!.serviceEndDate = '2030-01-09';
+        ss.push(segment(g1, '2030-01-08 11:00', '2030-01-08 12:00'));
         a = await h.call<Tour>(linxi, 'PUT', `/tours/${a.id}`, update(a, ss));
         const ratings = await h.call<Page<Rating>>(
           linxi,
@@ -560,7 +571,7 @@ async function main() {
           dropAt: '2030-01-08 23:59',
         });
         assert(a.guideServices[0].outsideTourWindow);
-        assert.equal(a.guideServices[0].serviceEndAt, '2030-01-09 12:00');
+        assert.equal(a.guideServices[0].serviceEndDate, '2030-01-09');
       },
     );
     await check(
@@ -611,7 +622,7 @@ async function main() {
         assert.equal(
           (
             await h.db.query<Record<string, unknown>[]>(
-              `SELECT 1 FROM tour_guide_services WHERE guide_id=$1 AND service_start_at='2032-01-01 09:00'`,
+              `SELECT 1 FROM tour_guide_services WHERE guide_id=$1 AND service_start_at::date='2032-01-01'`,
               [g1],
             )
           ).length,
@@ -675,9 +686,7 @@ async function main() {
           linxi,
           'PUT',
           `/tours/${past.id}`,
-          update(past, [
-            { ...inputs(past)[0], serviceEndAt: '2020-01-01 11:00' },
-          ]),
+          update(past, [{ ...inputs(past)[0], serviceEndDate: '2020-01-02' }]),
           400,
           'VALIDATION_ERROR',
         );
@@ -720,8 +729,8 @@ async function main() {
           assert(
             t.todayGuideServices.every(
               (s) =>
-                s.serviceStartAt.slice(0, 10) <= '2030-01-09' &&
-                s.serviceEndAt.slice(0, 10) >= '2030-01-09',
+                s.serviceStartDate.slice(0, 10) <= '2030-01-09' &&
+                s.serviceEndDate.slice(0, 10) >= '2030-01-09',
             ),
           );
       },

@@ -1,3 +1,4 @@
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -45,6 +46,7 @@ import { InspectionAlertModule } from './inspection-alert/inspection-alert.modul
     AuthModule,
     InquiriesModule,
     WebsiteModule,
+    WhatsappModule,
     ToursModule,
     LedgersModule,
     DashboardModule,

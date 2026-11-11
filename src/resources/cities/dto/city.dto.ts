@@ -18,6 +18,7 @@ import {
 } from '../../common/resource.dto';
 export class CityQueryDto extends ResourceQueryDto {}
 export class CreateCityDto extends ResourceInputDto {
+  @IsOptional() @IsString() @MaxLength(100) englishName?: string;
   @MaxLength(100) declare name: string;
   @optionalTrimmedString
   @IsString()
@@ -46,6 +47,7 @@ export class CityResponse implements ResourceAuditResponse {
   code: string;
   name: string;
   province: string;
+  englishName: string;
   status: string;
   version: number;
   createdAt: string;
@@ -59,5 +61,6 @@ export class CityOptionResponse {
   id: string;
   name: string;
   province: string;
+  englishName: string;
   status: string;
 }

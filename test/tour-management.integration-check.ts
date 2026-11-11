@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 /** Only the disposable PostgreSQL on localhost:55439; never loads environment files. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -373,8 +374,8 @@ async function main() {
             {
               guideId,
               language: 'English',
-              serviceStartAt: '2026-09-05 09:00',
-              serviceEndAt: '2026-09-07 07:00',
+              serviceStartDate: '2026-09-05',
+              serviceEndDate: '2026-09-07',
               remark: '',
             },
           ]
@@ -388,6 +389,7 @@ async function main() {
       db,
       {} as ItineraryValidation,
       {} as AgenciesService,
+      {} as InquiryRemindersService,
     );
     const actor = (u: AuthenticatedUser) => ({
       ...u,
@@ -609,10 +611,12 @@ async function main() {
         const available = await tours.availableGuides(
           {
             keyword: 'Test Guide',
+            page: 1,
+            pageSize: 20,
             businessUnit: 'website',
             language: 'English',
-            serviceStartAt: '2026-09-05 09:00',
-            serviceEndAt: '2026-09-07 07:00',
+            serviceStartDate: '2026-09-05',
+            serviceEndDate: '2026-09-07',
             excludeTourId: t.id as string,
           },
           web,

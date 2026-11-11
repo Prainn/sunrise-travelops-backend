@@ -104,6 +104,8 @@ const MONEY_FIELDS = new Set([
   'guideOtherCost',
   'staffRoomOtherCost',
   'mealCost',
+  'tableMealTotal',
+  'groupTotal',
   'attractionCost',
   'guideCost',
 ]);

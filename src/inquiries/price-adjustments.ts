@@ -80,6 +80,24 @@ function prices(data: ItineraryInput) {
       ...g,
     })),
     ...data.vehiclePlans
+      .filter((v) => v.quotationMode)
+      .flatMap((v) =>
+        (v.paxPrices ?? [])
+          .filter((p) => p.totalPrice != null)
+          .map((p) => ({
+            key: `vehicle:${v.tier}:${p.pax}`,
+            type: 'vehicle',
+            name: `${v.tier === 'vip' ? 'VIP' : '标准'}车辆全程总价 · ${p.pax} PAX`,
+            source: `${v.tier}:${p.pax}:${p.pricingMode}:${p.segmentTotal}`,
+            price: p.totalPrice!,
+            referencePrice: p.segmentTotal,
+            referenceBasis:
+              p.segmentTotal == null ? 'unknown' : 'segment_total',
+            adjustmentReason: p.adjustmentReason,
+          })),
+      ),
+    ...data.vehiclePlans
+      .filter((v) => !v.quotationMode)
       .filter((v) => v.totalPrice != null)
       .map((v) => ({
         key: `vehicle:${v.tier}`,
@@ -104,7 +122,12 @@ export async function recordPriceAdjustments(
   for (const item of prices(next)) {
     // Clearing a price is recorded by the ordinary field diff, not a zero-price adjustment.
     if (item.price === null) continue;
-    const saved = old.get(item.key);
+    // Initial PAX adoption compares with the existing shared vehicle total.
+    const saved =
+      old.get(item.key) ??
+      (item.type === 'vehicle' && item.key.split(':').length === 3
+        ? old.get(item.key.split(':').slice(0, 2).join(':'))
+        : undefined);
     const before = saved?.price != null ? saved : undefined;
     const reference = item.referencePrice ?? null;
     if (

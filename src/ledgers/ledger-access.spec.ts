@@ -1,8 +1,19 @@
 import { EntityManager } from 'typeorm';
-import { coordinator } from './ledger-access';
+import { coordinator, forbidden } from './ledger-access';
 
 // Local query mocks only; no database connection or environment configuration.
 describe('ledger coordinator eligibility', () => {
+  it('leaves a generic access denial message empty for localization', () => {
+    expect.assertions(1);
+    try {
+      forbidden();
+    } catch (error) {
+      expect(error).toMatchObject({
+        response: { code: 'AUTH_FORBIDDEN', message: '', details: {} },
+      });
+    }
+  });
+
   function setup(rows: Array<{ id: string; name: string }>) {
     const query = jest.fn().mockResolvedValue(rows);
     return { query, manager: { query } as unknown as EntityManager };

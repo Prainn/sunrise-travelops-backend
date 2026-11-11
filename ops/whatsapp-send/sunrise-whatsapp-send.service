@@ -1,0 +1,34 @@
+[Unit]
+Description=Sunrise dev WhatsApp bounded sender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=sunrise-whatsapp-send
+ExecStart=/opt/sunrise-ci/node/bin/node /opt/sunrise-whatsapp-send/relay.cjs
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=sunrise-whatsapp-send
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0007
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/sunrise-whatsapp-send
+MemoryMax=160M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target

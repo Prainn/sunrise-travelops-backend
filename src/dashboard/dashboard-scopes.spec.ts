@@ -1,3 +1,4 @@
+import type { InquiryRemindersService } from '../inquiries/inquiry-reminders.service';
 import type { Request } from 'express';
 import { DataSource } from 'typeorm';
 import type { AuthenticatedUser } from '../auth/auth.types';
@@ -66,6 +67,7 @@ describe('Dashboard aggregates share actual list scope SQL', () => {
     db,
     {} as ItineraryValidation,
     {} as AgenciesService,
+    {} as InquiryRemindersService,
   );
   const website = new WebsiteService(db);
   const tours = new ToursService(db);
