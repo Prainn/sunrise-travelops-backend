@@ -37,6 +37,7 @@ export const ITINERARY_TABLES = {
     priceName: 'text',
     quantity: 'numeric',
     dinerCount: 'integer?',
+    tableCount: 'integer?',
     unit: 'text',
     unitCost: 'numeric?',
     totalCost: 'numeric?',

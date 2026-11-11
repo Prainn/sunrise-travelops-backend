@@ -245,7 +245,7 @@ export class WhatsappService {
       { unreadCount: number; unassignedCount: number }[]
     >(
       `WITH visible AS (
-        SELECT c.id,c.owner_id FROM whatsapp_conversations c
+        SELECT c.id,c.owner_id,c.state FROM whatsapp_conversations c
         WHERE ${scope} AND c.state<>'archived'
       )
       SELECT (SELECT count(*)::int FROM whatsapp_messages m
@@ -253,7 +253,7 @@ export class WhatsappService {
         LEFT JOIN whatsapp_reads r ON r.conversation_id=c.id AND r.user_id=$${userParam}
         WHERE m.direction='inbound' AND m.seq>coalesce(r.last_seq,0)
         AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done')) AS "unreadCount",
-        (SELECT count(*)::int FROM visible WHERE owner_id IS NULL) AS "unassignedCount"`,
+        (SELECT count(*)::int FROM visible WHERE owner_id IS NULL AND state='open') AS "unassignedCount"`,
       params,
     );
     return {

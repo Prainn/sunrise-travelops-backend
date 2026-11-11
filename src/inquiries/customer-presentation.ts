@@ -1,6 +1,4 @@
-import { HttpStatus } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
-import { BusinessException } from '../common/exceptions/business.exception';
 import type { InquiryEntity, CurrentPdfData } from './inquiry.entity';
 import type { ItineraryInput } from './inquiry.dto';
 import { dateAt } from './itinerary-validation';
@@ -138,27 +136,26 @@ export async function buildCustomerPresentation(
         const p = `dailyPlans[${d.id}]`;
         const route = en
           ? [
-              city(d.departure, d.departureEn, `${p}.departureEn`),
+              city(d.departure, undefined, `${p}.departureEn`),
               ...(d.viaDestinations ?? []).map((c) =>
                 city(c, undefined, `cities[${c}].englishName`),
               ),
-              city(d.destination, d.destinationEn, `${p}.destinationEn`),
+              city(d.destination, undefined, `${p}.destinationEn`),
             ]
           : [d.departure, ...(d.viaDestinations ?? []), d.destination];
-        const transport =
-          d.transportEn?.trim() ||
-          d.transport
-            .split(',')
-            .filter(Boolean)
-            .map((code) => {
-              const dict = dictionaries.find(
-                (i) => i.type === 'transport-method' && i.code === code,
-              );
-              return en
-                ? english(dict?.englishName, `${p}.transportEn`)
-                : (dict?.name ?? code);
-            })
-            .join(' / ');
+        const transport = d.transport
+          .split(',')
+          .filter(Boolean)
+          .map((code) => {
+            const dict = dictionaries.find(
+              (i) => i.type === 'transport-method' && i.code === code,
+            );
+            return en
+              ? english(dict?.englishName, `${p}.transportEn`)
+              : (dict?.name ?? code);
+          })
+          .filter(Boolean)
+          .join(' / ');
         return {
           id: d.id,
           dayNumber: d.dayNumber,
@@ -177,11 +174,16 @@ export async function buildCustomerPresentation(
                 )
                 .join(' / '),
           description: en
-            ? english(
-                d.descriptionEn,
-                `${p}.descriptionEn`,
-                !!d.description?.trim(),
-              )
+            ? d.items
+                .map((item) =>
+                  item.resourceId
+                    ? (resourceMap
+                        .get(`${item.type}:${item.resourceId}`)
+                        ?.englishDescription?.trim() ?? '')
+                    : '',
+                )
+                .filter(Boolean)
+                .join('\n')
             : (d.description ?? ''),
           overnightDestination: en
             ? city(
@@ -309,26 +311,5 @@ export function exportSnapshot(
   snapshot: CurrentPdfData,
   language: 'zh' | 'en',
 ): CurrentPdfData {
-  if (
-    language === 'en' &&
-    (!snapshot.customerPresentation ||
-      snapshot.customerPresentation.missingEnglish.length)
-  ) {
-    throw new BusinessException({
-      code: 'PDF_NOT_READY',
-      status: HttpStatus.BAD_REQUEST,
-      message: snapshot.customerPresentation
-        ? '请补齐英文内容后再导出'
-        : '旧冻结报价不含英文快照，请复制为新草稿后补齐英文并重新确认',
-      details: {
-        reason: snapshot.customerPresentation
-          ? 'ENGLISH_CONTENT_MISSING'
-          : 'ENGLISH_SNAPSHOT_UNAVAILABLE',
-        issues: snapshot.customerPresentation?.missingEnglish ?? [
-          'customerPresentation',
-        ],
-      },
-    });
-  }
   return { ...snapshot, exportLanguage: language };
 }

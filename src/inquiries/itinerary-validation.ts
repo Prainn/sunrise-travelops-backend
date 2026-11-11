@@ -300,6 +300,7 @@ export class ItineraryValidation {
       } else await this.validateDailyItem(manager, item, old, checkReason);
       if (
         item.unit === 'table' &&
+        item.tableCount == null &&
         !(
           item.dinerCount &&
           Number.isInteger(item.dinerCount) &&
@@ -307,16 +308,27 @@ export class ItineraryValidation {
         )
       )
         invalid('请补充按桌餐食的每桌人数');
+      if (
+        item.tableCount != null &&
+        (item.unit !== 'table' ||
+          item.type !== 'restaurant' ||
+          !Number.isInteger(item.tableCount) ||
+          item.tableCount < 1 ||
+          item.tableCount > 10000)
+      )
+        invalid('桌数必须为1至10000的整数且仅适用于按桌餐食');
       if (item.unit !== 'table') item.dinerCount = null;
       item.totalCost =
         item.unitCost === null
           ? null
-          : multiplyMoney(
-              item.unit === 'table'
-                ? divideMoney(item.unitCost, item.dinerCount!)
-                : item.unitCost,
-              item.quantity,
-            );
+          : item.tableCount != null
+            ? multiplyMoney(item.unitCost, item.tableCount)
+            : multiplyMoney(
+                item.unit === 'table'
+                  ? divideMoney(item.unitCost, item.dinerCount!)
+                  : item.unitCost,
+                item.quantity,
+              );
     }
     for (const group of plan.hotelPlans) {
       unique(group.hotels.map((h) => h.destination));

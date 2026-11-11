@@ -77,6 +77,7 @@ export async function saveFrozenDetails(
         unit: i.unit,
         quantity: i.quantity,
         dinerCount: i.dinerCount,
+        tableCount: i.tableCount ?? null,
         price: i.unitCost,
         total: i.totalCost,
         day: d.dayNumber,
@@ -97,6 +98,7 @@ export async function saveFrozenDetails(
         unit: h.unit,
         quantity: null,
         dinerCount: null,
+        tableCount: null,
         price: h.unitCost,
         total: null,
         day: null,
@@ -116,6 +118,7 @@ export async function saveFrozenDetails(
       unit: 'day',
       quantity: g.serviceDays,
       dinerCount: null,
+      tableCount: null,
       price: g.dailyPrice,
       total: null,
       day: null,
@@ -134,6 +137,7 @@ export async function saveFrozenDetails(
       unit: 'trip',
       quantity: 1,
       dinerCount: null,
+      tableCount: null,
       price: v.totalPrice,
       total: v.totalPrice,
       day: null,
@@ -142,7 +146,7 @@ export async function saveFrozenDetails(
   ];
   for (const [position, item] of items.entries())
     await manager.query(
-      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason,diner_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+      'INSERT INTO quote_resource_lines(quote_id,position,item_key,type,name,resource_id,price_id,unit,quantity,unit_price,total_price,day_number,tier,destination,reference_price,reference_basis,adjustment_reason,diner_count,table_count) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)',
       [
         id,
         position,
@@ -162,6 +166,7 @@ export async function saveFrozenDetails(
         item.referenceBasis ?? null,
         item.adjustmentReason ?? null,
         item.dinerCount,
+        item.tableCount,
       ],
     );
   for (const vehicle of plan.vehiclePlans)

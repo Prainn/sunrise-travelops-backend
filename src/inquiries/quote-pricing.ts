@@ -67,7 +67,11 @@ export function calculateItineraryQuote(
   );
   const resourceCosts = itinerary.dailyPlans.flatMap((day) =>
     day.items.map((item) => {
-      if (item.unit === 'table' && !(item.dinerCount && item.dinerCount > 0)) {
+      if (
+        item.unit === 'table' &&
+        item.tableCount == null &&
+        !(item.dinerCount && item.dinerCount > 0)
+      ) {
         throw new BusinessException({
           code: 'ITINERARY_INVALID',
           message: '请补充按桌餐食的每桌人数',
@@ -77,9 +81,11 @@ export function calculateItineraryQuote(
       const unitCost =
         item.unitCost === null
           ? null
-          : item.unit === 'table'
-            ? divideMoney(item.unitCost, item.dinerCount!)
-            : item.unitCost;
+          : item.tableCount != null
+            ? 0
+            : item.unit === 'table'
+              ? divideMoney(item.unitCost, item.dinerCount!)
+              : item.unitCost;
       return {
         type: item.type,
         detail: {
@@ -87,6 +93,14 @@ export function calculateItineraryQuote(
           dayNumber: day.dayNumber,
           resourceName: item.resourceName,
           unitCost,
+          ...(item.tableCount != null
+            ? {
+                groupTotal:
+                  item.unitCost == null
+                    ? null
+                    : multiplyMoney(item.unitCost, item.tableCount),
+              }
+            : {}),
           quantity: item.quantity,
           totalCost:
             unitCost === null ? null : multiplyMoney(unitCost, item.quantity),
@@ -100,6 +114,12 @@ export function calculateItineraryQuote(
   const attractionDetails = resourceCosts
     .filter((item) => item.type === 'attraction')
     .map((item) => item.detail);
+  const tableTotal = sumMoney(
+    itinerary.dailyPlans
+      .flatMap((day) => day.items)
+      .filter((item) => item.unit === 'table' && item.tableCount != null)
+      .map((item) => multiplyMoney(item.unitCost ?? 0, item.tableCount!)),
+  );
   const mealCost = sumMoney([
     ...mealDetails.flatMap((item) =>
       item.totalCost === null ? [] : [item.totalCost],
@@ -119,6 +139,7 @@ export function calculateItineraryQuote(
   const missingPrices = missingItineraryPrices(itinerary);
   return {
     pricingVersion: 2,
+    tableMealTotal: tableTotal,
     pricingComplete: missingPrices.length === 0,
     missingPrices,
     dailyResourceCost,
@@ -192,9 +213,12 @@ export function calculateItineraryQuote(
             divideMoney(staffRoomTotal, pax),
             paxOtherCost?.staffRoomOtherCost ?? 0,
           ]);
+          const tableMealUnitCost = sumMoney(
+            mealDetails.map((item) => divideMoney(item.groupTotal ?? 0, pax)),
+          );
           const baseCostPerPerson = sumMoney([
             hotelUnitCost,
-            dailyResourceCost,
+            sumMoney([dailyResourceCost, tableMealUnitCost]),
             vehicleUnitCost,
             guideServiceUnitCost,
             staffRoomUnitCost,
@@ -212,6 +236,7 @@ export function calculateItineraryQuote(
             guideServiceUnitCost,
             staffRoomUnitCost,
             baseCostPerPerson,
+            mealCost: sumMoney([mealCost, tableMealUnitCost]),
             adultUnitPrice,
             childWithoutBedUnitPrice: multiplyMoney(
               adultUnitPrice,

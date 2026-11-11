@@ -241,6 +241,19 @@ async function main() {
         'SELECT count(*) FROM whatsapp_reads',
       );
       assert.equal(reads, '0');
+      await h.db.query(
+        "UPDATE whatsapp_conversations SET state='closed' WHERE id=$1",
+        [c.id],
+      );
+      assert.deepEqual(await summary(manager), {
+        unreadCount: initial.unreadCount,
+        unassignedCount: initial.unassignedCount - 1,
+      });
+      await h.db.query(
+        "UPDATE whatsapp_conversations SET state='open' WHERE id=$1",
+        [c.id],
+      );
+      assert.deepEqual(await summary(manager), initial);
       const [{ id: targetId }] = await h.db.query<{ id: string }[]>(
         "SELECT id FROM whatsapp_messages WHERE conversation_id=$1 AND direction='inbound' LIMIT 1",
         [c.id],

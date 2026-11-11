@@ -155,6 +155,7 @@ class ItemInput extends PriceInput {
   @IsString() @MaxLength(500) resourceName: string;
   @IsString() @MaxLength(500) priceName: string;
   @IsInt() @Min(1) @Max(1) quantity: number;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) tableCount?: number | null;
   @IsOptional() @IsInt() @Min(1) @Max(10000) dinerCount: number | null;
   @IsString() @MaxLength(100) unit: string;
   @ValidateIf((_object, value: unknown) => value !== null)
