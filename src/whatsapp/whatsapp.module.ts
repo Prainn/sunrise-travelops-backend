@@ -1,3 +1,5 @@
+import { FeishuModule } from '../feishu/feishu.module';
+import { WhatsappNotificationsService } from './whatsapp-notifications.service';
 import { Module } from '@nestjs/common';
 import { WebsiteModule } from '../website/website.module';
 import { WhatsappConfig } from './whatsapp.config';
@@ -13,13 +15,14 @@ import {
   WhatsappQuickRepliesController,
 } from './whatsapp-quick-replies.controller';
 @Module({
-  imports: [WebsiteModule],
+  imports: [WebsiteModule, FeishuModule],
   controllers: [
     WhatsappController,
     WhatsappIngressController,
     WhatsappQuickRepliesController,
   ],
   providers: [
+    WhatsappNotificationsService,
     WhatsappConfig,
     WhatsappProvider,
     WhatsappEvents,

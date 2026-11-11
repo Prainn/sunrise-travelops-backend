@@ -28,6 +28,8 @@ const reads = [
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
+    'sys:notification:list',
+    'sys:notification:update',
     'sys:account-link:manage',
     'sys:menu-permission:list',
     'sys:menu-permission:update',
@@ -38,6 +40,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   EXECUTIVE: reads,
   ADMIN: [
+    'sys:notification:list',
+    'sys:notification:update',
     'sys:account-link:manage',
     ...ADMIN_PERMISSIONS.filter(
       (p) => !p.startsWith('inquiry:') && !p.startsWith('itinerary:'),

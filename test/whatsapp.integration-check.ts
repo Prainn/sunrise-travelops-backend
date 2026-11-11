@@ -1,3 +1,4 @@
+import { AddFeishuNotificationManagement1796256000000 } from '../src/migrations/1796256000000-AddFeishuNotificationManagement';
 /** Isolated local PostgreSQL only; mock sends, no cloud credentials or real customer data. */
 import assert from 'node:assert/strict';
 import { ConfigService } from '@nestjs/config';
@@ -32,18 +33,25 @@ async function undoWhatsappMigration() {
   assert.match(String(h.db.options.database), /^travelops_isolation_/);
   await h.db.transaction(async (manager) => {
     assert(manager.queryRunner);
+    await new AddFeishuNotificationManagement1796256000000().down(
+      manager.queryRunner,
+    );
     await new AddWhatsappEventMessageIndex1795996800000().down(
       manager.queryRunner,
     );
     await new AddWhatsappCustomerNotes1795910400000().down(manager.queryRunner);
     await new AddWhatsappQuickReplies1795824000000().down(manager.queryRunner);
     await new CreateWhatsappWorkbench1795651200000().down(manager.queryRunner);
-    await manager.query('DELETE FROM migrations WHERE name IN ($1,$2,$3,$4)', [
-      'CreateWhatsappWorkbench1795651200000',
-      'AddWhatsappQuickReplies1795824000000',
-      'AddWhatsappCustomerNotes1795910400000',
-      'AddWhatsappEventMessageIndex1795996800000',
-    ]);
+    await manager.query(
+      'DELETE FROM migrations WHERE name IN ($1,$2,$3,$4,$5)',
+      [
+        'CreateWhatsappWorkbench1795651200000',
+        'AddWhatsappQuickReplies1795824000000',
+        'AddWhatsappCustomerNotes1795910400000',
+        'AddWhatsappEventMessageIndex1795996800000',
+        'AddFeishuNotificationManagement1796256000000',
+      ],
+    );
   });
 }
 async function call<T = Record<string, unknown>>(
@@ -127,7 +135,7 @@ async function main() {
         plannedDays: 1,
         requirements: 'Synthetic baseline',
       });
-      assert.equal((await h.db.runMigrations()).length, 4);
+      assert.equal((await h.db.runMigrations()).length, 5);
       assert.equal((await h.db.runMigrations()).length, 0);
       assert.equal(
         (await call<{ id: string }>(a, 'GET', `/website/inquiries/${old.id}`))
@@ -1614,7 +1622,10 @@ async function main() {
   await check(
     'down migration refuses destructive rollback with messages',
     async () => {
-      await assert.rejects(undoWhatsappMigration(), /Refusing rollback/);
+      await assert.rejects(
+        undoWhatsappMigration(),
+        /Refusing rollback|Notification settings and delivery audit must be retained/,
+      );
       assert.equal((await page()).total, 1);
     },
   );

@@ -62,6 +62,8 @@ function actionFor(
     if (handler === 'update')
       return { category: 'business-category', label: '编辑WhatsApp快捷回复' };
   }
+  if (controller === 'NotificationSettingsController' && handler === 'update')
+    return { category: 'system-category', label: '配置飞书通知开关' };
   if (controller === 'MenuPermissionsController' && handler === 'save')
     return { category: 'system-category', label: '配置菜单权限' };
   if (controller === 'AuthController') {
@@ -354,6 +356,15 @@ export class OperationLogInterceptor implements NestInterceptor {
     });
     const detail = (id: unknown, error?: unknown): string => {
       const data: Record<string, string | number> = {};
+      if (
+        controller === 'NotificationSettingsController' &&
+        handler === 'update'
+      ) {
+        data.notificationType = String(request.params.type ?? '').slice(0, 100);
+        if (typeof body.enabled === 'boolean')
+          data.enabled = body.enabled ? 'true' : 'false';
+        if (typeof body.version === 'number') data.version = body.version;
+      }
       if (request.menuPermissionChange)
         return JSON.stringify(request.menuPermissionChange);
       if (

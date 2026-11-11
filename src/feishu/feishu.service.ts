@@ -12,6 +12,16 @@ interface MessageResponse {
   data?: { message_id?: string };
 }
 
+export class FeishuSendException extends BusinessException {
+  constructor(readonly deliveryUnknown: boolean) {
+    super({
+      code: 'FEISHU_SEND_FAILED',
+      message: '飞书发送失败，请检查应用配置、权限、可用范围及 Open ID',
+      status: HttpStatus.BAD_GATEWAY,
+    });
+  }
+}
+
 @Injectable()
 export class FeishuService {
   private token?: { value: string; expiresAt: number };
@@ -26,13 +36,34 @@ export class FeishuService {
     );
   }
 
-  ledgerUrl(unit: 'linxi' | 'website', orderNo: string) {
+  ledgerUrl(
+    unit: 'linxi' | 'website',
+    orderNo: string,
+    ledgerId?: string,
+    action?: 'review' | 'operate',
+  ) {
     const base = this.config.getOrThrow<string>('FEISHU_WEB_BASE_URL');
     const url = new URL(
       `/data-ledgers/${unit === 'linxi' ? 'direct' : 'website'}`,
       base,
     );
     url.searchParams.set('keyword', orderNo);
+    if (ledgerId) {
+      url.searchParams.set('ledgerId', ledgerId);
+      url.searchParams.set('highlight', '1');
+      url.searchParams.set('from', 'feishu');
+    }
+    if (action) url.searchParams.set('action', action);
+    return url.toString();
+  }
+
+  conversationUrl(conversationId: string) {
+    const url = new URL(
+      '/whatsapp/inbox',
+      this.config.getOrThrow<string>('FEISHU_WEB_BASE_URL'),
+    );
+    url.searchParams.set('conversationId', conversationId);
+    url.searchParams.set('from', 'feishu');
     return url.toString();
   }
 
@@ -92,7 +123,10 @@ export class FeishuService {
         message: '飞书应用尚未配置',
         status: HttpStatus.SERVICE_UNAVAILABLE,
       });
+    let deliveryUnknown = false;
     try {
+      const token = await this.accessToken();
+      deliveryUnknown = true;
       const response = await this.request<MessageResponse>(
         'im/v1/messages?receive_id_type=open_id',
         {
@@ -101,8 +135,10 @@ export class FeishuService {
           content: JSON.stringify({ text }),
           uuid,
         },
-        await this.accessToken(),
+        token,
       );
+      if (typeof response.code === 'number' && response.code !== 0)
+        deliveryUnknown = false;
       if (response.code !== 0 || !response.data?.message_id) {
         // Retry queued messages with a fresh token; never log provider payloads.
         if ([99991663, 99991664, 99991668].includes(response.code))
@@ -111,11 +147,7 @@ export class FeishuService {
       }
       return { messageId: response.data.message_id };
     } catch {
-      throw new BusinessException({
-        code: 'FEISHU_SEND_FAILED',
-        message: '飞书发送失败，请检查应用配置、权限、可用范围及 Open ID',
-        status: HttpStatus.BAD_GATEWAY,
-      });
+      throw new FeishuSendException(deliveryUnknown);
     }
   }
 }

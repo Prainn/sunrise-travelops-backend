@@ -1,3 +1,7 @@
+import {
+  cancelWhatsappNotifications,
+  enqueueWhatsappAssignment,
+} from './whatsapp-notifications';
 import { effectiveAccountPermissions } from '../auth/identity-permissions';
 import { LoginScope } from '../users/user-identity.entity';
 import { Injectable } from '@nestjs/common';
@@ -541,6 +545,7 @@ export class WhatsappService {
           [id, input.ownerId],
         );
       }
+      if (!c.inquiryId) await enqueueWhatsappAssignment(manager, id, c.ownerId);
       await this.audit(manager, id, user, 'assigned', {
         previousOwnerId: c.ownerId,
         ownerId: input.ownerId,
@@ -559,6 +564,13 @@ export class WhatsappService {
         'UPDATE whatsapp_conversations SET state=$2,version=version+1,updated_at=now() WHERE id=$1',
         [id, input.state],
       );
+      if (input.state === 'closed') {
+        await cancelWhatsappNotifications(manager, id, 'CONVERSATION_CLOSED');
+        await manager.query(
+          'DELETE FROM whatsapp_notification_windows WHERE conversation_id=$1',
+          [id],
+        );
+      }
       await this.audit(manager, id, user, input.state);
       return this.conversation(id, user, manager);
     });
@@ -595,6 +607,7 @@ export class WhatsappService {
         `UPDATE whatsapp_conversations SET state='archived',archived_at=now(),version=version+1,updated_at=now() WHERE id=$1`,
         [id],
       );
+      await cancelWhatsappNotifications(manager, id, 'CONVERSATION_ARCHIVED');
       const [created] = await manager.query<{ id: string }[]>(
         `INSERT INTO whatsapp_conversations(account_id,contact_id,previous_id) VALUES($1,$2,$3) RETURNING id`,
         [c.accountId, c.contactId, id],

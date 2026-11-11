@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'notifications',
+    title: 'notificationManagement',
+    group: 'systemManagement',
+    permissions: ['sys:notification:list'],
+    scopes: ['headquarters'],
+  },
+  {
     key: 'whatsapp-inbox',
     title: 'whatsappInbox',
     group: 'whatsappWorkbench',
@@ -303,6 +310,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     routeName: 'System',
     children: [
       menuItem('menu-permissions', 'MenuPermissions'),
+      menuItem('notifications', 'NotificationManagement'),
       menuItem('dict', 'Dict'),
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),
