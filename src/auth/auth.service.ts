@@ -260,6 +260,16 @@ export class AuthService {
       });
     }
     const roles = identity.roles.filter((r) => r.isEnabled).map((r) => r.code);
+    const permissions = effectiveAccountPermissions(
+      scope,
+      roles,
+      identity.coordinatorDuty,
+      user.username,
+    );
+    const access =
+      user.username === 'sunrise'
+        ? await this.menus.sunriseAccess(permissions)
+        : { permissions, menuKeys };
     return {
       id: user.id,
       username: user.username,
@@ -274,13 +284,8 @@ export class AuthService {
         DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
         '',
       roles,
-      permissions: effectiveAccountPermissions(
-        scope,
-        roles,
-        identity.coordinatorDuty,
-        user.username,
-      ),
-      menuKeys,
+      permissions: access.permissions,
+      menuKeys: access.menuKeys,
     };
   }
 
