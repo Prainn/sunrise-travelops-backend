@@ -59,6 +59,23 @@ describe('WhatsApp identity, event and window boundaries', () => {
       ).status,
     ).toBe('delivered');
   });
+  it('preserves inbound Context for text and media without losing metadata', () => {
+    const Context = { id: 'quoted-provider-id', from: account.phone };
+    expect(
+      normalizeEvent({ ...event, Context }, 'inbound', account).attachment,
+    ).toEqual({ contextMessageId: Context.id });
+    expect(
+      normalizeEvent(
+        { ...event, Type: 'IMAGE', Message: { id: 'media' }, Context },
+        'inbound',
+        account,
+      ).attachment,
+    ).toEqual({ id: 'media', contextMessageId: Context.id });
+    expect(normalizeEvent(event, 'inbound', account).attachment).toBeNull();
+    expect(() =>
+      normalizeEvent({ ...event, Context: { id: 42 } }, 'inbound', account),
+    ).toThrow('INVALID_EVENT');
+  });
   it('supports BSUID without a phone', () => {
     expect(normalizeEvent(event, 'inbound', account)).toMatchObject({
       bsuid: 'ZZ.synthetic',

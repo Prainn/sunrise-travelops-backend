@@ -106,6 +106,10 @@ export function normalizeEvent(
       );
     }
   }
+  if (!isStatus && p.Context != null) {
+    const contextMessageId = field(object(p.Context), 'id');
+    if (contextMessageId) attachment = { ...attachment, contextMessageId };
+  }
   if (attachment?.type === 'edit') messageKind = 'edit';
   return {
     providerId,
