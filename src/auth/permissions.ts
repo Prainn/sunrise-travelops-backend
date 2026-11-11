@@ -94,6 +94,8 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:notification:list': '查看通知管理',
+  'sys:notification:update': '配置通知开关',
   'whatsapp:conversation:list': '查看WhatsApp会话',
   'whatsapp:message:send': '回复WhatsApp消息',
   'whatsapp:conversation:assign': '分配WhatsApp会话',

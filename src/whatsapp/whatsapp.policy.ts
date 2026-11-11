@@ -1,3 +1,4 @@
+import { isFullAdministrator } from '../auth/account-access';
 import { HttpStatus } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -10,12 +11,10 @@ export function chatFail(
 ): never {
   throw new BusinessException({ code, message, status });
 }
-export function chatAdmin(user: AuthenticatedUser) {
-  return (
-    user.scope === 'headquarters' &&
-    user.roles.includes('ROOT') &&
-    ['sunrise', 'mango'].includes(user.username)
-  );
+export function chatAdmin(
+  user: Pick<AuthenticatedUser, 'username' | 'scope' | 'roles'>,
+) {
+  return isFullAdministrator(user);
 }
 export function chatManager(user: AuthenticatedUser) {
   return (

@@ -1,6 +1,7 @@
 import {
   isFullAdministrator,
-  SUNRISE_DENIED_PERMISSIONS,
+  isHeadquartersBoss,
+  BOSS_DENIED_PERMISSIONS,
 } from './account-access';
 import {
   PERMISSION_DEFINITIONS,
@@ -28,6 +29,8 @@ const reads = [
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
+    'sys:notification:list',
+    'sys:notification:update',
     'sys:account-link:manage',
     'sys:menu-permission:list',
     'sys:menu-permission:update',
@@ -38,6 +41,8 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   EXECUTIVE: reads,
   ADMIN: [
+    'sys:notification:list',
+    'sys:notification:update',
     'sys:account-link:manage',
     ...ADMIN_PERMISSIONS.filter(
       (p) => !p.startsWith('inquiry:') && !p.startsWith('itinerary:'),
@@ -104,6 +109,10 @@ export function effectivePermissions(
   roles: string[],
   coordinatorDuty: CoordinatorDuty | null = null,
 ): string[] {
+  if (isHeadquartersBoss({ scope, roles }))
+    return effectivePermissions(scope, ['ROOT'], coordinatorDuty).filter(
+      (p) => !p.startsWith('whatsapp:') && !BOSS_DENIED_PERMISSIONS.includes(p),
+    );
   const summaryPermissions = (
     scope === 'headquarters'
       ? roles.some((role) => ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role))
@@ -224,19 +233,7 @@ export function effectiveAccountPermissions(
 ): string[] {
   if (isFullAdministrator({ scope, roles, username }))
     return Object.keys(PERMISSION_DEFINITIONS).sort();
-  const permissions = effectivePermissions(
-    scope,
-    roles,
-    coordinatorDuty,
-  ).filter(
-    (p) =>
-      !p.startsWith('whatsapp:') ||
-      scope === 'website' ||
-      (scope === 'headquarters' &&
-        roles.includes('ROOT') &&
-        ['sunrise', 'mango'].includes(username)),
+  return effectivePermissions(scope, roles, coordinatorDuty).filter(
+    (p) => !p.startsWith('whatsapp:') || scope === 'website',
   );
-  return username === 'sunrise'
-    ? permissions.filter((p) => !SUNRISE_DENIED_PERMISSIONS.includes(p))
-    : permissions;
 }

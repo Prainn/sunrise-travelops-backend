@@ -1,12 +1,8 @@
+import { isHeadquartersBoss } from '../auth/account-access';
 import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
-import {
-  forbidden,
-  invalid,
-  isLedgerRoot,
-  requirePermission,
-} from './ledger-access';
+import { forbidden, invalid, requirePermission } from './ledger-access';
 import { SummaryQueryDto, SummaryReport } from './ledger-summaries.dto';
 
 export interface SummaryRow {
@@ -28,11 +24,11 @@ export class LedgerSummariesService {
         ? 'linxi'
         : 'website';
     if (actor.scope !== unit && actor.scope !== 'headquarters') forbidden();
-    if (
-      (!isLedgerRoot(actor) || actor.username === 'sunrise') &&
-      !actor.menuKeys.includes(report)
-    )
-      forbidden();
+    const root =
+      actor.scope === 'headquarters' &&
+      actor.roles.includes('ROOT') &&
+      !isHeadquartersBoss(actor);
+    if (!root && !actor.menuKeys.includes(report)) forbidden();
     return unit;
   }
 

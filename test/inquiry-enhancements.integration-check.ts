@@ -139,8 +139,10 @@ async function upgrade() {
   try {
     await admin.query(`CREATE DATABASE "${name}"`);
     await db.initialize();
-    const added = db.migrations.filter((m) => m.name?.includes('179608320'));
-    assert.equal(added.length, 4);
+    const added = db.migrations.filter(
+      (m) => m.name?.includes('179608320') || m.name?.includes('1796256000000'),
+    );
+    assert.equal(added.length, 5);
     db.migrations.splice(
       0,
       db.migrations.length,
@@ -160,7 +162,7 @@ async function upgrade() {
       [i.id],
     );
     db.migrations.push(...added);
-    assert.equal((await db.runMigrations()).length, 4);
+    assert.equal((await db.runMigrations()).length, 5);
     assert.equal((await db.runMigrations()).length, 0);
     const [after] = await db.query<Record<string, unknown>[]>(
       'SELECT * FROM inquiries WHERE id=$1',

@@ -19,7 +19,12 @@ async function reserved(username: string, root: Actor) {
      SELECT $1,$2,password_hash,$2,$2 FROM users WHERE id=$3`,
     [id, username, root.id],
   );
-  return h.actor('headquarters', 'ROOT', null, id);
+  return h.actor(
+    'headquarters',
+    username === 'sunrise' ? 'BOSS' : 'ROOT',
+    null,
+    id,
+  );
 }
 
 async function run() {
@@ -27,7 +32,6 @@ async function run() {
   const root = await h.actor('headquarters', 'ROOT');
   const sunrise = await reserved('sunrise', root);
   const mango = await reserved('mango', root);
-  // These tokens carry the original full ROOT menu snapshot.
   const me = await h.call<{ permissions: string[] }>(
     sunrise,
     'GET',
@@ -184,7 +188,6 @@ async function run() {
     const edit = {
       ...input,
       operatorId: operator.id,
-      orderStatus: 'converted',
       proposalSent: true,
       loss: true,
       lossNote: 'test loss',
@@ -194,6 +197,11 @@ async function run() {
       version: row.version,
     });
     assert(row.capabilities.canReview);
+    // Simulate a historical converted row; ordinary edits cannot change order status.
+    await h.db.query(
+      "UPDATE direct_ledgers SET order_status='converted' WHERE id=$1",
+      [row.id],
+    );
     row = await h.call<Ledger>(mango, 'POST', `${endpoint}/review`, {
       version: row.version,
     });

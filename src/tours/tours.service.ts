@@ -1,3 +1,4 @@
+import { isHeadquartersBusinessAdmin } from '../auth/account-access';
 import { cancelInquiryReminders } from '../inquiries/follow-ups';
 import { diagnoseGuide, loadGuideAvailability } from './guide-availability';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -149,7 +150,8 @@ export class ToursService {
   // ---------- access ----------
   private isAdmin(user: AuthenticatedUser) {
     return (
-      user.roles.includes('ROOT') || user.roles.includes('BUSINESS_MANAGER')
+      isHeadquartersBusinessAdmin(user) ||
+      user.roles.includes('BUSINESS_MANAGER')
     );
   }
   private require(user: AuthenticatedUser, permission: string) {
@@ -1349,7 +1351,7 @@ export class ToursService {
       canEdit:
         row.status === 'active' &&
         user.permissions.includes('tour:rating:update') &&
-        ((user.scope === 'headquarters' && user.roles.includes('ROOT')) ||
+        (isHeadquartersBusinessAdmin(user) ||
           row.collectCoordinatorId === user.id ||
           row.operatorId === user.id ||
           (user.roles.includes('BUSINESS_MANAGER') &&
@@ -1412,7 +1414,7 @@ export class ToursService {
       const manages =
         user.roles.includes('BUSINESS_MANAGER') &&
         user.scope === tour.business_unit;
-      const root = user.scope === 'headquarters' && user.roles.includes('ROOT');
+      const root = isHeadquartersBusinessAdmin(user);
       if (!own && !manages && !root) forbidden();
       if (tour.status !== 'active') conflict('已撤销的旅行团不能修改评分');
       const associated = await manager.query<unknown[]>(

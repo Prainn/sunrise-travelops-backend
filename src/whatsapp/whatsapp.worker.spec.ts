@@ -12,7 +12,7 @@ import { WhatsappWorker } from './whatsapp.worker';
 
 const root: AuthenticatedUser = {
   id: 'root',
-  username: 'sunrise',
+  username: 'mango',
   nickname: 'root',
   identityId: 'root-identity',
   scope: 'headquarters',

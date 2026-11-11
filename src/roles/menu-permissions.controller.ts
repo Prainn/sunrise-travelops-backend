@@ -44,7 +44,7 @@ export class MenuPermissionsController {
   @Get()
   @Permissions('sys:menu-permission:list')
   @ApiOperation({
-    summary: '读取角色菜单配置（仅总部 ROOT；mango 可读取 Sunrise 配置）',
+    summary: '读取角色菜单配置（仅总部 ROOT）',
   })
   @ApiSuccessResponse({ type: MenuPermissionsResponse })
   list(@CurrentUser() actor: AuthenticatedUser) {
@@ -61,7 +61,7 @@ export class MenuPermissionsController {
   @Put(':roleCode')
   @Permissions('sys:menu-permission:update')
   @ApiOperation({
-    summary: '保存角色或 Sunrise 账号菜单配置（Sunrise 实时生效）',
+    summary: '保存可配置角色的菜单配置',
   })
   @ApiSuccessResponse({ type: RoleMenuConfigResponse })
   async save(

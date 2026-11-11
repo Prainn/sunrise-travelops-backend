@@ -70,4 +70,52 @@ describe('Feishu API transport', () => {
       sender().sendText('ou_test', 'hi', 'id'),
     ).rejects.toMatchObject({ response: { code: 'FEISHU_SEND_FAILED' } });
   });
+  it('creates stable conversation and exact-ledger links without changing target origin', () => {
+    const service = sender();
+    const chat = new URL(service.conversationUrl('conversation-id'));
+    expect(chat.pathname).toBe('/whatsapp/inbox');
+    expect(chat.searchParams.get('conversationId')).toBe('conversation-id');
+    const ledger = new URL(
+      service.ledgerUrl('linxi', 'A & B', 'ledger-id', 'review'),
+    );
+    expect(ledger.origin).toBe('https://example.test');
+    expect(ledger.pathname).toBe('/data-ledgers/direct');
+    expect(ledger.searchParams.get('keyword')).toBe('A & B');
+    expect(ledger.searchParams.get('ledgerId')).toBe('ledger-id');
+    expect(ledger.searchParams.get('highlight')).toBe('1');
+    expect(ledger.searchParams.get('action')).toBe('review');
+  });
+
+  it.each([false, true])(
+    'distinguishes explicit rejection from unknown delivery (%s)',
+    async (unknown) => {
+      const mock = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 0,
+            tenant_access_token: 'token',
+            expire: 7200,
+          }),
+        ),
+      );
+      if (unknown) mock.mockRejectedValueOnce(new Error('network timeout'));
+      else
+        mock.mockResolvedValueOnce(
+          new Response(JSON.stringify({ code: 123, msg: 'redacted' })),
+        );
+      await expect(
+        sender().sendText('ou_test', 'text', 'uuid'),
+      ).rejects.toMatchObject({ deliveryUnknown: unknown });
+    },
+  );
+
+  it('token failures are safe to retry because no message submission happened', async () => {
+    const mock = jest
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('token timeout'));
+    await expect(
+      sender().sendText('ou_test', 'text', 'uuid'),
+    ).rejects.toMatchObject({ deliveryUnknown: false });
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
 });

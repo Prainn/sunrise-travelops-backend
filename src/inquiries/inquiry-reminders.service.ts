@@ -1,3 +1,4 @@
+import { notificationEnabled } from '../notifications/notification-settings';
 import {
   Injectable,
   Logger,
@@ -13,6 +14,7 @@ interface Job {
   follow_up_id: string;
   status: string;
   claimed_at: Date | null;
+  created_at: Date;
 }
 interface Recipient {
   id: string;
@@ -113,6 +115,20 @@ export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
         ) {
           await manager.query(
             `UPDATE inquiry_follow_up_reminders SET status='cancelled',updated_at=now() WHERE id=$1`,
+            [job.id],
+          );
+          return;
+        }
+        if (
+          !(await notificationEnabled(
+            manager,
+            'inquiry_follow_up',
+            true,
+            current.created_at,
+          ))
+        ) {
+          await manager.query(
+            `UPDATE inquiry_follow_up_reminders SET status='cancelled',error_code='NOTIFICATION_DISABLED',updated_at=now() WHERE id=$1`,
             [job.id],
           );
           return;

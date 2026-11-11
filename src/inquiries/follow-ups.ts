@@ -1,3 +1,4 @@
+import { notificationEnabled } from '../notifications/notification-settings';
 import { HttpStatus } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -65,10 +66,22 @@ export async function appendFollowUp(
       actor.name,
     ],
   );
-  if (due && schedule)
-    await manager.query(
-      `INSERT INTO inquiry_follow_up_reminders(follow_up_id,inquiry_id,due_at) VALUES($1,$2,$3)`,
-      [row.id, inquiryId, due],
+  if (due && schedule) {
+    const enabled = await notificationEnabled(
+      manager,
+      'inquiry_follow_up',
+      true,
     );
+    await manager.query(
+      `INSERT INTO inquiry_follow_up_reminders(follow_up_id,inquiry_id,due_at,status,error_code) VALUES($1,$2,$3,$4,$5)`,
+      [
+        row.id,
+        inquiryId,
+        due,
+        enabled ? 'pending' : 'cancelled',
+        enabled ? null : 'NOTIFICATION_DISABLED',
+      ],
+    );
+  }
   return row.id;
 }

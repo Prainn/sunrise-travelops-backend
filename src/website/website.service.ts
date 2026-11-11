@@ -1,3 +1,4 @@
+import { enqueueWhatsappAssignment } from '../whatsapp/whatsapp-notifications';
 import { chatManager, chatPermission } from '../whatsapp/whatsapp.policy';
 import {
   normalizeVehiclePrice,
@@ -1026,8 +1027,10 @@ export class WebsiteService {
         source.businessUnit,
       );
       const old = await this.inquiry(id, user, manager, true);
-      const [chat] = await manager.query<{ state: string; locked: boolean }[]>(
-        `SELECT c.state,(c.assignment_locked_at IS NOT NULL OR EXISTS(SELECT 1 FROM direct_ledgers WHERE website_inquiry_id=$1)
+      const [chat] = await manager.query<
+        { id: string; state: string; locked: boolean }[]
+      >(
+        `SELECT c.id,c.state,(c.assignment_locked_at IS NOT NULL OR EXISTS(SELECT 1 FROM direct_ledgers WHERE website_inquiry_id=$1)
           OR EXISTS(SELECT 1 FROM tours WHERE source_module='website' AND inquiry_id=$1)) AS locked
          FROM whatsapp_conversations c WHERE c.inquiry_id=$1 FOR UPDATE OF c`,
         [id],
@@ -1054,6 +1057,7 @@ export class WebsiteService {
         'UPDATE website_inquiries SET owner_id=$2,owner=$3,version=version+1,updated_at=now() WHERE id=$1',
         [id, owner.id, owner.name],
       );
+      if (chat) await enqueueWhatsappAssignment(manager, chat.id, old.ownerId);
       if (chat && !transactionManager) {
         await manager.query(
           `INSERT INTO whatsapp_actions(conversation_id,actor_id,action,details) SELECT id,$2,'assigned',$3::jsonb FROM whatsapp_conversations WHERE inquiry_id=$1`,

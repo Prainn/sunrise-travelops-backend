@@ -59,6 +59,23 @@ describe('WhatsApp identity, event and window boundaries', () => {
       ).status,
     ).toBe('delivered');
   });
+  it('preserves inbound Context for text and media without losing metadata', () => {
+    const Context = { id: 'quoted-provider-id', from: account.phone };
+    expect(
+      normalizeEvent({ ...event, Context }, 'inbound', account).attachment,
+    ).toEqual({ contextMessageId: Context.id });
+    expect(
+      normalizeEvent(
+        { ...event, Type: 'IMAGE', Message: { id: 'media' }, Context },
+        'inbound',
+        account,
+      ).attachment,
+    ).toEqual({ id: 'media', contextMessageId: Context.id });
+    expect(normalizeEvent(event, 'inbound', account).attachment).toBeNull();
+    expect(() =>
+      normalizeEvent({ ...event, Context: { id: 42 } }, 'inbound', account),
+    ).toThrow('INVALID_EVENT');
+  });
   it('supports BSUID without a phone', () => {
     expect(normalizeEvent(event, 'inbound', account)).toMatchObject({
       bsuid: 'ZZ.synthetic',
@@ -230,27 +247,25 @@ describe('WhatsApp configuration and permissions', () => {
       ).toEqual([]);
     },
   );
-  it.each(['sunrise', 'mango'])(
-    'reserved ROOT %s has all module permissions',
-    (username) => {
-      expect(
-        effectiveAccountPermissions(
-          'headquarters',
-          ['ROOT'],
-          null,
-          username,
-        ).filter((p) => p.startsWith('whatsapp:')),
-      ).toHaveLength(7);
-      expect(
-        effectiveAccountPermissions(
-          'linxi',
-          ['COORDINATOR'],
-          null,
-          username,
-        ).filter((p) => p.startsWith('whatsapp:')),
-      ).toHaveLength(0);
-    },
-  );
+  it('only mango headquarters ROOT has module permissions', () => {
+    const username = 'mango';
+    expect(
+      effectiveAccountPermissions(
+        'headquarters',
+        ['ROOT'],
+        null,
+        username,
+      ).filter((p) => p.startsWith('whatsapp:')),
+    ).toHaveLength(7);
+    expect(
+      effectiveAccountPermissions(
+        'linxi',
+        ['COORDINATOR'],
+        null,
+        username,
+      ).filter((p) => p.startsWith('whatsapp:')),
+    ).toHaveLength(0);
+  });
   it('website coordinator cannot assign or administer integration', () => {
     const permissions = effectiveAccountPermissions(
       'website',

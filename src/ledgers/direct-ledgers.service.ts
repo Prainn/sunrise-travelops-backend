@@ -1,7 +1,10 @@
 import { ToursService } from '../tours/tours.service';
 import { ConvertDirectLedgerDto } from './ledger.dto';
 import { DirectLedgerTourDto } from '../tours/tour.dto';
-import { isFullAdministrator } from '../auth/account-access';
+import {
+  isFullAdministrator,
+  isHeadquartersBusinessAdmin,
+} from '../auth/account-access';
 import { LedgerNotificationsService } from './ledger-notifications.service';
 import { requireBusinessGroup } from '../users/coordinator-assignment';
 import { Injectable } from '@nestjs/common';
@@ -25,7 +28,6 @@ import {
   forbidden,
   invalid,
   isManager,
-  isLedgerRoot,
   missing,
   requirePermission,
 } from './ledger-access';
@@ -82,7 +84,7 @@ export class DirectLedgersService {
       if (
         !isFullAdministrator(actor) &&
         action !== 'list' &&
-        !(action === 'create' && isLedgerRoot(actor))
+        !(action === 'create' && isHeadquartersBusinessAdmin(actor))
       )
         forbidden();
     } else if (!['linxi', 'website'].includes(actor.scope)) forbidden();
@@ -152,8 +154,6 @@ export class DirectLedgersService {
       `SELECT ${SELECT} FROM direct_ledgers WHERE id=$1${scope}${lock ? ' FOR UPDATE' : ''}`,
       params,
     );
-    if (row && actor.username === 'sunrise')
-      directUnit(actor, row.businessUnit);
     return row ?? missing();
   }
   async filterOptions(
@@ -368,7 +368,7 @@ export class DirectLedgersService {
       )
         invalid('国家和地区与建团资料不一致');
     } else if (input.tour !== undefined) invalid('未成团台账不能提交建团资料');
-    const delegate = isLedgerRoot(actor);
+    const delegate = isHeadquartersBusinessAdmin(actor);
     if (!delegate && input.creatorId !== undefined) forbidden();
     if (delegate && !input.creatorId)
       invalid('请选择本业务的启用计调作为收客计调');

@@ -1,3 +1,7 @@
+import {
+  cancelWhatsappNotifications,
+  enqueueWhatsappAssignment,
+} from './whatsapp-notifications';
 import { effectiveAccountPermissions } from '../auth/identity-permissions';
 import { LoginScope } from '../users/user-identity.entity';
 import { Injectable } from '@nestjs/common';
@@ -293,7 +297,7 @@ export class WhatsappService {
       lm.text AS "lastMessageText",lm.occurred_at AS "lastMessageAt"
       ${CONVERSATION_FROM}
       LEFT JOIN LATERAL (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' ELSE text END AS text,occurred_at FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) lm ON true
-      WHERE ${sql} ORDER BY c.updated_at DESC,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      WHERE ${sql} ORDER BY lm.occurred_at DESC NULLS LAST,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
@@ -322,6 +326,7 @@ export class WhatsappService {
       WHERE ${clauses.join(' AND ')} ORDER BY m.seq ${query.afterSeq ? 'ASC' : 'DESC'} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
+    await this.attachInboundReplies(id, list);
     const pageIds = list.map((message) => message.id);
     const targets = list
       .map((message) => interaction(message)?.target)
@@ -358,6 +363,55 @@ export class WhatsappService {
       page: query.page,
       pageSize: query.pageSize,
     };
+  }
+  private async attachInboundReplies(
+    conversationId: string,
+    list: ChatMessage[],
+  ) {
+    const missing = list.filter(
+      (message) => !message.attachment?.replyTo && !interaction(message),
+    );
+    if (!missing.length) return;
+    // Old callbacks retain Context even when the original ingestion omitted it.
+    // Resolve at read time so delayed originals work without replaying events.
+    const replies = await this.db.query<
+      {
+        messageId: string;
+        contextMessageId: string;
+        target: ChatMessage | null;
+      }[]
+    >(
+      `SELECT m.id AS "messageId",ctx.id AS "contextMessageId",
+        CASE WHEN target.id IS NOT NULL THEN jsonb_build_object(
+          'id',target.id,'text',left(target.text,280),'kind',target.kind,
+          'direction',target.direction,'source',target.source) ELSE NULL END AS target
+       FROM whatsapp_messages m
+       LEFT JOIN LATERAL (
+         SELECT e.payload#>>'{Context,id}' AS id FROM whatsapp_events e
+         WHERE e.message_id=m.id AND e.account_id=m.account_id AND e.kind='inbound' AND e.state='done'
+           AND jsonb_typeof(e.payload#>'{Context,id}')='string'
+           AND e.payload#>>'{Context,id}'<>''
+         ORDER BY e.received_at,e.id LIMIT 1
+       ) legacy ON true
+       CROSS JOIN LATERAL (SELECT coalesce(nullif(m.attachment->>'contextMessageId',''),legacy.id) AS id) ctx
+       LEFT JOIN whatsapp_messages target ON target.account_id=m.account_id
+         AND target.conversation_id=m.conversation_id AND target.provider_id=ctx.id
+         AND target.id<>m.id AND target.kind NOT IN ('reaction','edit','system')
+       WHERE m.conversation_id=$1 AND m.id=ANY($2::uuid[]) AND ctx.id IS NOT NULL`,
+      [conversationId, missing.map((message) => message.id)],
+    );
+    const byId = new Map(replies.map((reply) => [reply.messageId, reply]));
+    for (const message of missing) {
+      const reply = byId.get(message.id);
+      if (!reply) continue;
+      message.attachment = {
+        ...message.attachment,
+        contextMessageId: reply.contextMessageId,
+        ...(reply.target
+          ? { replyToMessageId: reply.target.id, replyTo: reply.target }
+          : {}),
+      };
+    }
   }
   private async recordedCustomerNotes(
     c: Conversation,
@@ -541,6 +595,7 @@ export class WhatsappService {
           [id, input.ownerId],
         );
       }
+      if (!c.inquiryId) await enqueueWhatsappAssignment(manager, id, c.ownerId);
       await this.audit(manager, id, user, 'assigned', {
         previousOwnerId: c.ownerId,
         ownerId: input.ownerId,
@@ -559,6 +614,13 @@ export class WhatsappService {
         'UPDATE whatsapp_conversations SET state=$2,version=version+1,updated_at=now() WHERE id=$1',
         [id, input.state],
       );
+      if (input.state === 'closed') {
+        await cancelWhatsappNotifications(manager, id, 'CONVERSATION_CLOSED');
+        await manager.query(
+          'DELETE FROM whatsapp_notification_windows WHERE conversation_id=$1',
+          [id],
+        );
+      }
       await this.audit(manager, id, user, input.state);
       return this.conversation(id, user, manager);
     });
@@ -595,6 +657,7 @@ export class WhatsappService {
         `UPDATE whatsapp_conversations SET state='archived',archived_at=now(),version=version+1,updated_at=now() WHERE id=$1`,
         [id],
       );
+      await cancelWhatsappNotifications(manager, id, 'CONVERSATION_ARCHIVED');
       const [created] = await manager.query<{ id: string }[]>(
         `INSERT INTO whatsapp_conversations(account_id,contact_id,previous_id) VALUES($1,$2,$3) RETURNING id`,
         [c.accountId, c.contactId, id],
@@ -1175,9 +1238,7 @@ export class WhatsappService {
       grants.includes('whatsapp:message:send') &&
       (actor.id === ownerId ||
         actor.roles.includes('BUSINESS_MANAGER') ||
-        (actor.scope === 'headquarters' &&
-          actor.roles.includes('ROOT') &&
-          ['sunrise', 'mango'].includes(actor.username)))
+        chatAdmin(actor))
     );
   }
   async source(accountId: string, providerId: string, input: MessageSourceDto) {

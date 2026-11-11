@@ -47,9 +47,6 @@ export function assertVersion(actual: number, expected: number) {
   if (actual !== expected)
     conflict(ErrorCode.LEDGER_VERSION_CONFLICT, '记录已更新，请刷新后重试');
 }
-export function isLedgerRoot(actor: AuthenticatedUser) {
-  return actor.scope === 'headquarters' && actor.roles.includes('ROOT');
-}
 export function isManager(actor: AuthenticatedUser) {
   return (
     actor.scope !== 'headquarters' && actor.roles.includes('BUSINESS_MANAGER')
@@ -60,15 +57,7 @@ export function directUnit(
   unit?: 'linxi' | 'website',
 ) {
   if (actor.scope === 'headquarters') {
-    const selected = unit ?? invalid('总部须选择霖熹或独立站');
-    if (
-      actor.username === 'sunrise' &&
-      !actor.menuKeys.includes(
-        selected === 'website' ? 'website-ledger' : 'direct-ledger',
-      )
-    )
-      forbidden();
-    return selected;
+    return unit ?? invalid('总部须选择霖熹或独立站');
   }
   if (
     !['linxi', 'website'].includes(actor.scope) ||

@@ -1,3 +1,4 @@
+import { notificationEnabled } from '../notifications/notification-settings';
 import {
   Injectable,
   Logger,
@@ -102,7 +103,16 @@ export class LedgerNotificationsService
       `UPDATE feishu_ledger_notifications SET status='skipped' WHERE ledger_id=$1 AND status='pending'`,
       [row.id],
     );
-    if (!kind || !this.feishu.configured) return;
+    if (
+      !kind ||
+      !this.feishu.configured ||
+      !(await notificationEnabled(
+        manager,
+        `${row.businessUnit}_ledger_${kind}`,
+        true,
+      ))
+    )
+      return;
     for (const recipient of await this.recipients(manager, row, kind)) {
       await manager.query(
         `INSERT INTO feishu_ledger_notifications(ledger_id,ledger_version,kind,recipient_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
@@ -123,6 +133,7 @@ export class LedgerNotificationsService
             recipient_id: string;
             kind: 'review' | 'operate';
             attempts: number;
+            created_at: Date;
           }[]
         >(
           `SELECT * FROM feishu_ledger_notifications WHERE status='pending' AND next_attempt_at<=now()
@@ -137,7 +148,14 @@ export class LedgerNotificationsService
           [job.ledger_id],
         );
         const recipient =
-          row && reminderKind(row) === job.kind
+          row &&
+          reminderKind(row) === job.kind &&
+          (await notificationEnabled(
+            manager,
+            `${row.businessUnit}_ledger_${job.kind}`,
+            true,
+            job.created_at,
+          ))
             ? (await this.recipients(manager, row, job.kind)).find(
                 (user) => user.id === job.recipient_id,
               )
@@ -156,7 +174,12 @@ export class LedgerNotificationsService
             formatLedgerReminder(
               job.kind,
               row,
-              this.feishu.ledgerUrl(row.businessUnit, row.orderNo),
+              this.feishu.ledgerUrl(
+                row.businessUnit,
+                row.orderNo,
+                row.id,
+                job.kind,
+              ),
             ),
             job.id,
           );

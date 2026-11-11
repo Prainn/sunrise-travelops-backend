@@ -1,3 +1,4 @@
+import { isHeadquartersBusinessAdmin } from '../auth/account-access';
 import { appendFollowUp, cancelInquiryReminders } from './follow-ups';
 import { InquiryRemindersService } from './inquiry-reminders.service';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -85,7 +86,8 @@ export class InquiriesService {
       ...user,
       name: user.nickname,
       admin:
-        user.roles.includes('ROOT') || user.roles.includes('BUSINESS_MANAGER'),
+        isHeadquartersBusinessAdmin(user) ||
+        user.roles.includes('BUSINESS_MANAGER'),
       ip: request.ip ?? '',
       requestId: String((request as Request & { id?: string }).id ?? ''),
     });

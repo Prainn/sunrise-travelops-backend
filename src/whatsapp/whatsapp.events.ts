@@ -1,3 +1,4 @@
+import { enqueueWhatsappMessage } from './whatsapp-notifications';
 import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
@@ -105,6 +106,10 @@ export function normalizeEvent(
       );
     }
   }
+  if (!isStatus && p.Context != null) {
+    const contextMessageId = field(object(p.Context), 'id');
+    if (contextMessageId) attachment = { ...attachment, contextMessageId };
+  }
   if (attachment?.type === 'edit') messageKind = 'edit';
   return {
     providerId,
@@ -190,7 +195,7 @@ export class WhatsappEvents {
         const e = normalizeEvent(event.payload, event.kind, account);
         const messageId = e.isStatus
           ? await this.status(manager, account, e)
-          : await this.message(manager, account, e);
+          : await this.message(manager, account, e, event.kind === 'inbound');
         await manager.query(
           `UPDATE whatsapp_events SET state='done',attempts=attempts+1,processed_at=now(),message_id=$2,error_code=NULL WHERE id=$1`,
           [event.id, messageId],
@@ -281,6 +286,7 @@ export class WhatsappEvents {
     manager: EntityManager,
     account: ChatAccount,
     e: ReturnType<typeof normalizeEvent>,
+    notify: boolean,
   ) {
     const [existing] = await manager.query<{ id: string }[]>(
       'SELECT id FROM whatsapp_messages WHERE account_id=$1 AND provider_id=$2',
@@ -362,6 +368,12 @@ export class WhatsappEvents {
       version=version+CASE WHEN state='closed' AND $2 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1`,
       [conversation.id, !e.echo],
     );
+    if (
+      notify &&
+      !e.echo &&
+      !['reaction', 'edit', 'system'].includes(e.messageKind)
+    )
+      await enqueueWhatsappMessage(manager, conversation.id, id);
     // Status may have arrived first. Replay only the matching unresolved events.
     await manager.query(
       `UPDATE whatsapp_events SET state='pending',available_at=now(),attempts=0 WHERE account_id=$1 AND error_code='STATUS_AWAITING_MESSAGE' AND payload->>'MessageId'=$2`,

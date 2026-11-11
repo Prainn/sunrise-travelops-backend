@@ -3,6 +3,7 @@ import { LoginScope } from '../users/user-identity.entity';
 
 export const MENU_ROLES = [
   'ROOT',
+  'BOSS',
   'ADMIN',
   'EXECUTIVE',
   'BUSINESS_MANAGER',
@@ -10,6 +11,13 @@ export const MENU_ROLES = [
   'RESOURCE_MANAGER',
 ] as const;
 export const MENU_DEFINITIONS = [
+  {
+    key: 'notifications',
+    title: 'notificationManagement',
+    group: 'systemManagement',
+    permissions: ['sys:notification:list'],
+    scopes: ['headquarters'],
+  },
   {
     key: 'whatsapp-inbox',
     title: 'whatsappInbox',
@@ -303,6 +311,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     routeName: 'System',
     children: [
       menuItem('menu-permissions', 'MenuPermissions'),
+      menuItem('notifications', 'NotificationManagement'),
       menuItem('dict', 'Dict'),
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),
@@ -392,7 +401,9 @@ export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {
 }
 
 export function roleMenuKeys(role: string): string[] {
-  const scopes: LoginScope[] = ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role)
+  const scopes: LoginScope[] = ['ROOT', 'BOSS', 'ADMIN', 'EXECUTIVE'].includes(
+    role,
+  )
     ? ['headquarters']
     : ['shengxu', 'linxi', 'website'];
   return [

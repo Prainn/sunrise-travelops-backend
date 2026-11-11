@@ -27,7 +27,8 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { AuthenticatedUser, AuthTokens, JwtPayload } from './auth.types';
 import { MenuPermissionsService } from '../roles/menu-permissions.service';
-import { validMenuSnapshot } from '../roles/menu-definitions';
+import { allowedMenuKeys, validMenuSnapshot } from '../roles/menu-definitions';
+import { isHeadquartersBoss } from './account-access';
 
 @Injectable()
 export class AuthService {
@@ -266,10 +267,9 @@ export class AuthService {
       identity.coordinatorDuty,
       user.username,
     );
-    const access =
-      user.username === 'sunrise'
-        ? await this.menus.sunriseAccess(permissions)
-        : { permissions, menuKeys };
+    const bossMenus = isHeadquartersBoss({ scope, roles })
+      ? new Set(allowedMenuKeys(scope, roles))
+      : undefined;
     return {
       id: user.id,
       username: user.username,
@@ -284,8 +284,10 @@ export class AuthService {
         DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
         '',
       roles,
-      permissions: access.permissions,
-      menuKeys: access.menuKeys,
+      permissions,
+      menuKeys: bossMenus
+        ? menuKeys.filter((key) => bossMenus.has(key))
+        : menuKeys,
     };
   }
 

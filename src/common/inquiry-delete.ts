@@ -1,3 +1,4 @@
+import { isHeadquartersBusinessAdmin } from '../auth/account-access';
 import type { AuthenticatedUser } from '../auth/auth.types';
 
 export function canDeleteInquiry(
@@ -6,7 +7,7 @@ export function canDeleteInquiry(
   permission: 'inquiry:delete' | 'website:inquiry:delete',
 ): boolean {
   if (!user.permissions.includes(permission)) return false;
-  if (user.scope === 'headquarters') return user.roles.includes('ROOT');
+  if (user.scope === 'headquarters') return isHeadquartersBusinessAdmin(user);
   if (user.roles.includes('BUSINESS_MANAGER')) return true;
   return user.roles.includes('COORDINATOR') && ownerId === user.id;
 }
