@@ -59,8 +59,17 @@ export function directUnit(
   actor: AuthenticatedUser,
   unit?: 'linxi' | 'website',
 ) {
-  if (actor.scope === 'headquarters')
-    return unit ?? invalid('总部须选择霖熹或独立站');
+  if (actor.scope === 'headquarters') {
+    const selected = unit ?? invalid('总部须选择霖熹或独立站');
+    if (
+      actor.username === 'sunrise' &&
+      !actor.menuKeys.includes(
+        selected === 'website' ? 'website-ledger' : 'direct-ledger',
+      )
+    )
+      forbidden();
+    return selected;
+  }
   if (
     !['linxi', 'website'].includes(actor.scope) ||
     (unit && unit !== actor.scope)

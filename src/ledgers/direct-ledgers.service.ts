@@ -152,6 +152,8 @@ export class DirectLedgersService {
       `SELECT ${SELECT} FROM direct_ledgers WHERE id=$1${scope}${lock ? ' FOR UPDATE' : ''}`,
       params,
     );
+    if (row && actor.username === 'sunrise')
+      directUnit(actor, row.businessUnit);
     return row ?? missing();
   }
   async filterOptions(
