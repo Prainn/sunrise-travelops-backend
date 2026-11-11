@@ -1188,9 +1188,7 @@ export class WhatsappService {
       grants.includes('whatsapp:message:send') &&
       (actor.id === ownerId ||
         actor.roles.includes('BUSINESS_MANAGER') ||
-        (actor.scope === 'headquarters' &&
-          actor.roles.includes('ROOT') &&
-          ['sunrise', 'mango'].includes(actor.username)))
+        chatAdmin(actor))
     );
   }
   async source(accountId: string, providerId: string, input: MessageSourceDto) {

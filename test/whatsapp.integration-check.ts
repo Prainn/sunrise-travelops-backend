@@ -200,14 +200,12 @@ async function main() {
         403,
         'AUTH_FORBIDDEN',
       );
-      for (const username of ['sunrise', 'mango']) {
-        root = await h.actor('headquarters', 'ROOT', null, undefined, username);
-        assert.equal(
-          (await call<Page>(root, 'GET', '/whatsapp/conversations')).total,
-          1,
-        );
-        await call(root, 'GET', '/whatsapp/integration');
-      }
+      root = await h.actor('headquarters', 'ROOT', null, undefined, 'mango');
+      assert.equal(
+        (await call<Page>(root, 'GET', '/whatsapp/conversations')).total,
+        1,
+      );
+      await call(root, 'GET', '/whatsapp/integration');
     },
   );
   await check(

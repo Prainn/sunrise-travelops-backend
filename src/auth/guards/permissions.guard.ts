@@ -4,7 +4,6 @@ import {
   HttpStatus,
   Injectable,
 } from '@nestjs/common';
-import { hasSunriseHandlerAccess } from '../sunrise-menu-access';
 import { Reflector } from '@nestjs/core';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code';
@@ -29,12 +28,7 @@ export class PermissionsGuard implements CanActivate {
       .getRequest<{ user?: AuthenticatedUser }>().user;
     if (
       !user ||
-      !required.every((permission) => user.permissions.includes(permission)) ||
-      !hasSunriseHandlerAccess(
-        user,
-        context.getClass().name,
-        context.getHandler().name,
-      )
+      !required.every((permission) => user.permissions.includes(permission))
     ) {
       throw new BusinessException({
         code: ErrorCode.AUTH_FORBIDDEN,

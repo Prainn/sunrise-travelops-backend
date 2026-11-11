@@ -56,16 +56,29 @@ export class UserManagementService {
     private readonly dataSource: DataSource,
     private readonly feishu: FeishuService,
   ) {}
-  private query(actor: AuthenticatedUser, manager = this.dataSource.manager) {
+  private query(
+    actor: AuthenticatedUser,
+    manager = this.dataSource.manager,
+    includeSunrise = false,
+  ) {
     const qb = manager
       .createQueryBuilder(UserEntity, 'u')
       .leftJoinAndSelect('u.identities', 'identity')
       .leftJoinAndSelect('identity.roles', 'role')
       .leftJoinAndSelect('identity.businessGroup', 'businessGroup')
-      .where('u.is_superuser = false')
-      .andWhere('u.username NOT IN (:...reservedUsernames)', {
-        reservedUsernames: RESERVED_USERNAMES,
-      });
+      .where(
+        `((u.is_superuser = false AND u.username NOT IN (:...reservedUsernames))${
+          includeSunrise
+            ? ` OR (u.username = 'sunrise' AND EXISTS (
+                SELECT 1 FROM user_identities x
+                JOIN identity_roles ir ON ir.identity_id=x.id
+                JOIN roles r ON r.id=ir.role_id
+                WHERE x.user_id=u.id AND x.scope='headquarters' AND r.code='BOSS'
+              ))`
+            : ''
+        })`,
+        { reservedUsernames: RESERVED_USERNAMES },
+      );
     if (actor.scope !== 'headquarters')
       qb.andWhere(
         'EXISTS (SELECT 1 FROM user_identities x WHERE x.user_id=u.id AND x.scope=:scope) AND NOT EXISTS (SELECT 1 FROM user_identities x WHERE x.user_id=u.id AND x.scope<>:scope)',
@@ -74,7 +87,11 @@ export class UserManagementService {
     return qb;
   }
   async getPage(query: UserQueryDto, actor: AuthenticatedUser) {
-    const qb = this.query(actor);
+    const qb = this.query(
+      actor,
+      this.dataSource.manager,
+      actor.scope === 'headquarters' && query.view === 'management',
+    );
     const identityFilters: string[] = [];
     const identityParams: Record<string, string> = {};
     if (query.scope) {
@@ -127,7 +144,10 @@ export class UserManagementService {
       .take(query.pageSize)
       .getManyAndCount();
     return {
-      list: rows.map((u) => this.response(u)),
+      list: rows.map((user) => ({
+        ...this.response(user),
+        ...(user.username === 'sunrise' ? { readOnly: true } : {}),
+      })),
       total,
       page: query.page,
       pageSize: query.pageSize,

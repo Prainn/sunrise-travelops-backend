@@ -9,11 +9,27 @@ export function isFullAdministrator(
   return (
     actor.username === 'mango' &&
     actor.scope === 'headquarters' &&
-    actor.roles.includes('ROOT')
+    actor.roles.includes('ROOT') &&
+    !isHeadquartersBoss(actor)
   );
 }
 
-export const SUNRISE_DENIED_PERMISSIONS = [
+type AccessIdentity = Pick<AuthenticatedUser, 'scope' | 'roles'>;
+
+export function isHeadquartersBoss({ scope, roles }: AccessIdentity): boolean {
+  return scope === 'headquarters' && roles.includes('BOSS');
+}
+
+/** Headquarters-wide inquiry, tour and ledger creation responsibilities. */
+export function isHeadquartersBusinessAdmin(actor: AccessIdentity): boolean {
+  return (
+    isHeadquartersBoss(actor) ||
+    (actor.scope === 'headquarters' && actor.roles.includes('ROOT'))
+  );
+}
+
+export const BOSS_DENIED_PERMISSIONS = [
+  'sys:operation-log:list',
   'website:visit:list',
   'website:visit:export',
   'sys:menu-permission:list',

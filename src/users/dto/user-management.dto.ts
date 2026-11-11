@@ -45,6 +45,11 @@ const toDateRange = ({ value }: { value: unknown }): unknown => {
 };
 
 export class UserQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: ['management'] })
+  @IsOptional()
+  @IsIn(['management'])
+  view?: 'management';
+
   @ApiPropertyOptional({
     enum: LOGIN_SCOPES,
     description:
@@ -297,6 +302,8 @@ export class UserIdentityResponse {
 }
 
 export class UserItemResponse {
+  @ApiPropertyOptional()
+  readOnly?: boolean;
   @ApiProperty() feishuOpenId: string;
   @ApiProperty() version: number;
   id: string;

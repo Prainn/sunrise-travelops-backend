@@ -1,4 +1,7 @@
-import { isFullAdministrator } from '../auth/account-access';
+import {
+  isFullAdministrator,
+  isHeadquartersBusinessAdmin,
+} from '../auth/account-access';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, QueryFailedError } from 'typeorm';
 import { ErrorCode } from '../common/constants/error-code';
@@ -18,7 +21,6 @@ import {
   forbidden,
   invalid,
   isManager,
-  isLedgerRoot,
   missing,
   requirePermission,
 } from './ledger-access';
@@ -55,7 +57,7 @@ export class ShengxuLedgersService {
         actor.scope === 'headquarters' &&
         (isFullAdministrator(actor) ||
           action === 'list' ||
-          (action === 'create' && isLedgerRoot(actor)))
+          (action === 'create' && isHeadquartersBusinessAdmin(actor)))
       )
     )
       forbidden();
@@ -158,14 +160,15 @@ export class ShengxuLedgersService {
   async agencies(query: AgencyOptionsQueryDto, actor: AuthenticatedUser) {
     this.access(actor);
     requirePermission(actor, 'resource:agency:list');
-    if (actor.scope === 'headquarters' && !isLedgerRoot(actor)) forbidden();
+    if (actor.scope === 'headquarters' && !isHeadquartersBusinessAdmin(actor))
+      forbidden();
     let owner = actor.id;
     if (query.ledgerId) {
       const row = await this.row(this.db.manager, query.ledgerId);
       if (!this.manageable(row, actor)) forbidden();
       owner = row.creatorId;
     }
-    const delegate = isLedgerRoot(actor);
+    const delegate = isHeadquartersBusinessAdmin(actor);
     const params: unknown[] = [delegate ? 'shengxu' : owner];
     let where = `WHERE business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL AND ${
       delegate
@@ -196,12 +199,13 @@ export class ShengxuLedgersService {
   ) {
     this.access(actor);
     requirePermission(actor, 'resource:agency:list');
-    if (actor.scope === 'headquarters' && !isLedgerRoot(actor)) forbidden();
+    if (actor.scope === 'headquarters' && !isHeadquartersBusinessAdmin(actor))
+      forbidden();
     const existing = query.ledgerId
       ? await this.row(this.db.manager, query.ledgerId)
       : undefined;
     if (existing && !this.manageable(existing, actor)) forbidden();
-    const owner = isLedgerRoot(actor)
+    const owner = isHeadquartersBusinessAdmin(actor)
       ? null
       : (existing?.creatorId ?? actor.id);
     if (existing?.agencyId !== agencyId) {
@@ -285,7 +289,7 @@ export class ShengxuLedgersService {
     requirePermission(actor, 'resource:agency:list');
     try {
       return await this.db.transaction(async (manager) => {
-        const delegate = isLedgerRoot(actor);
+        const delegate = isHeadquartersBusinessAdmin(actor);
         const resources = await this.resources(
           manager,
           input,

@@ -26,6 +26,8 @@ import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
 import { AuthenticatedUser, AuthTokens, JwtPayload } from './auth.types';
+import { isHeadquartersBoss } from './account-access';
+import { allowedMenuKeys } from '../roles/menu-definitions';
 import { MenuPermissionsService } from '../roles/menu-permissions.service';
 import { validMenuSnapshot } from '../roles/menu-definitions';
 
@@ -266,10 +268,6 @@ export class AuthService {
       identity.coordinatorDuty,
       user.username,
     );
-    const access =
-      user.username === 'sunrise'
-        ? await this.menus.sunriseAccess(permissions)
-        : { permissions, menuKeys };
     return {
       id: user.id,
       username: user.username,
@@ -284,8 +282,10 @@ export class AuthService {
         DEPARTMENT_OPTIONS.find((d) => d.value === identity.deptId)?.label ??
         '',
       roles,
-      permissions: access.permissions,
-      menuKeys: access.menuKeys,
+      permissions,
+      menuKeys: isHeadquartersBoss({ scope, roles })
+        ? allowedMenuKeys(scope, roles)
+        : menuKeys,
     };
   }
 

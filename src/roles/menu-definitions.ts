@@ -3,6 +3,7 @@ import { LoginScope } from '../users/user-identity.entity';
 
 export const MENU_ROLES = [
   'ROOT',
+  'BOSS',
   'ADMIN',
   'EXECUTIVE',
   'BUSINESS_MANAGER',
@@ -400,7 +401,9 @@ export function allowedMenuKeys(scope: LoginScope, roles: string[]): string[] {
 }
 
 export function roleMenuKeys(role: string): string[] {
-  const scopes: LoginScope[] = ['ROOT', 'ADMIN', 'EXECUTIVE'].includes(role)
+  const scopes: LoginScope[] = ['ROOT', 'BOSS', 'ADMIN', 'EXECUTIVE'].includes(
+    role,
+  )
     ? ['headquarters']
     : ['shengxu', 'linxi', 'website'];
   return [

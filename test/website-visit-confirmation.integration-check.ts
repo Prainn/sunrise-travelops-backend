@@ -140,7 +140,7 @@ async function run() {
     actor('admin', 'headquarters', 'ADMIN');
     actor('executive', 'headquarters', 'EXECUTIVE');
     actor('mango', 'headquarters', 'ROOT');
-    actor('sunrise', 'headquarters', 'ROOT');
+    actor('sunrise', 'headquarters', 'BOSS');
     actor('linxi', 'linxi', 'COORDINATOR');
     actor('shengxu', 'shengxu', 'BUSINESS_MANAGER');
     actor('resource', 'website', 'RESOURCE_MANAGER');

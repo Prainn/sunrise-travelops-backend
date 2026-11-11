@@ -230,27 +230,25 @@ describe('WhatsApp configuration and permissions', () => {
       ).toEqual([]);
     },
   );
-  it.each(['sunrise', 'mango'])(
-    'reserved ROOT %s has all module permissions',
-    (username) => {
-      expect(
-        effectiveAccountPermissions(
-          'headquarters',
-          ['ROOT'],
-          null,
-          username,
-        ).filter((p) => p.startsWith('whatsapp:')),
-      ).toHaveLength(7);
-      expect(
-        effectiveAccountPermissions(
-          'linxi',
-          ['COORDINATOR'],
-          null,
-          username,
-        ).filter((p) => p.startsWith('whatsapp:')),
-      ).toHaveLength(0);
-    },
-  );
+  it('only mango headquarters ROOT has module permissions', () => {
+    const username = 'mango';
+    expect(
+      effectiveAccountPermissions(
+        'headquarters',
+        ['ROOT'],
+        null,
+        username,
+      ).filter((p) => p.startsWith('whatsapp:')),
+    ).toHaveLength(7);
+    expect(
+      effectiveAccountPermissions(
+        'linxi',
+        ['COORDINATOR'],
+        null,
+        username,
+      ).filter((p) => p.startsWith('whatsapp:')),
+    ).toHaveLength(0);
+  });
   it('website coordinator cannot assign or administer integration', () => {
     const permissions = effectiveAccountPermissions(
       'website',

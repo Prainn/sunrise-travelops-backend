@@ -16,7 +16,7 @@ export class NotificationSettingsService {
   private authorize(actor: AuthenticatedUser, permission: string) {
     if (
       actor.scope !== 'headquarters' ||
-      !actor.roles.some((r) => ['ROOT', 'ADMIN'].includes(r)) ||
+      !actor.roles.some((r) => ['ROOT', 'BOSS', 'ADMIN'].includes(r)) ||
       !actor.permissions.includes(permission)
     )
       throw new BusinessException({
