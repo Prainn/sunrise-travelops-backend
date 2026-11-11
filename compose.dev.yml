@@ -1,17 +1,5 @@
 # Preserve existing dev database TLS and client access during the CI refactor.
 services:
-  api:
-    # Optional, private dev-only HTTP receive configuration. Never pass it to migrations.
-    env_file:
-      - path: ./whatsapp-receive.env
-        required: false
-    environment:
-      # Private env explicitly enables dev sends; absent configuration remains disabled.
-      WHATSAPP_CHAT_SEND_SOCKET: /run/sunrise-whatsapp-send/send.sock
-    group_add:
-      - "${WHATSAPP_SEND_GID:-1999}"
-    volumes:
-      - /run/sunrise-whatsapp-send:/run/sunrise-whatsapp-send:ro
   postgres:
     networks:
       app: {}
