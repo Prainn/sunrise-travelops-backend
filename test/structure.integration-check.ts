@@ -864,7 +864,15 @@ async function main() {
       'BUSINESS_MANAGER',
     );
     const adminUser = await createUser('sysadmin', 'headquarters', 1, 'ADMIN');
-    const exec = await createUser('boss', 'headquarters', 4, 'EXECUTIVE');
+    // Seed the retired role only for the historical identity/permission fixture.
+    await db.query(
+      "INSERT INTO roles(code,name) VALUES ('EXECUTIVE','总经办') ON CONFLICT(code) DO NOTHING",
+    );
+    const exec = await createUser('boss', 'headquarters', 4, 'ADMIN');
+    await db.query(
+      'UPDATE identity_roles SET role_id=$1 WHERE identity_id=$2',
+      [await role('EXECUTIVE'), exec.identities[0].id],
+    );
     const multipleIdentities = {
       englishName: 'Multi',
       tourCode: 'MU',

@@ -6,10 +6,10 @@ import {
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FeishuSendException, FeishuService } from '../feishu/feishu.service';
+import { formatWhatsAppReminder } from '../feishu/whatsapp-reminder';
 import { notificationEnabled } from '../notifications/notification-settings';
 import {
   NotificationConversation,
-  notificationSummary,
   whatsappRecipients,
   WhatsappNotificationType,
 } from './whatsapp-notifications';
@@ -128,35 +128,10 @@ export class WhatsappNotificationsService
           );
           return;
         }
-        const title =
-          batch.type === 'whatsapp_assignment'
-            ? batch.previous_owner_id
-              ? '改派提醒'
-              : '分配提醒'
-            : batch.type === 'whatsapp_unassigned'
-              ? '待分配'
-              : '新消息待回复';
-        const text = [
-          `【WhatsApp ${title}】`,
-          `客户：${notificationSummary(batch.name, 'text')}`,
-          ...(batch.message_count
-            ? [`新增消息：${batch.message_count}条`]
-            : []),
-          ...(batch.kind
-            ? [`最新消息：${notificationSummary(batch.text ?? '', batch.kind)}`]
-            : []),
-          ...(batch.occurred_at
-            ? [
-                `收到时间：${batch.occurred_at.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`,
-              ]
-            : []),
-          batch.type === 'whatsapp_unassigned'
-            ? '请进入系统分配负责人。'
-            : batch.type === 'whatsapp_assignment'
-              ? '咨询已分配给你，请查看并跟进。'
-              : '客户有新消息，请查看并回复。',
-          `查看会话：${this.feishu.conversationUrl(c.id)}`,
-        ].join('\n');
+        const text = formatWhatsAppReminder(
+          batch,
+          this.feishu.conversationUrl(c.id),
+        );
         try {
           const result = await this.feishu.sendText(job.open_id, text, job.id);
           await manager.query(
