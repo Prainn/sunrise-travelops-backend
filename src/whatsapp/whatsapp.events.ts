@@ -1,3 +1,4 @@
+import { notifyWhatsappChange } from './whatsapp-changes';
 import { enqueueWhatsappMessage } from './whatsapp-notifications';
 import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -265,6 +266,19 @@ export class WhatsappEvents {
     }
     if (message.direction !== 'outbound') throw new Error('INVALID_EVENT');
     const status = nextMessageStatus(message.status, e.status);
+    const errorCode =
+      status === 'failed'
+        ? /^[A-Za-z0-9_.-]{1,128}$/.test(e.errorCode)
+          ? e.errorCode
+          : 'PROVIDER_DELIVERY_FAILED'
+        : null;
+    if (
+      !echo &&
+      status === message.status &&
+      message.providerId === e.providerId &&
+      message.errorCode === errorCode
+    )
+      return message.id;
     await manager.query(
       `UPDATE whatsapp_messages SET provider_id=$2,status=$3,error_code=CASE WHEN $3='failed' THEN $4 ELSE NULL END,updated_at=now() WHERE id=$1`,
       [
@@ -280,6 +294,15 @@ export class WhatsappEvents {
       'UPDATE whatsapp_conversations SET updated_at=now() WHERE id=$1',
       [message.conversationId],
     );
+    await notifyWhatsappChange(manager, {
+      conversationId: message.conversationId,
+      reason: 'status',
+    });
+    if (echo && echo.conversationId !== message.conversationId)
+      await notifyWhatsappChange(manager, {
+        conversationId: echo.conversationId,
+        reason: 'message',
+      });
     return message.id;
   }
   private async message(
@@ -374,6 +397,15 @@ export class WhatsappEvents {
       !['reaction', 'edit', 'system'].includes(e.messageKind)
     )
       await enqueueWhatsappMessage(manager, conversation.id, id);
+    await notifyWhatsappChange(manager, {
+      conversationId: conversation.id,
+      reason: 'message',
+    });
+    if (conversation.state === 'closed' && !e.echo)
+      await notifyWhatsappChange(manager, {
+        conversationId: conversation.id,
+        reason: 'state',
+      });
     // Status may have arrived first. Replay only the matching unresolved events.
     await manager.query(
       `UPDATE whatsapp_events SET state='pending',available_at=now(),attempts=0 WHERE account_id=$1 AND error_code='STATUS_AWAITING_MESSAGE' AND payload->>'MessageId'=$2`,

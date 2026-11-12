@@ -1,5 +1,7 @@
 import { LoginScope } from '../users/user-identity.entity';
 export interface AuthenticatedUser {
+  /** Verified access-token expiry in epoch milliseconds; never exposed as a token. */
+  accessExpiresAt?: number;
   sessionId?: string;
   sessionVersion?: number;
   id: string;
@@ -16,6 +18,7 @@ export interface AuthenticatedUser {
 }
 
 export interface JwtPayload {
+  exp?: number;
   sid?: string;
   sv?: number;
   sub: string;

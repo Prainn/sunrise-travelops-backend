@@ -209,6 +209,9 @@ export function createLoggerModuleOptions(
       ...unprefixedControllers,
     ],
     pinoHttp: {
+      autoLogging: {
+        ignore: (request) => requestPath(request) === '/api/whatsapp/stream',
+      },
       level: process.env.LOG_LEVEL ?? 'info',
       base: undefined,
       timestamp: () => `,"time":"${new Date().toISOString()}"`,
