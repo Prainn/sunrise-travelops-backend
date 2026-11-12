@@ -11,6 +11,6 @@
 
 宿主安装须持 `/opt/sunrise-ci/build.lock`，使用现有 Node `/opt/sunrise-ci/node/bin/node`：bundle分别放入 `/opt/sunrise-oss-dev/relay.cjs` 和 `/opt/sunrise-whatsapp-send-dev/relay.cjs`，unit使用本目录模板；配置root:root 0600，运行目录root:sunrise-oss-dev 0750、socket0660。写入配置 `{environment:"dev",bucket:"sunrise-travelops-media",roleName:"sunrise-whatsapp-runtime",socket:"/run/sunrise-oss-dev/oss.sock"}`。
 
-将compose.dev.yml单独安装至 `/opt/sunrise-travelops-dev`；它保留dev数据库配置，并覆盖API挂载只使用dev发送与OSS sockets。`oss-media.env`沿用示例；CDN/RAM权限未完成时OSS_MEDIA_ENABLED=false。`docker compose ... config --quiet`核验后，应用镜像通过现行Actions部署。服务安装不是应用部署，不允许替代Actions构建发布。
+将compose.dev.yml单独安装至 `/opt/sunrise-travelops-dev`；它保留dev数据库配置，并覆盖API挂载只使用dev发送与OSS sockets。宿主 `/run/sunrise-whatsapp-send-dev` 映射至容器固定的 `/run/sunrise-whatsapp-send`，以满足应用的socket路径白名单；容器不能挂载生产共享目录。`oss-media.env`沿用示例；CDN/RAM权限未完成时OSS_MEDIA_ENABLED=false。`docker compose ... config --quiet`核验后，应用镜像通过现行Actions部署。服务安装不是应用部署，不允许替代Actions构建发布。
 
 核验：服务active、发送/OSS socket权限、prod路径写入返回400（无云写入）；在获批云授权后以随机dev测试对象验证PUT/CDN GET/DELETE，不向WhatsApp发消息。运行时配置变更重建dev API须继续持共享锁并固定当前已验证image。
