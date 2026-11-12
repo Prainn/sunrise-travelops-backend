@@ -25,7 +25,8 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# ali-oss reads local interface metadata via os.networkInterfaces().
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 ReadWritePaths=/run/sunrise-oss-dev
 MemoryMax=192M
 TasksMax=32
