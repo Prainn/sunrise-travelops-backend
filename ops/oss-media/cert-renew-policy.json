@@ -1,0 +1,12 @@
+{
+  "Version": "1",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "cdn:SetCdnDomainSSLCertificate",
+    "Resource": "acs:cdn:*:*:domain/media.sunrisevacation.cn"
+  }, {
+    "Effect": "Allow",
+    "Action": ["alidns:DescribeDomainRecords", "alidns:AddDomainRecord", "alidns:DeleteDomainRecord"],
+    "Resource": "acs:alidns:*:*:domain/acme-media.sunrisevacation.cn"
+  }]
+}

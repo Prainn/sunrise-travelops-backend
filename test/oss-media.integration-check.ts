@@ -35,6 +35,7 @@ type Resource = {
   referenceCount: number;
   originalUrl: string;
   thumbnailUrl: string;
+  objectKey: string;
   clickable: boolean;
 };
 async function main() {
@@ -166,6 +167,7 @@ async function main() {
     );
   };
   const draft = await upload(`/whatsapp/conversations/${cid}/images`);
+  assert.equal(draft.objectKey, `dev/whatsapp/${draft.id}/original.png`);
   const request = {
     clientRequestId: randomUUID(),
     mediaAssetId: draft.id,
@@ -223,6 +225,18 @@ async function main() {
   assert.equal(retry.kind, 'image');
   assert.equal(retry.attachment?.mediaAssetId, draft.id);
   const free = await upload('/system/oss/resources');
+  const uploadPrefix = `dev/upload/${free.id}/`;
+  assert.equal(free.objectKey, `${uploadPrefix}original.png`);
+  assert.equal(
+    free.originalUrl,
+    `https://media.example.test/${free.objectKey}`,
+  );
+  assert.equal(
+    free.thumbnailUrl,
+    `https://media.example.test/${uploadPrefix}thumbnail.webp`,
+  );
+  assert(written.has(free.objectKey));
+  assert(written.has(`${uploadPrefix}thumbnail.webp`));
   const edited = await h.call<Resource>(
     root,
     'PUT',
@@ -243,6 +257,8 @@ async function main() {
     'DELETE',
     `/system/oss/resources/${free.id}?version=${edited.version}`,
   );
+  assert(!written.has(free.objectKey));
+  assert(!written.has(`${uploadPrefix}thumbnail.webp`));
   await h.call(
     root,
     'GET',

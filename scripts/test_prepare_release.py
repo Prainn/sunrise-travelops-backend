@@ -37,6 +37,7 @@ class CandidateSafety(unittest.TestCase):
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.dict(os.environ, {'SUNRISE_LOCK_HELD': '1', 'REVIEWED_MIGRATIONS': NEW,
+                                                  'HOSTED_VERIFIED_DEV_SHA': '',
                                                   'GITHUB_STEP_SUMMARY': str(self.root / 'summary')}))
         stack.enter_context(patch.object(candidate.deploy, 'STATE', self.state))
         stack.enter_context(patch.object(candidate.deploy, 'read_state', side_effect=lambda: self.current))
@@ -96,6 +97,30 @@ class CandidateSafety(unittest.TestCase):
         self.assertEqual(self.prepare(2), IMAGE)
         self.assertEqual(len(self.builds), 1)
         self.assertIn('--load', self.builds[0])
+        self.assertNotIn('--build-arg', self.builds[0])
+
+    def test_exact_hosted_dev_candidate_compiles_without_repeating_lint(self):
+        self.branch.return_value = SHA
+        with patch.object(candidate.deploy, 'ENVIRONMENT', 'dev'), \
+             patch.dict(os.environ, {'HOSTED_VERIFIED_DEV_SHA': SHA}):
+            self.assertEqual(candidate.prepare(self.root, SHA, SHA, 'deploy', SHA + '-100-1'), IMAGE)
+        manifest, application = self.builds
+        self.assertNotIn('--build-arg', manifest)
+        self.assertEqual(application[application.index('--build-arg') + 1], 'SUNRISE_BUILD_CHECKS=hosted-dev')
+
+    def test_hosted_verification_cannot_be_used_for_other_commits_or_paths(self):
+        for environment, operation, workflow_sha, verified_sha in (
+            ('dev', 'deploy', WORKFLOW, SHA),
+            ('dev', 'deploy', SHA, WORKFLOW),
+            ('prod', 'deploy', SHA, SHA),
+            ('dev', 'refresh-runtime', SHA, SHA),
+        ):
+            with self.subTest(environment=environment, operation=operation, workflow_sha=workflow_sha), \
+                 patch.object(candidate.deploy, 'ENVIRONMENT', environment), \
+                 patch.dict(os.environ, {'HOSTED_VERIFIED_DEV_SHA': verified_sha}):
+                with self.assertRaisesRegex(ValueError, 'exact ordinary dev candidate'):
+                    candidate.prepare(self.root, SHA, workflow_sha, operation, SHA + '-100-1')
+        self.assertEqual(self.builds, [])
 
     def test_wrong_image_identity_rejected_without_rebuild(self):
         self.prepare()

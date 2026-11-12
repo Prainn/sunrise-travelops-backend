@@ -2,7 +2,7 @@
 
 只安装开发环境。API 容器不访问 IMDS、不持有 AccessKey；实例角色仍为 sunrise-whatsapp-runtime。
 
-- sunrise-oss-dev：组 sunrise-oss-dev（GID 2000），socket `/run/sunrise-oss-dev/oss.sock`，仅接受 `dev/whatsapp/<uuid>/original.*|thumbnail.webp|send.jpg` 的 put/delete，单次最多5MiB、并发2。
+- sunrise-oss-dev：组 sunrise-oss-dev（GID 2000），socket `/run/sunrise-oss-dev/oss.sock`。仅接受 `dev/whatsapp/<uuid>/`（会话媒体）和 `dev/upload/<uuid>/`（管理页上传）下的原图、`thumbnail.webp`、`send.jpg` 的 put/delete，单次最多5MiB、并发2。新路径随对象写入生成；部署新版 API 前先更新宿主 OSS 中继，既有对象键继续有效。
 - sunrise-whatsapp-send-dev：独立于现行共享/生产 sender，配置 `/etc/sunrise-whatsapp-send-dev/config.json`，socket `/run/sunrise-whatsapp-send-dev/send.sock`。复制既有账号配置并补 `socket`、`mediaOrigin=https://media.sunrisevacation.cn`，image链接只允许本域名dev前缀；不改生产sender。应用 SEND_ENABLED=false 仍然禁止发送。
 - 私有OSS写策略见 dev-write-policy.json；CDN读取策略见 cdn-read-policy.json，当前均限dev路径。生产启用另行审核和安装，不能直接复制dev配置。
 - OSS原图/缩略图/发送副本 Cache-Control 300秒，CDN路径规则同为300秒。对象删除不等同缓存即时刷新。

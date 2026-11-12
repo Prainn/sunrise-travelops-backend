@@ -302,7 +302,8 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     r: MediaResource,
     p: Awaited<ReturnType<typeof prepareImage>>,
   ) {
-    const prefix = `${r.environment}/whatsapp/${r.id}`;
+    const folder = r.source === 'management' ? 'upload' : 'whatsapp';
+    const prefix = `${r.environment}/${folder}/${r.id}`;
     const original = `${prefix}/original.${p.ext}`,
       thumb = p.thumbnail ? `${prefix}/thumbnail.webp` : null,
       send = p.send ? `${prefix}/send.jpg` : original;

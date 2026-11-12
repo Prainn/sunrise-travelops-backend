@@ -14,3 +14,14 @@ test('relay bounds environment, keys, body size and MIME', () => {
   assert(validate({ action: 'delete', keys: [key] }, 'dev'));
   assert(!validate({ action: 'delete', keys: [key.replace('dev/', 'prod/')] }, 'dev'));
 });
+
+test('management upload keys allow put and delete only in the current environment', () => {
+  const uploadKey = key.replace('/whatsapp/', '/upload/');
+  const value = { action: 'put', key: uploadKey, body: 'eA==', mime: 'image/png' };
+  const remove = { action: 'delete', keys: [uploadKey, uploadKey.replace('original.png', 'thumbnail.webp')] };
+  assert(validate(value, 'dev'));
+  assert(validate(remove, 'dev'));
+  assert(!validate(value, 'prod'));
+  assert(!validate(remove, 'prod'));
+  assert(!validate({ ...value, key: uploadKey.replace('/upload/', '/other/') }, 'dev'));
+});

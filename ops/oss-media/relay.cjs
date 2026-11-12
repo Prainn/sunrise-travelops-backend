@@ -7,7 +7,7 @@ const Credentials = require('@alicloud/credentials').default;
 const MAX = 5 * 1024 * 1024;
 function validKey(key, environment) {
   return typeof key === 'string' && ['dev', 'prod'].includes(environment) &&
-    new RegExp('^' + environment + '/whatsapp/[a-f0-9-]{36}/(original\\.(jpg|png|webp|gif)|thumbnail\\.webp|send\\.jpg)$').test(key);
+    new RegExp('^' + environment + '/(whatsapp|upload)/[a-f0-9-]{36}/(original\\.(jpg|png|webp|gif)|thumbnail\\.webp|send\\.jpg)$').test(key);
 }
 function validate(value, environment) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

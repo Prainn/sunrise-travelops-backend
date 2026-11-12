@@ -1,0 +1,16 @@
+[Unit]
+Description=Synchronize the renewed media certificate to Alibaba CDN
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/opt/sunrise-ci/node/bin/node /opt/sunrise-media-cert/renew.cjs sync
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
