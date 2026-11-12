@@ -376,7 +376,7 @@ async function main() {
       collector,
       'POST',
       `/users/${manager.id}/feishu-test`,
-      { template: 'review' },
+      { template: 'whatsapp_unassigned' },
       403,
       'AUTH_FORBIDDEN',
     );
@@ -384,7 +384,7 @@ async function main() {
       manager,
       'POST',
       `/users/${foreignManager.id}/feishu-test`,
-      { template: 'review' },
+      { template: 'whatsapp_message' },
       404,
       'USER_NOT_FOUND',
     );
@@ -392,7 +392,7 @@ async function main() {
       manager,
       'POST',
       `/users/${collector.id}/feishu-test`,
-      { template: 'review' },
+      { template: 'inquiry_follow_up' },
       400,
       'VALIDATION_ERROR',
     );
@@ -400,7 +400,7 @@ async function main() {
       manager,
       'POST',
       `/users/${operator.id}/feishu-test`,
-      { template: 'operate' },
+      { template: 'linxi_ledger_operate' },
       503,
       'FEISHU_NOT_CONFIGURED',
     );
@@ -408,7 +408,7 @@ async function main() {
       {},
       { template: 'other' },
       { template: null },
-      { template: 'review', text: 'custom' },
+      { template: 'website_ledger_review', text: 'custom' },
     ]) {
       await h.call(
         manager,
@@ -425,26 +425,34 @@ async function main() {
       h.db,
       sender,
     );
-    const countBefore = await h.db.query<{ count: string }[]>(
-      `SELECT count(*) FROM feishu_ledger_notifications`,
-    );
-    for (const template of ['review', 'operate'] as const) {
+    const countQueued = () =>
+      h.db.query<
+        { ledgers: string; whatsapp: string; follow_ups: string }[]
+      >(`SELECT
+        (SELECT count(*) FROM feishu_ledger_notifications) AS ledgers,
+        (SELECT count(*) FROM whatsapp_notification_batches) AS whatsapp,
+        (SELECT count(*) FROM inquiry_follow_up_reminders) AS follow_ups`);
+    const countBefore = await countQueued();
+    for (const [template, title] of [
+      ['whatsapp_unassigned', '【WhatsApp 待分配】'],
+      ['whatsapp_message', '【WhatsApp 新消息待回复】'],
+      ['whatsapp_assignment', '【WhatsApp 分配提醒】'],
+      ['linxi_ledger_review', '【霖熹】审核台账'],
+      ['linxi_ledger_operate', '【霖熹】操作台账'],
+      ['website_ledger_review', '【独立站】审核台账'],
+      ['website_ledger_operate', '【独立站】操作台账'],
+      ['inquiry_follow_up', '询盘跟进提醒'],
+    ] as const) {
       assert(
         (await users.testFeishu(operator.id, template, managerActor)).messageId,
       );
-      assert(sent.at(-1)!.text.includes('【模拟提醒】'));
-      assert(
-        sent
-          .at(-1)!
-          .text.includes(template === 'review' ? '审核台账' : '操作台账'),
-      );
-      assert(!sent.at(-1)!.text.includes('打开台账'));
+      const delivery = sent.at(-1)!;
+      assert(delivery.text.startsWith(`【模拟提醒】\n${title}\n`));
+      assert(!delivery.text.includes('打开台账'));
+      assert(!delivery.text.includes('查看会话：'));
+      assert.equal(delivery.openId, `ou_website_${operator.id}`);
     }
-    assert.deepEqual(
-      await h.db.query(`SELECT count(*) FROM feishu_ledger_notifications`),
-      countBefore,
-    );
-    assert.equal(sent.at(-1)!.openId, `ou_website_${operator.id}`);
+    assert.deepEqual(await countQueued(), countBefore);
     console.log(
       'PASS Feishu: old-data upgrade, constraints, transaction rollback, scoped recipients, prerequisites, deduplication, concurrency, bounded retry, stale recipient suppression, real HTTP permissions, template validation and simulated reminders',
     );

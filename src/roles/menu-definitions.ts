@@ -5,7 +5,6 @@ export const MENU_ROLES = [
   'ROOT',
   'BOSS',
   'ADMIN',
-  'EXECUTIVE',
   'BUSINESS_MANAGER',
   'COORDINATOR',
   'RESOURCE_MANAGER',

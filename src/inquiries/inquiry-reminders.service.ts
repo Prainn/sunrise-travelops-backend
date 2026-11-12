@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { FeishuService } from '../feishu/feishu.service';
+import { formatInquiryFollowUpReminder } from '../feishu/inquiry-follow-up-reminder';
 
 interface Job {
   id: string;
@@ -150,16 +151,13 @@ export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
           'UPDATE inquiry_follow_up_reminders SET recipient_id=$2 WHERE id=$1',
           [job.id, recipient.id],
         );
-        const when = inquiry.next_follow_up_at
-          ? new Date(inquiry.next_follow_up_at).toLocaleString('zh-CN', {
-              timeZone: 'Asia/Shanghai',
-              hour12: false,
-            })
-          : '';
         try {
           const { messageId } = await this.feishu.sendText(
             recipient.openId,
-            `询盘跟进提醒\n询盘：${inquiry.code}\n下次跟进：${when}\n请登录系统查看跟进记录。`,
+            formatInquiryFollowUpReminder(
+              inquiry.code,
+              inquiry.next_follow_up_at,
+            ),
             job.id,
           );
           await manager.query(

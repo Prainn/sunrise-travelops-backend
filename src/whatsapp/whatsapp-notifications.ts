@@ -178,20 +178,3 @@ export async function enqueueWhatsappAssignment(
     [c.id],
   );
 }
-
-export function notificationSummary(text: string, kind: string) {
-  const media: Record<string, string> = {
-    image: '图片',
-    audio: '语音',
-    voice: '语音',
-    video: '视频',
-    document: '文件',
-    file: '文件',
-    sticker: '贴纸',
-    location: '位置',
-    contacts: '联系人',
-  };
-  if (kind !== 'text') return `[${media[kind] ?? '客户消息'}]`;
-  const chars = Array.from(text.replace(/\s+/gu, ' ').trim());
-  return chars.slice(0, 120).join('') + (chars.length > 120 ? '…' : '');
-}
