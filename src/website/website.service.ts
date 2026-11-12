@@ -1,3 +1,4 @@
+import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
 import { enqueueWhatsappAssignment } from '../whatsapp/whatsapp-notifications';
 import { chatManager, chatPermission } from '../whatsapp/whatsapp.policy';
 import {
@@ -1057,7 +1058,13 @@ export class WebsiteService {
         'UPDATE website_inquiries SET owner_id=$2,owner=$3,version=version+1,updated_at=now() WHERE id=$1',
         [id, owner.id, owner.name],
       );
-      if (chat) await enqueueWhatsappAssignment(manager, chat.id, old.ownerId);
+      if (chat) {
+        await enqueueWhatsappAssignment(manager, chat.id, old.ownerId);
+        await notifyWhatsappChange(manager, {
+          conversationId: chat.id,
+          reason: 'assign',
+        });
+      }
       if (chat && !transactionManager) {
         await manager.query(
           `INSERT INTO whatsapp_actions(conversation_id,actor_id,action,details) SELECT id,$2,'assigned',$3::jsonb FROM whatsapp_conversations WHERE inquiry_id=$1`,
