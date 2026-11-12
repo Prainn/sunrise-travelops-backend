@@ -7,7 +7,7 @@ import {
 import { effectiveAccountPermissions } from '../auth/identity-permissions';
 import { LoginScope } from '../users/user-identity.entity';
 import { Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { WebsiteService } from '../website/website.service';
@@ -29,6 +29,7 @@ import {
   MessageListQuery,
   MessageSourceDto,
   SendTextDto,
+  SendImageBatchDto,
 } from './whatsapp.dto';
 import {
   ChatAccount,
@@ -59,6 +60,18 @@ interface WorkerActivity {
   lastErrorAt: Date | null;
   hasError: boolean;
 }
+type ReactionLookup = {
+  account: ChatAccount;
+  providerId: string;
+  occurredAt: Date;
+};
+type EnqueueOptions = {
+  retryOf?: string;
+  reaction?: { targetMessageId: string; emoji: string };
+  mediaAssetId?: string;
+  resolved?: ReactionLookup & { messageId: string | null };
+  batchFingerprint?: string;
+};
 @Injectable()
 export class WhatsappService {
   private workerStopped = false;
@@ -344,6 +357,7 @@ export class WhatsappService {
     );
     await this.attachInboundReplies(id, list);
     await this.media.attach(list);
+    await this.media.attachReplyThumbnails(list);
     const pageIds = list.map((message) => message.id);
     const targets = list
       .map((message) => interaction(message)?.target)
@@ -864,212 +878,18 @@ export class WhatsappService {
     mediaAssetId?: string,
   ) {
     chatPermission(user, 'whatsapp:message:send');
-    type ReactionLookup = {
-      account: ChatAccount;
-      providerId: string;
-      occurredAt: Date;
-    };
-    type ResolvedReaction = ReactionLookup & { messageId: string | null };
-    const enqueueInTransaction = (resolved?: ResolvedReaction) =>
+    const enqueueInTransaction = (resolved?: EnqueueOptions['resolved']) =>
       this.db.transaction(async (manager) => {
         const c = await this.conversation(id, user, manager, true);
-        const [existing] = await manager.query<ChatMessage[]>(
-          `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND client_request_id=$2`,
-          [id, input.clientRequestId],
-        );
-        if (existing) {
-          if (
-            existing.text !== input.text ||
-            existing.kind !==
-              (reaction ? 'reaction' : mediaAssetId ? 'image' : 'text') ||
-            (existing.attachment?.mediaAssetId ?? null) !==
-              (mediaAssetId ?? null) ||
-            (existing.attachment?.targetMessageId ?? null) !==
-              (reaction?.targetMessageId ?? null) ||
-            (existing.attachment?.replyToMessageId ?? null) !==
-              (input.replyToMessageId ?? null) ||
-            existing.actorId !== user.id ||
-            existing.retryOf !== (retryOf ?? null)
-          )
-            chatFail('CONFLICT', '请求编号已被其他消息使用', 409);
-          return reaction
-            ? presentMessages(
-                [existing],
-                [
-                  {
-                    id: reaction.targetMessageId,
-                    providerId: null,
-                    externalId: null,
-                  },
-                ],
-                [existing],
-              )[0]
-            : existing;
-        }
-        mutableChat(c);
-        assertWindow(c.lastInboundAt);
-        this.config.assertSend(c.bsuid || c.phone || '');
-        if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
-        if (retryOf) {
-          const [old] = await manager.query<ChatMessage[]>(
-            `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2 FOR UPDATE`,
-            [retryOf, id],
-          );
-          if (!old || old.source !== 'system' || old.status !== 'failed')
-            chatFail('CONFLICT', '仅明确失败的系统消息可以重试', 409);
-          const [retried] = await manager.query<{ id: string }[]>(
-            'SELECT id FROM whatsapp_messages WHERE retry_of=$1',
-            [retryOf],
-          );
-          if (retried)
-            chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
-        }
-        let attachment: Record<string, unknown> | null = null;
-        if (mediaAssetId)
-          attachment = await this.media.sendingAsset(
-            mediaAssetId,
-            id,
-            user,
-            manager,
-            !!retryOf,
-          );
-        if (input.replyToMessageId) {
-          if (reaction)
-            chatFail('VALIDATION_ERROR', '表情回应不能同时引用消息', 400);
-          const [target] = await manager.query<ChatMessage[]>(
-            `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
-            [input.replyToMessageId, id],
-          );
-          if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
-          if (!target.providerId || interaction(target))
-            chatFail('CONFLICT', '该消息暂不能引用回复', 409);
-          const aliases = await manager.query<MessageAlias[]>(
-            `SELECT m.id,m.provider_id AS "providerId",e.payload->'record'->>'UniqueMessageId' AS "externalId"
-           FROM whatsapp_messages m LEFT JOIN whatsapp_events e ON e.message_id=m.id AND e.kind='history_import' AND e.state='done'
-           WHERE m.id=$1`,
-            [target.id],
-          );
-          const edits = await manager.query<ChatMessage[]>(
-            `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND (kind='edit' OR attachment->>'type'='edit')`,
-            [id],
-          );
-          const shown = presentMessages([target], aliases, edits)[0];
-          attachment = {
-            ...attachment,
-            replyToMessageId: target.id,
-            contextMessageId: target.providerId,
-            replyTo: {
-              id: target.id,
-              text: shown.presentation.text.slice(0, 280),
-              kind: target.kind,
-              direction: target.direction,
-              source: target.source,
-            },
-          };
-        }
-        if (reaction) {
-          const [target] = await manager.query<ChatMessage[]>(
-            `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
-            [reaction.targetMessageId, id],
-          );
-          if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
-          if (
-            target.direction !== 'inbound' ||
-            !target.providerId ||
-            interaction(target)
-          )
-            chatFail('CONFLICT', '只能回应客户的原始消息', 409);
-          const aliases = await manager.query<{ messageId: string }[]>(
-            `SELECT coalesce(payload->'record'->>'UniqueMessageId',payload->>'UniqueMessageId') AS "messageId" FROM whatsapp_events WHERE message_id=$1
-           UNION ALL SELECT attachment->>'messageId' FROM whatsapp_messages WHERE kind='reaction' AND attachment->>'targetMessageId'=$1::text`,
-            [target.id],
-          );
-          const known = aliases.find(
-            (row) =>
-              typeof row.messageId === 'string' &&
-              /^wamid\.[A-Za-z0-9+/=_-]+$/.test(row.messageId),
-          )?.messageId;
-          const [account] = await manager.query<ChatAccount[]>(
-            'SELECT id,space_id AS "spaceId",waba_id AS "wabaId",phone FROM whatsapp_accounts WHERE id=$1',
-            [c.accountId],
-          );
-          let messageId =
-            known ??
-            (target.providerId.startsWith('wamid.') ? target.providerId : null);
-          if (!messageId && !resolved) {
-            return {
-              lookup: {
-                account,
-                providerId: target.providerId,
-                occurredAt: target.occurredAt,
-              },
-            };
-          }
-          if (!messageId && resolved) {
-            if (
-              resolved.account.id !== c.accountId ||
-              resolved.providerId !== target.providerId
-            )
-              chatFail('CONFLICT', '原消息已更新，请刷新后重试', 409);
-            messageId = resolved.messageId;
-          }
-          if (!messageId)
-            chatFail(
-              'CONFLICT',
-              '暂无法取得原消息的WhatsApp ID，请稍后再试',
-              409,
-            );
-          attachment = { ...reaction, messageId };
-        }
-        const messageId = randomUUID();
-        await manager.query(
-          `INSERT INTO whatsapp_messages(id,account_id,conversation_id,task_id,client_request_id,retry_of,direction,source,kind,text,status,actor_id,actor_identity_id,occurred_at,attachment)
-        VALUES($1::uuid,$2,$3,$1::text,$4,$5,'outbound','system',$9,$6,'queued',$7,$8,now(),$10::jsonb)`,
-          [
-            messageId,
-            c.accountId,
-            id,
-            input.clientRequestId,
-            retryOf ?? null,
-            input.text,
-            user.id,
-            user.identityId,
-            reaction ? 'reaction' : mediaAssetId ? 'image' : 'text',
-            attachment ? JSON.stringify(attachment) : null,
-          ],
-        );
-        await manager.query(
-          'UPDATE whatsapp_conversations SET updated_at=now() WHERE id=$1',
-          [id],
-        );
-        await this.audit(
-          manager,
-          id,
-          user,
-          retryOf ? 'message_retried' : 'message_queued',
-          { messageId, retryOf: retryOf ?? null },
-        );
-        await notifyWhatsappChange(manager, {
-          conversationId: id,
-          reason: retryOf ? 'status' : 'message',
+        const result = await this.enqueueMessage(manager, c, input, user, {
+          retryOf,
+          reaction,
+          mediaAssetId,
+          resolved,
         });
-        const [message] = await manager.query<ChatMessage[]>(
-          `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1`,
-          [messageId],
-        );
-        return reaction
-          ? presentMessages(
-              [message],
-              [
-                {
-                  id: reaction.targetMessageId,
-                  providerId: null,
-                  externalId: null,
-                },
-              ],
-              [message],
-            )[0]
-          : message;
+        if (!('lookup' in result))
+          await this.media.attachReplyThumbnails([result], manager);
+        return result;
       });
     const result = await enqueueInTransaction();
     if (!('lookup' in result)) return result;
@@ -1083,6 +903,267 @@ export class WhatsappService {
     const queued = await enqueueInTransaction({ ...result.lookup, messageId });
     if ('lookup' in queued) chatFail('CONFLICT', '请稍后再试', 409);
     return queued;
+  }
+  async enqueueImageBatch(
+    id: string,
+    input: SendImageBatchDto,
+    user: AuthenticatedUser,
+  ) {
+    chatPermission(user, 'whatsapp:message:send');
+    const images = input.images.map(({ clientRequestId, mediaAssetId }) => ({
+      clientRequestId: clientRequestId.toLowerCase(),
+      mediaAssetId: mediaAssetId.toLowerCase(),
+    }));
+    const text = input.textMessage && {
+      clientRequestId: input.textMessage.clientRequestId.toLowerCase(),
+      text: input.textMessage.text,
+    };
+    const replyToMessageId = input.replyToMessageId?.toLowerCase();
+    const requestIds = images.map((image) => image.clientRequestId);
+    if (text) requestIds.push(text.clientRequestId);
+    if (
+      new Set(requestIds).size !== requestIds.length ||
+      new Set(images.map((image) => image.mediaAssetId)).size !== images.length
+    )
+      chatFail('VALIDATION_ERROR', '同一组的图片和请求编号不能重复', 400);
+
+    // All message IDs identify the original ordered composition on replay.
+    const batchFingerprint = createHash('sha256')
+      .update(JSON.stringify([images, text ?? null, replyToMessageId ?? null]))
+      .digest('hex');
+    return this.db.transaction(async (manager) => {
+      const c = await this.conversation(id, user, manager, true);
+      const items: (SendTextDto & { mediaAssetId?: string })[] = images.map(
+        (image, index) => ({
+          ...image,
+          text: '',
+          replyToMessageId: index === 0 ? replyToMessageId : undefined,
+        }),
+      );
+      if (text) items.push(text);
+      const messages: ChatMessage[] = [];
+      for (const { mediaAssetId, ...message } of items) {
+        const queued = await this.enqueueMessage(manager, c, message, user, {
+          mediaAssetId,
+          batchFingerprint,
+        });
+        if ('lookup' in queued) chatFail('CONFLICT', '请稍后再试', 409);
+        messages.push(queued);
+      }
+      await this.media.attachReplyThumbnails(messages, manager);
+      return { messages };
+    });
+  }
+  private async enqueueMessage(
+    manager: EntityManager,
+    c: Conversation,
+    input: SendTextDto,
+    user: AuthenticatedUser,
+    {
+      retryOf,
+      reaction,
+      mediaAssetId,
+      resolved,
+      batchFingerprint,
+    }: EnqueueOptions,
+  ) {
+    const id = c.id;
+    const [existing] = await manager.query<ChatMessage[]>(
+      `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND client_request_id=$2`,
+      [id, input.clientRequestId],
+    );
+    if (existing) {
+      if (
+        existing.text !== input.text ||
+        existing.kind !==
+          (reaction ? 'reaction' : mediaAssetId ? 'image' : 'text') ||
+        (existing.attachment?.mediaAssetId ?? null) !==
+          (mediaAssetId ?? null) ||
+        (existing.attachment?.targetMessageId ?? null) !==
+          (reaction?.targetMessageId ?? null) ||
+        (existing.attachment?.replyToMessageId ?? null) !==
+          (input.replyToMessageId ?? null) ||
+        (existing.attachment?.batchFingerprint ?? null) !==
+          (batchFingerprint ?? null) ||
+        existing.actorId !== user.id ||
+        existing.retryOf !== (retryOf ?? null)
+      )
+        chatFail('CONFLICT', '请求编号已被其他消息使用', 409);
+      return reaction
+        ? presentMessages(
+            [existing],
+            [
+              {
+                id: reaction.targetMessageId,
+                providerId: null,
+                externalId: null,
+              },
+            ],
+            [existing],
+          )[0]
+        : existing;
+    }
+    mutableChat(c);
+    assertWindow(c.lastInboundAt);
+    this.config.assertSend(c.bsuid || c.phone || '');
+    if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
+    if (retryOf) {
+      const [old] = await manager.query<ChatMessage[]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2 FOR UPDATE`,
+        [retryOf, id],
+      );
+      if (!old || old.source !== 'system' || old.status !== 'failed')
+        chatFail('CONFLICT', '仅明确失败的系统消息可以重试', 409);
+      const [retried] = await manager.query<{ id: string }[]>(
+        'SELECT id FROM whatsapp_messages WHERE retry_of=$1',
+        [retryOf],
+      );
+      if (retried)
+        chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
+    }
+    let attachment: Record<string, unknown> | null = null;
+    if (mediaAssetId)
+      attachment = await this.media.sendingAsset(
+        mediaAssetId,
+        id,
+        user,
+        manager,
+        !!retryOf,
+      );
+    if (input.replyToMessageId) {
+      if (reaction)
+        chatFail('VALIDATION_ERROR', '表情回应不能同时引用消息', 400);
+      const [target] = await manager.query<ChatMessage[]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
+        [input.replyToMessageId, id],
+      );
+      if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
+      if (!target.providerId || interaction(target))
+        chatFail('CONFLICT', '该消息暂不能引用回复', 409);
+      const aliases = await manager.query<MessageAlias[]>(
+        `SELECT m.id,m.provider_id AS "providerId",e.payload->'record'->>'UniqueMessageId' AS "externalId"
+       FROM whatsapp_messages m LEFT JOIN whatsapp_events e ON e.message_id=m.id AND e.kind='history_import' AND e.state='done'
+       WHERE m.id=$1`,
+        [target.id],
+      );
+      const edits = await manager.query<ChatMessage[]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND (kind='edit' OR attachment->>'type'='edit')`,
+        [id],
+      );
+      const shown = presentMessages([target], aliases, edits)[0];
+      attachment = {
+        ...attachment,
+        replyToMessageId: target.id,
+        contextMessageId: target.providerId,
+        replyTo: {
+          id: target.id,
+          text: shown.presentation.text.slice(0, 280),
+          kind: target.kind,
+          direction: target.direction,
+          source: target.source,
+        },
+      };
+    }
+    if (reaction) {
+      const [target] = await manager.query<ChatMessage[]>(
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 AND conversation_id=$2`,
+        [reaction.targetMessageId, id],
+      );
+      if (!target) chatFail('NOT_FOUND', '消息不存在', 404);
+      if (
+        target.direction !== 'inbound' ||
+        !target.providerId ||
+        interaction(target)
+      )
+        chatFail('CONFLICT', '只能回应客户的原始消息', 409);
+      const aliases = await manager.query<{ messageId: string }[]>(
+        `SELECT coalesce(payload->'record'->>'UniqueMessageId',payload->>'UniqueMessageId') AS "messageId" FROM whatsapp_events WHERE message_id=$1
+       UNION ALL SELECT attachment->>'messageId' FROM whatsapp_messages WHERE kind='reaction' AND attachment->>'targetMessageId'=$1::text`,
+        [target.id],
+      );
+      const known = aliases.find(
+        (row) =>
+          typeof row.messageId === 'string' &&
+          /^wamid\.[A-Za-z0-9+/=_-]+$/.test(row.messageId),
+      )?.messageId;
+      const [account] = await manager.query<ChatAccount[]>(
+        'SELECT id,space_id AS "spaceId",waba_id AS "wabaId",phone FROM whatsapp_accounts WHERE id=$1',
+        [c.accountId],
+      );
+      let messageId =
+        known ??
+        (target.providerId.startsWith('wamid.') ? target.providerId : null);
+      if (!messageId && !resolved) {
+        return {
+          lookup: {
+            account,
+            providerId: target.providerId,
+            occurredAt: target.occurredAt,
+          },
+        };
+      }
+      if (!messageId && resolved) {
+        if (
+          resolved.account.id !== c.accountId ||
+          resolved.providerId !== target.providerId
+        )
+          chatFail('CONFLICT', '原消息已更新，请刷新后重试', 409);
+        messageId = resolved.messageId;
+      }
+      if (!messageId)
+        chatFail('CONFLICT', '暂无法取得原消息的WhatsApp ID，请稍后再试', 409);
+      attachment = { ...reaction, messageId };
+    }
+    if (batchFingerprint) attachment = { ...attachment, batchFingerprint };
+    const messageId = randomUUID();
+    await manager.query(
+      `INSERT INTO whatsapp_messages(id,account_id,conversation_id,task_id,client_request_id,retry_of,direction,source,kind,text,status,actor_id,actor_identity_id,occurred_at,attachment)
+    VALUES($1::uuid,$2,$3,$1::text,$4,$5,'outbound','system',$9,$6,'queued',$7,$8,now(),$10::jsonb)`,
+      [
+        messageId,
+        c.accountId,
+        id,
+        input.clientRequestId,
+        retryOf ?? null,
+        input.text,
+        user.id,
+        user.identityId,
+        reaction ? 'reaction' : mediaAssetId ? 'image' : 'text',
+        attachment ? JSON.stringify(attachment) : null,
+      ],
+    );
+    await manager.query(
+      'UPDATE whatsapp_conversations SET updated_at=now() WHERE id=$1',
+      [id],
+    );
+    await this.audit(
+      manager,
+      id,
+      user,
+      retryOf ? 'message_retried' : 'message_queued',
+      { messageId, retryOf: retryOf ?? null },
+    );
+    await notifyWhatsappChange(manager, {
+      conversationId: id,
+      reason: retryOf ? 'status' : 'message',
+    });
+    const [message] = await manager.query<ChatMessage[]>(
+      `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1`,
+      [messageId],
+    );
+    return reaction
+      ? presentMessages(
+          [message],
+          [
+            {
+              id: reaction.targetMessageId,
+              providerId: null,
+              externalId: null,
+            },
+          ],
+          [message],
+        )[0]
+      : message;
   }
   async retryMessage(
     id: string,
@@ -1191,7 +1272,10 @@ export class WhatsappService {
       for (const row of interrupted)
         await notifyWhatsappChange(manager, { ...row, reason: 'status' });
       const [m] = await manager.query<ChatMessage[]>(
-        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE status='queued' ORDER BY seq LIMIT 1 FOR UPDATE SKIP LOCKED`,
+        `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE m.status='queued' AND NOT EXISTS (
+          SELECT 1 FROM whatsapp_messages earlier WHERE earlier.conversation_id=m.conversation_id
+            AND earlier.status IN ('queued','sending') AND earlier.seq<m.seq
+        ) ORDER BY m.seq LIMIT 1 FOR UPDATE OF m SKIP LOCKED`,
       );
       if (!m) return null;
       const [c] = await manager.query<Conversation[]>(

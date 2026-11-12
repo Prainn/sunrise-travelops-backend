@@ -1,12 +1,14 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsDateString,
   IsDefined,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -16,6 +18,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { OmitType } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -111,6 +114,31 @@ export class SendImageDto {
   @IsString()
   @MaxLength(1024)
   caption = '';
+}
+export class BatchImageDto {
+  @IsUUID() clientRequestId: string;
+  @IsUUID() mediaAssetId: string;
+}
+export class BatchTextDto extends OmitType(SendTextDto, [
+  'replyToMessageId',
+] as const) {}
+export class SendImageBatchDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(10)
+  @IsObject({ each: true })
+  @ValidateNested({ each: true })
+  @Type(() => BatchImageDto)
+  images: BatchImageDto[];
+
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsDefined()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => BatchTextDto)
+  textMessage?: BatchTextDto;
+
+  @IsOptional() @IsUUID() replyToMessageId?: string;
 }
 export class RetryMessageDto {
   @IsUUID() clientRequestId: string;

@@ -42,12 +42,16 @@ export interface MediaResource {
   references?: number;
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class MediaService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private current?: Promise<void>;
   private stopped = false;
   private processing = 0;
+  private nextDraftCleanupAt = 0;
   private readonly logger = new Logger(MediaService.name);
   constructor(
     private readonly db: DataSource,
@@ -59,9 +63,17 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     this.config.assertEnabled();
     const tick = () => {
       this.current = this.processOne()
-        .then(() => undefined)
         .catch(() => {
           this.logger.warn('Media worker failed (details suppressed)');
+        })
+        .then(async () => {
+          if (this.stopped || Date.now() < this.nextDraftCleanupAt) return;
+          this.nextDraftCleanupAt = Date.now() + 60000;
+          try {
+            if (await this.cleanupExpiredDraft()) this.nextDraftCleanupAt = 0;
+          } catch {
+            this.logger.warn('WhatsApp draft cleanup failed; will retry');
+          }
         })
         .finally(() => {
           if (!this.stopped) this.timer = setTimeout(tick, 3000);
@@ -198,6 +210,10 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       );
       return r;
     });
+    await this.deleteResource(resource);
+    return { id, deleted: true };
+  }
+  private async deleteResource(resource: MediaResource) {
     const keys = [
       resource.object_key,
       resource.thumbnail_key,
@@ -206,9 +222,36 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     if (keys.length) await this.storage.remove([...new Set(keys)]);
     await this.db.query(
       "DELETE FROM oss_resources WHERE id=$1 AND environment=$2 AND state='deleting'",
-      [id, this.config.environment],
+      [resource.id, this.config.environment],
     );
-    return { id, deleted: true };
+  }
+  async cleanupExpiredDraft(): Promise<boolean> {
+    if (!this.config.enabled) return false;
+    const resource = await this.db.transaction(async (m) => {
+      const [r] = await m.query<MediaResource[]>(
+        `SELECT r.* FROM oss_resources r
+        WHERE r.environment=$1 AND r.source='upload' AND r.kind='image'
+          AND r.message_id IS NULL AND r.conversation_id IS NOT NULL
+          AND r.state IN ('ready','failed','deleting') AND r.available_at<=now()
+          AND r.created_at<now()-interval '24 hours'
+          AND NOT EXISTS (SELECT 1 FROM whatsapp_messages m WHERE m.attachment->>'mediaAssetId'=r.id::text)
+        ORDER BY r.created_at,r.id LIMIT 1 FOR UPDATE OF r SKIP LOCKED`,
+        [this.config.environment],
+      );
+      // Sending takes the same resource lock. Recheck using a fresh snapshot
+      // before claiming deletion in case it committed as selection began.
+      if (!r || (await this.references(r, m))) return null;
+      await m.query(
+        `UPDATE oss_resources SET state='deleting',updated_at=now(),
+          available_at=now()+interval '5 minutes' WHERE id=$1`,
+        [r.id],
+      );
+      return r;
+    });
+    if (!resource) return false;
+    // If OSS is unavailable or the worker stops here, the claim can be retried.
+    await this.deleteResource(resource);
+    return true;
   }
   async upload(
     bytes: Buffer,
@@ -371,11 +414,7 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       assets = messages
         .map((m) => m.attachment?.mediaAssetId)
         .filter(
-          (id): id is string =>
-            typeof id === 'string' &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              id,
-            ),
+          (id): id is string => typeof id === 'string' && UUID_PATTERN.test(id),
         );
     const rows = await this.db.query<MediaResource[]>(
       'SELECT * FROM oss_resources WHERE environment=$1 AND (message_id=ANY($2::uuid[]) OR id=ANY($3::uuid[]))',
@@ -391,6 +430,56 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
           mediaAssetId: r.id,
           media: this.present(r),
         };
+    }
+  }
+  async attachReplyThumbnails(
+    messages: ChatMessage[],
+    manager = this.db.manager,
+  ) {
+    if (!this.config.enabled) return;
+    const replies = messages.flatMap((message) => {
+      const reply = message.attachment?.replyTo;
+      if (
+        !reply ||
+        typeof reply !== 'object' ||
+        !('id' in reply) ||
+        typeof reply.id !== 'string' ||
+        !UUID_PATTERN.test(reply.id) ||
+        !('kind' in reply) ||
+        reply.kind !== 'image'
+      )
+        return [];
+      return [{ message, reply, id: reply.id }];
+    });
+    if (!replies.length) return;
+    const rows = await manager.query<
+      { id: string; conversationId: string; thumbnailKey: string | null }[]
+    >(
+      `SELECT DISTINCT ON (t.id) t.id,t.conversation_id AS "conversationId",r.thumbnail_key AS "thumbnailKey"
+       FROM whatsapp_messages t JOIN oss_resources r
+         ON (r.message_id=t.id OR r.id::text=t.attachment->>'mediaAssetId')
+       WHERE t.id=ANY($1::uuid[]) AND t.conversation_id=ANY($2::uuid[])
+         AND t.kind='image' AND r.kind='image' AND r.environment=$3 AND r.state='ready'
+       ORDER BY t.id,(r.message_id=t.id) DESC NULLS LAST,r.id`,
+      [
+        [...new Set(replies.map(({ id }) => id))],
+        [...new Set(replies.map(({ message }) => message.conversationId))],
+        this.config.environment,
+      ],
+    );
+    const targets = new Map(rows.map((row) => [row.id, row]));
+    for (const { message, reply, id } of replies) {
+      const target = targets.get(id);
+      message.attachment = {
+        ...message.attachment,
+        replyTo: {
+          ...reply,
+          thumbnailUrl:
+            target?.conversationId === message.conversationId
+              ? this.config.url(target.thumbnailKey)
+              : null,
+        },
+      };
     }
   }
   async sendingAsset(

@@ -13,7 +13,6 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { imageFile, imageUploadOptions } from '../media/media.controller';
-import { SendImageDto } from './whatsapp.dto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -32,6 +31,8 @@ import {
   RetryMessageDto,
   SendTextDto,
   SendReactionDto,
+  SendImageDto,
+  SendImageBatchDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
 @ApiBearerAuth()
@@ -67,6 +68,15 @@ export class WhatsappController {
       undefined,
       input.mediaAssetId,
     );
+  }
+  @Post('conversations/:id/image-message-batches')
+  @Permissions('whatsapp:message:send')
+  sendImageBatch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: SendImageBatchDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.enqueueImageBatch(id, input, user);
   }
   @Get('conversations')
   @Permissions('whatsapp:conversation:list')

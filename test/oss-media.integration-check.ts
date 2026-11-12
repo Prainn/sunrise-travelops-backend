@@ -284,8 +284,170 @@ async function main() {
     400,
     'VALIDATION_ERROR',
   );
+  const chat = `/whatsapp/conversations/${cid}`;
+  const batchPath = `${chat}/image-message-batches`;
+  const first = await upload(`${chat}/images`);
+  const second = await upload(`${chat}/images`);
+  const expired = await upload(`${chat}/images`);
+  const fresh = await upload(`${chat}/images`);
+  const managed = await upload('/system/oss/resources');
+  const batch = {
+    images: [first, second].map((image) => ({
+      clientRequestId: randomUUID(),
+      mediaAssetId: image.id,
+    })),
+    textMessage: { clientRequestId: randomUUID(), text: '  Separate text  ' },
+    replyToMessageId: messages.list[0].id,
+  };
+  await h.call(
+    actor,
+    'POST',
+    batchPath,
+    {
+      ...batch,
+      images: [
+        batch.images[0],
+        { ...batch.images[1], mediaAssetId: randomUUID() },
+      ],
+    },
+    404,
+    'NOT_FOUND',
+  );
+  assert.equal(
+    (await h.call<Page<ChatMessage>>(actor, 'GET', `${chat}/messages`)).total,
+    3,
+  );
+  await h.call(
+    actor,
+    'POST',
+    batchPath,
+    {
+      ...batch,
+      textMessage: {
+        ...batch.textMessage,
+        replyToMessageId: messages.list[0].id,
+      },
+    },
+    400,
+    'VALIDATION_ERROR',
+  );
+  const sendBatch = (input = batch) =>
+    h.call<{ messages: ChatMessage[] }>(actor, 'POST', batchPath, input, 201);
+  const { messages: group } = await sendBatch();
+  assert.deepEqual(
+    group.map((m) => [m.kind, m.text, m.status]),
+    [
+      ['image', '', 'queued'],
+      ['image', '', 'queued'],
+      ['text', 'Separate text', 'queued'],
+    ],
+  );
+  assert.deepEqual(
+    group.slice(0, 2).map((m) => m.attachment?.mediaAssetId),
+    [first.id, second.id],
+  );
+  assert.deepEqual(
+    group.map((m) => m.attachment?.contextMessageId),
+    ['old-media', undefined, undefined],
+  );
+  assert.equal(
+    (group[0].attachment?.replyTo as { thumbnailUrl: string }).thumbnailUrl,
+    archived.thumbnailUrl,
+  );
+  assert.deepEqual(
+    (await sendBatch()).messages.map((m) => m.id),
+    group.map((m) => m.id),
+  );
+  await h.call(
+    actor,
+    'POST',
+    batchPath,
+    { ...batch, images: [...batch.images].reverse() },
+    409,
+    'CONFLICT',
+  );
+  const laterPage = await h.call<Page<ChatMessage>>(
+    actor,
+    'GET',
+    `${chat}/messages?afterSeq=${messages.list[0].seq}`,
+  );
+  const shown = laterPage.list.find((m) => m.id === group[0].id);
+  assert.equal(
+    (shown?.attachment?.replyTo as { thumbnailUrl: string }).thumbnailUrl,
+    archived.thumbnailUrl,
+  );
+
+  const attempts: Parameters<WhatsappProvider['send']>[] = [];
+  provider.send = (...args) => {
+    attempts.push(args);
+    return Promise.resolve({
+      status: 'failed',
+      errorCode: 'SYNTHETIC_FAILURE',
+    });
+  };
+  const service = h.get(WhatsappService);
+  // Explicit retry from the legacy single-image case is ahead of the batch.
+  for (let i = 0; i < 4; i++) assert.equal(await service.dispatchOne(), true);
+  assert.equal(await service.dispatchOne(), false);
+  assert.deepEqual(
+    attempts.slice(1).map((args) => [args[3], args[2], args[5], !!args[6]]),
+    [
+      [group[0].id, '', 'old-media', true],
+      [group[1].id, '', undefined, true],
+      [group[2].id, 'Separate text', undefined, false],
+    ],
+  );
+
+  const protectedIds = [
+    draft.id,
+    first.id,
+    second.id,
+    archived.id,
+    managed.id,
+    prod.id,
+  ];
+  await h.db.query(
+    `UPDATE oss_resources SET created_at=now()-interval '25 hours' WHERE id=ANY($1::uuid[])`,
+    [[expired.id, ...protectedIds]],
+  );
+  const media = h.get(MediaService);
+  const remove = storage.remove.bind(storage);
+  storage.remove = () => Promise.reject(new Error('synthetic storage outage'));
+  await assert.rejects(media.cleanupExpiredDraft(), /synthetic storage outage/);
+  const [deleting] = await h.db.query<{ state: string }[]>(
+    'SELECT state FROM oss_resources WHERE id=$1',
+    [expired.id],
+  );
+  assert.equal(deleting.state, 'deleting');
+  assert.equal(await media.cleanupExpiredDraft(), false);
+  storage.remove = remove;
+  await h.db.query('UPDATE oss_resources SET available_at=now() WHERE id=$1', [
+    expired.id,
+  ]);
+  assert.equal(await media.cleanupExpiredDraft(), true);
+  assert.equal(await media.cleanupExpiredDraft(), false);
+  assert.equal(
+    [...written.keys()].some((key) => key.includes(expired.id)),
+    false,
+  );
+  assert.ok([...written.keys()].some((key) => key.includes(fresh.id)));
+  const [kept] = await h.db.query<{ total: number }[]>(
+    'SELECT count(*)::int AS total FROM oss_resources WHERE id=ANY($1::uuid[])',
+    [[fresh.id, ...protectedIds]],
+  );
+  assert.equal(kept.total, protectedIds.length + 1);
+  await h.call(
+    actor,
+    'POST',
+    batchPath,
+    {
+      images: [{ clientRequestId: randomUUID(), mediaAssetId: expired.id }],
+    },
+    404,
+    'NOT_FOUND',
+  );
   console.log(
-    `PASS media: old-data upgrade/repeat, archive/thumbnail, CRUD/CAS/references, scope/env, multipart validation, image idempotency/retry/provider; ${h.requests} requests`,
+    `PASS media: old-data upgrade/repeat, archive/thumbnail, CRUD/CAS/references, scope/env, multipart validation, image idempotency/retry/provider, batch atomicity/order, quote thumbnail, expired draft recovery; ${h.requests} requests`,
   );
 }
 main()
