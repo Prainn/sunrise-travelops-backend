@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
-const { createRelay, validateSend, validateLookup, lookupMessageId } = require('./relay.cjs');
+const { createRelay, validateConfig, validateSend, validateLookup, lookupMessageId } = require('./relay.cjs');
 
 test('relay restricts request shape to text/reaction sends without credential or action overrides', () => {
   const text = { recipient: 'ZZ.synthetic', text: 'hello', taskId: randomUUID() };
@@ -74,4 +74,27 @@ test('lookup endpoint cannot send and returns only the target mapping', async ()
     const response=await fetch(`http://127.0.0.1:${relay.address().port}/message-id`,{method:'POST',body:JSON.stringify({providerId:'provider',occurredAt:Date.now()})});
     assert.deepEqual(await response.json(),{found:true,messageId:'wamid.exact'});assert.equal(sends,0);
   }finally{await new Promise(resolve=>relay.close(resolve));}
+});
+
+test('image sends require configured origin/environment and matching caption', () => {
+  const input = { recipient: '1234567890', taskId: '00000000-0000-4000-8000-000000000001', text: '', image: {link: 'https://media.example.test/dev/whatsapp/00000000-0000-4000-8000-000000000001/original.png', caption: ''} };
+  assert.equal(validateSend(input, 'https://media.example.test', 'dev'), true);
+  assert.equal(validateSend(input), false);
+  assert.equal(validateSend(input, 'https://media.example.test', 'prod'), false);
+  assert.equal(validateSend({...input, image: {...input.image, link: input.image.link + '?redirect=bad'}}, 'https://media.example.test', 'dev'), false);
+  assert.equal(validateSend({...input, image: {...input.image, caption: 'mismatch'}}, 'https://media.example.test', 'dev'), false);
+});
+
+test('production sender requires its own socket and the media CDN', () => {
+  const prod = { environment: 'prod', spaceId: 'synthetic-space', phone: '1234567890',
+    roleName: 'sunrise-whatsapp-runtime', socket: '/run/sunrise-whatsapp-send-prod/send.sock',
+    mediaOrigin: 'https://media.sunrisevacation.cn' };
+  assert.equal(validateConfig(prod), true);
+  assert.equal(validateConfig({ ...prod, socket: '/run/sunrise-whatsapp-send-dev/send.sock' }), false);
+  assert.equal(validateConfig({ ...prod, mediaOrigin: 'https://example.invalid' }), false);
+  const input = { recipient: '1234567890', taskId: randomUUID(), text: '',
+    image: { link: prod.mediaOrigin + '/prod/whatsapp/' + randomUUID() + '/send.jpg', caption: '' } };
+  assert.equal(validateSend(input, prod.mediaOrigin, prod.environment), true);
+  input.image.link = input.image.link.replace('/prod/', '/dev/');
+  assert.equal(validateSend(input, prod.mediaOrigin, prod.environment), false);
 });

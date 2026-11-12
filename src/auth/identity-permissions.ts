@@ -29,6 +29,10 @@ const reads = [
 ];
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ROOT: [
+    'sys:oss:list',
+    'sys:oss:create',
+    'sys:oss:update',
+    'sys:oss:delete',
     'sys:notification:list',
     'sys:notification:update',
     'sys:account-link:manage',
@@ -41,6 +45,10 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   ],
   EXECUTIVE: reads,
   ADMIN: [
+    'sys:oss:list',
+    'sys:oss:create',
+    'sys:oss:update',
+    'sys:oss:delete',
     'sys:notification:list',
     'sys:notification:update',
     'sys:account-link:manage',

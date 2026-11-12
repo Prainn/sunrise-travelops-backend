@@ -94,6 +94,10 @@ export const ADMIN_PERMISSIONS = [
 ] as const;
 
 export const PERMISSION_DEFINITIONS: Record<string, string> = {
+  'sys:oss:list': '查看OSS资源',
+  'sys:oss:create': '上传OSS资源',
+  'sys:oss:update': '编辑OSS资源',
+  'sys:oss:delete': '删除OSS资源',
   'sys:notification:list': '查看通知管理',
   'sys:notification:update': '配置通知开关',
   'whatsapp:conversation:list': '查看WhatsApp会话',
