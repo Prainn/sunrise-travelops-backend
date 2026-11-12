@@ -1,3 +1,4 @@
+import { notifyWhatsappChange } from './whatsapp-changes';
 import {
   cancelWhatsappNotifications,
   enqueueWhatsappAssignment,
@@ -123,6 +124,19 @@ export class WhatsappService {
     if (chatManager(user)) return 'true';
     const p = params.push(user.id);
     return `(c.owner_id=$${p} OR (c.state='archived' AND EXISTS(SELECT 1 FROM whatsapp_conversations current WHERE current.contact_id=c.contact_id AND current.state<>'archived' AND current.owner_id=$${p})))`;
+  }
+  async visibleConversationIds(
+    ids: string[],
+    user: AuthenticatedUser,
+  ): Promise<string[]> {
+    const params: unknown[] = [ids];
+    const scope = this.scope(user, params);
+    if (!ids.length) return [];
+    const rows = await this.db.query<{ id: string }[]>(
+      `SELECT c.id FROM whatsapp_conversations c WHERE c.id=ANY($1::uuid[]) AND ${scope}`,
+      params,
+    );
+    return rows.map((row) => row.id);
   }
   async conversation(
     id: string,
@@ -531,6 +545,10 @@ export class WhatsappService {
       await this.audit(manager, id, user, 'customer_notes_updated', {
         nameChanged: input.customerName !== c.name,
       });
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'notes',
+      });
       const saved = await this.conversation(id, user, manager);
       return {
         conversationId: id,
@@ -596,6 +614,10 @@ export class WhatsappService {
         );
       }
       if (!c.inquiryId) await enqueueWhatsappAssignment(manager, id, c.ownerId);
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'assign',
+      });
       await this.audit(manager, id, user, 'assigned', {
         previousOwnerId: c.ownerId,
         ownerId: input.ownerId,
@@ -622,6 +644,10 @@ export class WhatsappService {
         );
       }
       await this.audit(manager, id, user, input.state);
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'state',
+      });
       return this.conversation(id, user, manager);
     });
   }
@@ -665,6 +691,14 @@ export class WhatsappService {
       await this.audit(manager, id, user, 'new_consultation', {
         conversationId: created.id,
       });
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'consultation',
+      });
+      await notifyWhatsappChange(manager, {
+        conversationId: created.id,
+        reason: 'consultation',
+      });
       // The new unassigned conversation is visible only to supervisors, even to its creator.
       return {
         id: created.id,
@@ -686,6 +720,10 @@ export class WhatsappService {
         );
         if (!m) chatFail('VALIDATION_ERROR', '阅读位置不属于当前会话', 400);
       }
+      const [previous] = await manager.query<{ lastSeq: string }[]>(
+        'SELECT coalesce(max(last_seq),0)::text AS "lastSeq" FROM whatsapp_reads WHERE conversation_id=$1',
+        [id],
+      );
       // Keep reader records; every viewer uses the furthest read position in this conversation.
       await manager.query(
         `INSERT INTO whatsapp_reads(conversation_id,user_id,last_seq) VALUES($1,$2,$3::bigint)
@@ -696,6 +734,11 @@ export class WhatsappService {
         'SELECT coalesce(max(last_seq),0)::text AS "lastSeq" FROM whatsapp_reads WHERE conversation_id=$1',
         [id],
       );
+      if (BigInt(row.lastSeq) > BigInt(previous.lastSeq))
+        await notifyWhatsappChange(manager, {
+          conversationId: id,
+          reason: 'read',
+        });
       return row;
     });
   }
@@ -801,6 +844,10 @@ export class WhatsappService {
       );
       await this.audit(manager, id, user, 'inquiry_created', {
         inquiryId: inquiry.id,
+      });
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'inquiry',
       });
       return { inquiryId: inquiry.id, created: true };
     });
@@ -986,6 +1033,10 @@ export class WhatsappService {
           retryOf ? 'message_retried' : 'message_queued',
           { messageId, retryOf: retryOf ?? null },
         );
+        await notifyWhatsappChange(manager, {
+          conversationId: id,
+          reason: retryOf ? 'status' : 'message',
+        });
         const [message] = await manager.query<ChatMessage[]>(
           `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1`,
           [messageId],
@@ -1088,6 +1139,10 @@ export class WhatsappService {
       await this.audit(manager, id, user, 'message_confirmed_failed', {
         messageId,
       });
+      await notifyWhatsappChange(manager, {
+        conversationId: id,
+        reason: 'status',
+      });
       return {
         id: messageId,
         status: 'failed',
@@ -1097,9 +1152,12 @@ export class WhatsappService {
   }
   async dispatchOne() {
     const job = await this.db.transaction(async (manager) => {
-      await manager.query(
-        `UPDATE whatsapp_messages SET status='unknown',error_code='SEND_INTERRUPTED',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '2 minutes'`,
+      const interrupted = await manager.query<{ conversationId: string }[]>(
+        `WITH changed AS (UPDATE whatsapp_messages SET status='unknown',error_code='SEND_INTERRUPTED',updated_at=now() WHERE status='sending' AND updated_at<now()-interval '2 minutes' RETURNING conversation_id)
+         SELECT DISTINCT conversation_id AS "conversationId" FROM changed`,
       );
+      for (const row of interrupted)
+        await notifyWhatsappChange(manager, { ...row, reason: 'status' });
       const [m] = await manager.query<ChatMessage[]>(
         `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE status='queued' ORDER BY seq LIMIT 1 FOR UPDATE SKIP LOCKED`,
       );
@@ -1133,12 +1191,20 @@ export class WhatsappService {
           `UPDATE whatsapp_messages SET status='failed',error_code='SEND_PRECONDITION_CHANGED',updated_at=now() WHERE id=$1`,
           [m.id],
         );
+        await notifyWhatsappChange(manager, {
+          conversationId: m.conversationId,
+          reason: 'status',
+        });
         return { skip: true } as const;
       }
       await manager.query(
         `UPDATE whatsapp_messages SET status='sending',attempts=attempts+1,updated_at=now() WHERE id=$1`,
         [m.id],
       );
+      await notifyWhatsappChange(manager, {
+        conversationId: m.conversationId,
+        reason: 'status',
+      });
       return { skip: false, m, c, a } as const;
     });
     if (!job) return false;
@@ -1170,7 +1236,9 @@ export class WhatsappService {
         `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE id=$1 FOR UPDATE`,
         [job.m.id],
       );
+      let changed = false;
       if (result.status === 'accepted') {
+        changed = true;
         const [echo] = await manager.query<ChatMessage[]>(
           `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE account_id=$1 AND provider_id=$2 AND id<>$3 FOR UPDATE`,
           [job.a.id, result.providerId, job.m.id],
@@ -1202,6 +1270,7 @@ export class WhatsappService {
           [job.a.id, result.providerId, current.id],
         );
       } else if (current.status === 'sending' || current.status === 'unknown') {
+        changed = true;
         await manager.query(
           'UPDATE whatsapp_messages SET status=$2,error_code=$3,updated_at=now() WHERE id=$1',
           [current.id, result.status, result.errorCode],
@@ -1211,6 +1280,11 @@ export class WhatsappService {
         'UPDATE whatsapp_conversations SET updated_at=now() WHERE id=$1',
         [current.conversationId],
       );
+      if (changed)
+        await notifyWhatsappChange(manager, {
+          conversationId: current.conversationId,
+          reason: 'status',
+        });
     });
     return true;
   }

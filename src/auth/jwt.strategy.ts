@@ -29,7 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         status: HttpStatus.UNAUTHORIZED,
       });
     }
-    return this.auth.getCurrentUser(
+    const user = await this.auth.getCurrentUser(
       payload.sub,
       payload.identityId,
       payload.scope,
@@ -37,5 +37,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       payload.sid,
       payload.sv,
     );
+    // Internal metadata: /auth/me serializes the unchanged public user contract.
+    return Object.defineProperty(user, 'accessExpiresAt', {
+      value: payload.exp === undefined ? undefined : payload.exp * 1000,
+      enumerable: false,
+    });
   }
 }
