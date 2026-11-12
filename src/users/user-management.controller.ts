@@ -178,7 +178,7 @@ export class UserManagementController {
   @Permissions('sys:user:update')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Send a simulated ledger reminder to a managed enabled user',
+    summary: 'Send a simulated Feishu reminder to a managed enabled user',
   })
   @ApiSuccessResponse({ type: FeishuTestResponse })
   testFeishu(

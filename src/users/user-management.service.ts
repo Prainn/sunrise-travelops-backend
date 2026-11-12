@@ -15,10 +15,8 @@ import {
   UpdateUserBusinessGroupDto,
 } from './dto/business-group.dto';
 import { FeishuService } from '../feishu/feishu.service';
-import {
-  LedgerReminderKind,
-  simulatedLedgerReminder,
-} from '../feishu/ledger-reminder';
+import { formatFeishuTestReminder } from '../feishu/test-reminder';
+import type { NotificationType } from '../notifications/notification-settings';
 import { randomUUID } from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -221,7 +219,7 @@ export class UserManagementService {
   }
   async testFeishu(
     id: string,
-    template: LedgerReminderKind,
+    template: NotificationType,
     actor: AuthenticatedUser,
   ) {
     if (!actor.permissions.includes('sys:user:update')) denied();
@@ -230,7 +228,7 @@ export class UserManagementService {
       assignmentInvalid('请选择已启用且已接入飞书的账号');
     return this.feishu.sendText(
       user.feishuOpenId,
-      simulatedLedgerReminder(template),
+      formatFeishuTestReminder(template),
       randomUUID(),
     );
   }
@@ -245,7 +243,6 @@ export class UserManagementService {
         (r) =>
           [
             'ADMIN',
-            'EXECUTIVE',
             'BUSINESS_MANAGER',
             'COORDINATOR',
             'RESOURCE_MANAGER',
@@ -259,9 +256,10 @@ export class UserManagementService {
         value: r.id,
         label: r.name,
         code: r.code,
-        scopes: ['ADMIN', 'EXECUTIVE'].includes(r.code)
-          ? ['headquarters']
-          : LOGIN_SCOPES.filter((s) => s !== 'headquarters'),
+        scopes:
+          r.code === 'ADMIN'
+            ? ['headquarters']
+            : LOGIN_SCOPES.filter((s) => s !== 'headquarters'),
       }));
   }
   getDepartmentOptions(actor: AuthenticatedUser) {
@@ -294,9 +292,7 @@ export class UserManagementService {
       });
       const allowed =
         identity.scope === 'headquarters'
-          ? identity.deptId === 1
-            ? ['ADMIN']
-            : ['EXECUTIVE']
+          ? ['ADMIN']
           : ['BUSINESS_MANAGER', 'COORDINATOR', 'RESOURCE_MANAGER'];
       if (
         roles.length !== identity.roleIds.length ||

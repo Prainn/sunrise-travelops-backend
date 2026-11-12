@@ -43,11 +43,14 @@ export function formatLedgerReminder(
   ].join('\n');
 }
 
-export function simulatedLedgerReminder(kind: LedgerReminderKind): string {
+export function simulatedLedgerReminder(
+  kind: LedgerReminderKind,
+  businessUnit: LedgerReminderData['businessUnit'] = 'linxi',
+): string {
   return [
     '【模拟提醒】',
     formatLedgerReminder(kind, {
-      businessUnit: 'linxi',
+      businessUnit,
       orderNo: 'TEST-0001',
       creatorName: '示例收客计调',
       source: '示例客户',
