@@ -29,6 +29,10 @@ export function isHeadquartersBusinessAdmin(actor: AccessIdentity): boolean {
 }
 
 export const BOSS_DENIED_PERMISSIONS = [
+  'sys:oss:list',
+  'sys:oss:create',
+  'sys:oss:update',
+  'sys:oss:delete',
   'sys:operation-log:list',
   'website:visit:list',
   'website:visit:export',

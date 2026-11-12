@@ -222,10 +222,14 @@ export class IsolationHarness {
     const response = await fetch(`${this.base}${path}`, {
       method,
       headers: {
-        'content-type': 'application/json',
+        ...(body instanceof FormData
+          ? {}
+          : { 'content-type': 'application/json' }),
         ...(actor ? { authorization: `Bearer ${actor.token}` } : {}),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(body === undefined
+        ? {}
+        : { body: body instanceof FormData ? body : JSON.stringify(body) }),
       signal: AbortSignal.timeout(10_000),
     });
     const raw = await response.text();

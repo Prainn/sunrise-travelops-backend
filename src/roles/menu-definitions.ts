@@ -11,6 +11,13 @@ export const MENU_ROLES = [
 ] as const;
 export const MENU_DEFINITIONS = [
   {
+    key: 'oss-management',
+    title: 'ossManagement',
+    group: 'systemManagement',
+    permissions: ['sys:oss:list'],
+    scopes: ['headquarters'],
+  },
+  {
     key: 'notifications',
     title: 'notificationManagement',
     group: 'systemManagement',
@@ -311,6 +318,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     children: [
       menuItem('menu-permissions', 'MenuPermissions'),
       menuItem('notifications', 'NotificationManagement'),
+      menuItem('oss-management', 'OssManagement'),
       menuItem('dict', 'Dict'),
       menuItem('business-dict', 'BusinessCategory'),
       menuItem('users', 'User'),

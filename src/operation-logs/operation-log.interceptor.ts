@@ -48,6 +48,22 @@ function actionFor(
   body: Record<string, unknown>,
   ledgerUnit?: unknown,
 ): Action | null {
+  if (
+    controller === 'MediaController' &&
+    ['create', 'update', 'remove', 'retry'].includes(handler)
+  )
+    return {
+      category: 'system-category',
+      label: (
+        {
+          create: '上传OSS资源',
+          update: '编辑OSS资源',
+          remove: '删除OSS资源',
+          retry: '重试OSS媒体保存',
+        } as Record<string, string>
+      )[handler],
+      resultId: handler === 'create',
+    };
   if (controller === 'InspectionAlertController' && handler === 'report')
     return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'WhatsappController' && handler === 'retryEvent')

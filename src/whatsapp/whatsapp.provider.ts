@@ -117,6 +117,7 @@ export class WhatsappProvider {
     taskId: string,
     reaction?: { messageId: string; emoji: string },
     contextMessageId?: string,
+    image?: { link: string; caption: string },
   ): Promise<SendResult> {
     this.config.assertSend(recipient);
     if (reaction && !/^wamid\.[A-Za-z0-9+/=_-]+$/.test(reaction.messageId))
@@ -129,6 +130,7 @@ export class WhatsappProvider {
         taskId,
         ...(reaction ? { reaction } : {}),
         ...(contextMessageId ? { contextMessageId } : {}),
+        ...(image ? { image } : {}),
       });
     // Construct only on an authorized send; no credential resolution/network at module import.
     const client = new Cams(
@@ -142,11 +144,11 @@ export class WhatsappProvider {
         new SendChatappMessageRequest({
           channelType: 'whatsapp',
           type: 'message',
-          messageType: reaction ? 'reaction' : 'text',
+          messageType: reaction ? 'reaction' : image ? 'image' : 'text',
           custSpaceId: account.spaceId,
           from: account.phone,
           to: recipient,
-          content: JSON.stringify(reaction ?? { text }),
+          content: JSON.stringify(reaction ?? image ?? { text }),
           taskId,
           contextMessageId,
         }),

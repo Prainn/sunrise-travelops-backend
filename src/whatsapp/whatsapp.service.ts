@@ -1,4 +1,5 @@
 import { notifyWhatsappChange } from './whatsapp-changes';
+import { MediaService } from '../media/media.service';
 import {
   cancelWhatsappNotifications,
   enqueueWhatsappAssignment,
@@ -118,6 +119,7 @@ export class WhatsappService {
     private readonly website: WebsiteService,
     private readonly config: WhatsappConfig,
     private readonly provider: WhatsappProvider,
+    private readonly media: MediaService,
   ) {}
   private scope(user: AuthenticatedUser, params: unknown[]) {
     chatPermission(user);
@@ -341,6 +343,7 @@ export class WhatsappService {
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     await this.attachInboundReplies(id, list);
+    await this.media.attach(list);
     const pageIds = list.map((message) => message.id);
     const targets = list
       .map((message) => interaction(message)?.target)
@@ -858,6 +861,7 @@ export class WhatsappService {
     user: AuthenticatedUser,
     retryOf?: string,
     reaction?: { targetMessageId: string; emoji: string },
+    mediaAssetId?: string,
   ) {
     chatPermission(user, 'whatsapp:message:send');
     type ReactionLookup = {
@@ -876,7 +880,10 @@ export class WhatsappService {
         if (existing) {
           if (
             existing.text !== input.text ||
-            existing.kind !== (reaction ? 'reaction' : 'text') ||
+            existing.kind !==
+              (reaction ? 'reaction' : mediaAssetId ? 'image' : 'text') ||
+            (existing.attachment?.mediaAssetId ?? null) !==
+              (mediaAssetId ?? null) ||
             (existing.attachment?.targetMessageId ?? null) !==
               (reaction?.targetMessageId ?? null) ||
             (existing.attachment?.replyToMessageId ?? null) !==
@@ -918,6 +925,14 @@ export class WhatsappService {
             chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
         }
         let attachment: Record<string, unknown> | null = null;
+        if (mediaAssetId)
+          attachment = await this.media.sendingAsset(
+            mediaAssetId,
+            id,
+            user,
+            manager,
+            !!retryOf,
+          );
         if (input.replyToMessageId) {
           if (reaction)
             chatFail('VALIDATION_ERROR', '表情回应不能同时引用消息', 400);
@@ -940,6 +955,7 @@ export class WhatsappService {
           );
           const shown = presentMessages([target], aliases, edits)[0];
           attachment = {
+            ...attachment,
             replyToMessageId: target.id,
             contextMessageId: target.providerId,
             replyTo: {
@@ -1018,7 +1034,7 @@ export class WhatsappService {
             input.text,
             user.id,
             user.identityId,
-            reaction ? 'reaction' : 'text',
+            reaction ? 'reaction' : mediaAssetId ? 'image' : 'text',
             attachment ? JSON.stringify(attachment) : null,
           ],
         );
@@ -1101,7 +1117,23 @@ export class WhatsappService {
             emoji: old.text,
           }
         : undefined,
+      old.kind === 'image' && typeof old.attachment?.mediaAssetId === 'string'
+        ? old.attachment.mediaAssetId
+        : undefined,
     );
+  }
+  async uploadImage(
+    id: string,
+    file: Express.Multer.File,
+    user: AuthenticatedUser,
+  ) {
+    chatPermission(user, 'whatsapp:message:send');
+    const c = await this.conversation(id, user);
+    mutableChat(c);
+    assertWindow(c.lastInboundAt);
+    if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
+    // Draft upload does not send or bypass the environment's SEND_ENABLED switch.
+    return this.media.upload(file.buffer, file.originalname, user, id);
   }
   async confirmFailed(id: string, messageId: string, user: AuthenticatedUser) {
     chatPermission(user, 'whatsapp:message:send');
@@ -1225,6 +1257,9 @@ export class WhatsappService {
         : undefined,
       typeof job.m.attachment?.contextMessageId === 'string'
         ? job.m.attachment.contextMessageId
+        : undefined,
+      job.m.kind === 'image' && typeof job.m.attachment?.mediaLink === 'string'
+        ? { link: job.m.attachment.mediaLink, caption: job.m.text }
         : undefined,
     );
     await this.db.transaction(async (manager) => {

@@ -75,3 +75,12 @@ test('lookup endpoint cannot send and returns only the target mapping', async ()
     assert.deepEqual(await response.json(),{found:true,messageId:'wamid.exact'});assert.equal(sends,0);
   }finally{await new Promise(resolve=>relay.close(resolve));}
 });
+
+test('image sends require configured origin/environment and matching caption', () => {
+  const input = { recipient: '1234567890', taskId: '00000000-0000-4000-8000-000000000001', text: '', image: {link: 'https://media.example.test/dev/whatsapp/00000000-0000-4000-8000-000000000001/original.png', caption: ''} };
+  assert.equal(validateSend(input, 'https://media.example.test', 'dev'), true);
+  assert.equal(validateSend(input), false);
+  assert.equal(validateSend(input, 'https://media.example.test', 'prod'), false);
+  assert.equal(validateSend({...input, image: {...input.image, link: input.image.link + '?redirect=bad'}}, 'https://media.example.test', 'dev'), false);
+  assert.equal(validateSend({...input, image: {...input.image, caption: 'mismatch'}}, 'https://media.example.test', 'dev'), false);
+});

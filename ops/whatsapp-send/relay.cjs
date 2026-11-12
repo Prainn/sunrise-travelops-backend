@@ -29,14 +29,27 @@ async function lookupMessageId(client, config, { providerId, occurredAt }) {
   }
   return { found: false };
 }
-function validateSend(value) {
+function validateSend(value, mediaOrigin, environment) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId'].includes(key)) ||
+      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId', 'image'].includes(key)) ||
       typeof value.recipient !== 'string' || !/^(\d{5,20}|[A-Z]{2}\.[A-Za-z0-9.]+)$/.test(value.recipient) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.taskId) ||
       typeof value.text !== 'string' || value.text.length > 4096) return false;
   if (value.contextMessageId !== undefined &&
       (typeof value.contextMessageId !== 'string' || !value.contextMessageId.length || value.contextMessageId.length > 1000 || value.reaction !== undefined)) return false;
+  if (value.image !== undefined) {
+    const image = value.image;
+    if (!image || typeof image !== 'object' || Array.isArray(image) || value.reaction !== undefined ||
+        Object.keys(image).some(key => !['link', 'caption'].includes(key)) ||
+        typeof image.link !== 'string' || image.link.length > 2048 ||
+        typeof image.caption !== 'string' || image.caption !== value.text || image.caption.length > 1024 ||
+        !mediaOrigin || !['dev', 'prod'].includes(environment)) return false;
+    try {
+      const url = new URL(image.link);
+      return url.origin === mediaOrigin && url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash &&
+        new RegExp('^/' + environment + '/whatsapp/[a-f0-9-]{36}/(original\\.(jpg|png)|send\\.jpg)$').test(url.pathname);
+    } catch { return false; }
+  }
   if (value.reaction !== undefined) {
     const reaction = value.reaction;
     return !!reaction && typeof reaction === 'object' && !Array.isArray(reaction) &&
@@ -47,7 +60,7 @@ function validateSend(value) {
   return value.text.trim().length > 0;
 }
 
-function createRelay(send, health, lookup) {
+function createRelay(send, health, lookup, mediaOrigin, environment) {
   return http.createServer(async (req, res) => {
     const respond = (status, value) => {
       res.writeHead(status, { 'content-type': 'application/json' });
@@ -75,7 +88,7 @@ function createRelay(send, health, lookup) {
         try { respond(200, await lookup(body)); } catch { respond(200, { found: false }); }
         return;
       }
-      if (!validateSend(body)) { respond(400, { error: 'INVALID_SEND' }); return; }
+      if (!validateSend(body, mediaOrigin, environment)) { respond(400, { error: 'INVALID_SEND' }); return; }
       respond(200, await send(body));
     } catch {
       // An interrupted request is never retried here. Preserve ambiguity upstream.
@@ -85,18 +98,18 @@ function createRelay(send, health, lookup) {
 }
 
 async function main() {
-  const config = JSON.parse(fs.readFileSync('/etc/sunrise-whatsapp-send/config.json', 'utf8'));
+  const config = JSON.parse(fs.readFileSync(process.env.SEND_RELAY_CONFIG || '/etc/sunrise-whatsapp-send/config.json', 'utf8'));
   if (config.environment !== 'dev' || !config.spaceId || !/^\d{5,20}$/.test(config.phone) ||
       config.roleName !== 'sunrise-whatsapp-runtime') throw new Error('INVALID_CONFIG');
   const credential = new Credentials({ type: 'ecs_ram_role', roleName: config.roleName });
   const client = new CamsModule.default(new $OpenApiUtil.Config({
     credential, endpoint: 'cams.ap-southeast-1.aliyuncs.com',
   }));
-  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId }) => {
+  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId, image }) => {
     const result = await client.sendChatappMessageWithOptions(new CamsModule.SendChatappMessageRequest({
-      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : 'text',
+      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : image ? 'image' : 'text',
       custSpaceId: config.spaceId, from: config.phone, to: recipient,
-      content: JSON.stringify(reaction ?? { text }), taskId, contextMessageId,
+      content: JSON.stringify(reaction ?? image ?? { text }), taskId, contextMessageId,
     }), new RuntimeOptions({ autoretry: false, maxAttempts: 1, connectTimeout: 5000, readTimeout: 10000 }));
     if (result.body?.code === 'OK' && result.body.messageId)
       return { status: 'accepted', providerId: result.body.messageId };
@@ -106,10 +119,10 @@ async function main() {
   }, async () => {
     const value = await credential.getCredential();
     if (!value.accessKeyId || !value.accessKeySecret || !value.securityToken) throw new Error('CREDENTIAL_UNAVAILABLE');
-  }, body => lookupMessageId(client, config, body));
+  }, body => lookupMessageId(client, config, body), config.mediaOrigin, config.environment);
   server.requestTimeout = 20000;
   server.headersTimeout = 10000;
-  const socket = '/run/sunrise-whatsapp-send/send.sock';
+  const socket = config.socket || '/run/sunrise-whatsapp-send/send.sock';
   if (fs.existsSync(socket)) fs.unlinkSync(socket);
   server.listen(socket, () => fs.chmodSync(socket, 0o660));
   process.on('SIGTERM', () => server.close(() => process.exit(0)));

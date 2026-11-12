@@ -1,0 +1,34 @@
+[Unit]
+Description=Sunrise dev scoped OSS writer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=sunrise-oss-dev
+ExecStart=/opt/sunrise-ci/node/bin/node /opt/sunrise-oss-dev/relay.cjs
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=sunrise-oss-dev
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0007
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/sunrise-oss-dev
+MemoryMax=192M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target
