@@ -19,33 +19,13 @@ export function validateVehicleModeChange(
 ) {
   const confirmed = next.confirmVehicleModeChange === true;
   delete next.confirmVehicleModeChange;
-  const modes = new Set(
-    next.vehiclePlans.map((p) => p.quotationMode).filter(Boolean),
-  );
-  if (
-    modes.size > 1 ||
-    (modes.size && next.vehiclePlans.some((p) => !p.quotationMode))
-  )
+  if (new Set(next.vehiclePlans.map((p) => p.quotationMode)).size > 1)
     invalid('所有车型必须使用同一种用车报价方式');
-  if (previous?.vehiclePlans.some((p) => p.quotationMode) && !modes.size)
-    invalid('已按人数档维护用车价格，请使用支持分档报价的编辑器');
   for (const plan of next.vehiclePlans) {
-    if (!plan.quotationMode) {
-      if (
-        plan.paxPrices != null ||
-        plan.arrangements.some((a) => a.paxPrices != null)
-      )
-        invalid('分档用车价格必须指定报价方式');
-      continue;
-    }
-    const replacedPlans = (previous?.vehiclePlans ?? []).filter((old) => {
-      const oldMode =
-        old.quotationMode ??
-        (old.arrangements.some((a) => a.vehicles.length)
-          ? 'itinerary'
-          : 'stage');
-      return old.arrangements.length && oldMode !== plan.quotationMode;
-    });
+    const replacedPlans = (previous?.vehiclePlans ?? []).filter(
+      (old) =>
+        old.arrangements.length && old.quotationMode !== plan.quotationMode,
+    );
     if (replacedPlans.length) {
       if (!confirmed) invalid('更改用车报价方式会清空原方式的报价，请先确认');
       if (
@@ -84,7 +64,6 @@ export function normalizeVehiclePaxPrices(
   old: Plan | undefined,
   checkReason: boolean,
 ) {
-  if (!plan.quotationMode) return;
   if (
     plan.totalPrice != null ||
     plan.arrangements.some((a) => a.totalPrice != null)
@@ -104,9 +83,7 @@ export function normalizeVehiclePaxPrices(
       segmentPrices.length && segmentPrices.every((p) => p != null)
         ? sumMoney(segmentPrices)
         : null;
-    const before = old?.quotationMode
-      ? old.paxPrices?.find((p) => p.pax === price.pax)
-      : old;
+    const before = old?.paxPrices?.find((p) => p.pax === price.pax);
     if (plan.quotationMode === 'stage' && price.pricingMode !== 'automatic')
       invalid('按阶段报价的全程价格必须自动汇总');
     if (price.pricingMode === 'automatic') {

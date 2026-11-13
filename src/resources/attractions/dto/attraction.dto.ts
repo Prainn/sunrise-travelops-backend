@@ -78,7 +78,6 @@ export class AttractionResponse implements ResourceAuditResponse {
   isStandardPrice: boolean;
   remark: string;
   unit: string;
-  /** Null for migrated records that still need a price. */
-  price: string | null;
+  price: string;
   status: string;
 }

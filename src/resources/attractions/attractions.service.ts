@@ -183,7 +183,7 @@ export class AttractionsService {
       isStandardPrice: entity.isStandardPrice,
       remark: entity.remark,
       unit: entity.unit,
-      price: entity.price == null ? null : normalizeMoney(entity.price),
+      price: normalizeMoney(entity.price),
       status: entity.status,
     };
   }

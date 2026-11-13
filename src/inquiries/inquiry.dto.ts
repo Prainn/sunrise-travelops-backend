@@ -280,8 +280,7 @@ class VehicleArrangementInput {
     number | null;
 }
 class VehiclePlanInput {
-  @IsOptional() @IsIn(['itinerary', 'stage']) quotationMode?:
-    'itinerary' | 'stage' | null;
+  @IsIn(['itinerary', 'stage']) quotationMode: 'itinerary' | 'stage';
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)

@@ -83,23 +83,6 @@ export function manualTourSchedule(
   };
 }
 
-/** Validate Shanghai wall-clock service times without using the process time zone. */
-export function validateServiceTimes(
-  from: string,
-  to: string,
-  allowEqual = false,
-): void {
-  const parse = (value: string) => {
-    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(value))
-      throw new Error('Invalid service time');
-    return parseDate(value.slice(0, 10)) + parseTime(value.slice(11));
-  };
-  const start = parse(from),
-    end = parse(to);
-  if (allowEqual ? start > end : start >= end)
-    throw new Error('Invalid service interval');
-}
-
 /** Service dates are Shanghai calendar dates; both endpoints occupy a day. */
 export function validateServiceDates(from: string, to: string): void {
   if (parseDate(from) > parseDate(to)) throw new Error('Invalid service dates');

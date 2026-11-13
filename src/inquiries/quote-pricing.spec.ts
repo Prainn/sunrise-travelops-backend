@@ -34,7 +34,10 @@ type QuoteFixture = Pick<
   hotelPlans: (Pick<ItineraryHotelPlan, 'tier'> & {
     hotels: Pick<ItineraryHotelSelection, 'destination' | 'unitCost'>[];
   })[];
-  vehiclePlans: Pick<ItineraryVehiclePlan, 'tier' | 'totalPrice'>[];
+  vehiclePlans: Pick<
+    ItineraryVehiclePlan,
+    'tier' | 'arrangements' | 'paxPrices'
+  >[];
   quote: Pick<
     ItineraryQuoteSettings,
     | 'options'
@@ -235,8 +238,16 @@ describe('calculateItineraryQuote', () => {
           },
         ],
         vehiclePlans: [
-          { tier: 'standard', totalPrice: 60 },
-          { tier: 'vip', totalPrice: 100 },
+          {
+            tier: 'standard',
+            arrangements: [],
+            paxPrices: [{ pax: 2, totalPrice: 60, pricingMode: 'automatic' }],
+          },
+          {
+            tier: 'vip',
+            arrangements: [],
+            paxPrices: [{ pax: 2, totalPrice: 100, pricingMode: 'automatic' }],
+          },
         ],
         dailyPlans: [
           { dayNumber: 1, overnightDestination: 'Kunming', items: [] },
@@ -277,7 +288,6 @@ describe('calculateItineraryQuote', () => {
       {
         optionId: 'preferred-standard',
         hotelUnitCost: 100,
-        vehicleTotal: 60,
         hotelCityCosts: [
           { destination: 'Kunming', nights: 2, unitCost: 100, totalCost: 100 },
         ],
@@ -286,13 +296,11 @@ describe('calculateItineraryQuote', () => {
       {
         optionId: 'preferred-vip',
         hotelUnitCost: 100,
-        vehicleTotal: 100,
         paxPrices: [{ baseCostPerPerson: 150, singleSupplementUnitCost: 100 }],
       },
       {
         optionId: 'five-star-standard',
         hotelUnitCost: 200,
-        vehicleTotal: 60,
         hotelCityCosts: [
           { destination: 'Kunming', nights: 2, unitCost: 200, totalCost: 200 },
         ],
@@ -301,7 +309,6 @@ describe('calculateItineraryQuote', () => {
       {
         optionId: 'five-star-vip',
         hotelUnitCost: 200,
-        vehicleTotal: 100,
         paxPrices: [{ baseCostPerPerson: 250, singleSupplementUnitCost: 200 }],
       },
     ]);
@@ -311,7 +318,16 @@ describe('calculateItineraryQuote', () => {
     const result = calculateItineraryQuote(
       quoteInput({
         paxTiers: [3, 6],
-        vehiclePlans: [{ tier: 'standard', totalPrice: 100.01 }],
+        vehiclePlans: [
+          {
+            tier: 'standard',
+            arrangements: [],
+            paxPrices: [
+              { pax: 3, totalPrice: 100.01, pricingMode: 'automatic' },
+              { pax: 6, totalPrice: 100.01, pricingMode: 'automatic' },
+            ],
+          },
+        ],
         guidePlans: [{ dailyPrice: 50.02, serviceDays: 2 }],
         quote: {
           staffRoomCosts: [
@@ -324,7 +340,6 @@ describe('calculateItineraryQuote', () => {
 
     expect(result.guideCost).toBe(100.04);
     expect(result.options[0]).toMatchObject({
-      vehicleTotal: 100.01,
       staffRoomTotal: 30.01,
       paxPrices: [
         {
@@ -567,7 +582,15 @@ describe('half-cent cost allocation', () => {
           { tier: 4, hotels: [{ destination: '测试', unitCost: 20.15 }] },
         ],
         guidePlans: [{ dailyPrice: 20.15, serviceDays: 1 }],
-        vehiclePlans: [{ tier: 'standard', totalPrice: 20.15 }],
+        vehiclePlans: [
+          {
+            tier: 'standard',
+            arrangements: [],
+            paxPrices: [
+              { pax: 2, totalPrice: 20.15, pricingMode: 'automatic' },
+            ],
+          },
+        ],
         dailyPlans: [
           {
             dayNumber: 1,

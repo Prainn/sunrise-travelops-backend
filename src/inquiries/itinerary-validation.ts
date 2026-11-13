@@ -1,4 +1,4 @@
-import { requirePriceReason, vehicleSegmentTotal } from './price-adjustments';
+import { requirePriceReason } from './price-adjustments';
 import {
   normalizeVehiclePaxPrices,
   validateVehicleModeChange,
@@ -109,7 +109,6 @@ export class ItineraryValidation {
         !resource ||
         resource.deletedAt ||
         resource.status !== ResourceStatus.Enabled ||
-        resource.price === null ||
         (isRestaurant && !resource.description.trim())
       )
         invalid(
@@ -469,46 +468,10 @@ export class ItineraryValidation {
         );
         if (
           hasStartDate &&
-          (group.quotationMode
-            ? group.quotationMode === 'itinerary'
-            : arrangement.vehicles.length > 0 ||
-              arrangement.totalPrice == null) &&
+          group.quotationMode === 'itinerary' &&
           seats < guestCount
         )
           invalid('Vehicle has insufficient seats');
-      }
-      if (group.quotationMode) continue;
-      group.segmentTotal = vehicleSegmentTotal(group);
-      group.pricingMode ??=
-        old?.pricingMode ??
-        (old
-          ? 'unknown'
-          : group.segmentTotal != null &&
-              (group.totalPrice == null ||
-                group.totalPrice === group.segmentTotal)
-            ? 'automatic'
-            : 'manual');
-      if (group.pricingMode === 'automatic') {
-        if (group.segmentTotal == null && group.arrangements.length)
-          invalid('Automatic vehicle pricing needs complete segment prices');
-        group.totalPrice = group.segmentTotal;
-        group.adjustmentReason = '';
-      } else if (group.totalPrice != null) {
-        const fields = {
-          referencePrice: group.segmentTotal,
-          adjustmentReason: group.adjustmentReason,
-        };
-        if (old?.totalPrice == null) fields.adjustmentReason = '';
-        else
-          requirePriceReason(
-            group.totalPrice,
-            old.totalPrice,
-            fields,
-            old,
-            checkReason,
-            true,
-          );
-        group.adjustmentReason = fields.adjustmentReason;
       }
     }
     for (const guide of plan.guidePlans) {
@@ -685,10 +648,8 @@ export class ItineraryValidation {
       !plan.vehiclePlans.some(
         (p) =>
           p.arrangements.length &&
-          (p.quotationMode
-            ? p.paxPrices?.length === plan.paxTiers.length &&
-              p.paxPrices.every((price) => price.totalPrice != null)
-            : p.totalPrice !== null),
+          p.paxPrices?.length === plan.paxTiers.length &&
+          p.paxPrices.every((price) => price.totalPrice != null),
       ) ||
       !plan.quote.options.length
     )
@@ -696,16 +657,12 @@ export class ItineraryValidation {
     for (const vehicle of plan.vehiclePlans)
       if (
         vehicle.arrangements.length &&
-        ((vehicle.quotationMode
-          ? vehicle.paxPrices?.some((p) => p.totalPrice == null)
-          : vehicle.totalPrice === null) ||
+        (vehicle.paxPrices?.some((p) => p.totalPrice == null) ||
           vehicle.arrangements.some(
             (a) =>
               !a.startDate ||
               !a.endDate ||
-              (vehicle.quotationMode
-                ? vehicle.quotationMode === 'itinerary' && !a.vehicles.length
-                : !a.vehicles.length && a.totalPrice == null),
+              (vehicle.quotationMode === 'itinerary' && !a.vehicles.length),
           ))
       )
         issues.push('vehicleDays');

@@ -54,7 +54,7 @@ import {
   InquiryLogEntity,
   ItineraryEntity,
   ItineraryQuoteEntity,
-  CurrentPdfData as PdfData,
+  CurrentPdfData,
 } from './inquiry.entity';
 import { diffChanges, contextualChanges } from './changes';
 import { dateAt, invalid, ItineraryValidation } from './itinerary-validation';
@@ -865,16 +865,6 @@ export class InquiriesService {
       this.checkVersion(itinerary.version, input.version, true);
       const data = structuredClone(itinerary.data);
       data.title = input.title;
-      // Legacy (frozen) hotel tier names become diamond ratings; prices are kept.
-      const diamonds = (v: unknown) =>
-        v === 'international_five_star' ? 5 : typeof v === 'string' ? 4 : v;
-      for (const p of data.hotelPlans) {
-        p.tier = diamonds(p.tier) as typeof p.tier;
-        for (const h of p.hotels)
-          h.rating = diamonds(h.rating) as typeof h.rating;
-      }
-      for (const o of data.quote.options)
-        o.hotelTier = diamonds(o.hotelTier) as typeof o.hotelTier;
       const allDays = [
         ...data.dailyPlans,
         ...(data.deletedDays ?? []).map((entry) => entry.day),
@@ -936,7 +926,7 @@ export class InquiriesService {
     inquiry: InquiryEntity,
     row: ItineraryEntity,
     manager: EntityManager,
-  ): Promise<PdfData> {
+  ): Promise<CurrentPdfData> {
     const generatedAt = new Date().toISOString();
     return {
       inquiry: this.inquiryResponse(inquiry),
@@ -1032,8 +1022,6 @@ export class InquiriesService {
           quoteVersion: snapshot.quoteVersion,
           inquiryId: inquiry.id,
           inquiryVersion: inquiry.version,
-          hotelGuestCount: null,
-          hotelRoomCount: null,
           dailyResourceCost: snapshot.calculation.dailyResourceCost,
           guideCost: snapshot.calculation.guideCost,
         }),

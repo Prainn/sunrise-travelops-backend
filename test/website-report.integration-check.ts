@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { WebsiteQuotationHotelTiers1794873600000 } from '../src/migrations/1794873600000-WebsiteQuotationHotelTiers';
 import { randomUUID } from 'node:crypto';
 import { IsolationHarness } from './business-isolation.harness';
+import { WEBSITE_PRICE_CATEGORIES } from '../src/website/website-price';
 import type {
   WebsiteConfig,
   WebsiteInquiry,
@@ -14,6 +15,14 @@ import type {
 } from '../src/website/website.types';
 
 const h = new IsolationHarness();
+/** Five-part price carrying the whole total on the hotel component. */
+const hotelOnlyComponents = (unitPrice: string) =>
+  WEBSITE_PRICE_CATEGORIES.map((category) => ({
+    category,
+    unitPrice: category === 'hotel' ? unitPrice : '0',
+    showInPdf: false,
+  }));
+
 async function main() {
   try {
     await h.start();
@@ -79,6 +88,7 @@ async function main() {
           vehicleType: null,
           hotelTier: null,
           unitPrice: '123.45',
+          priceComponents: hotelOnlyComponents('123.45'),
         },
       ],
       days: [

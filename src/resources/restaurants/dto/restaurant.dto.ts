@@ -93,8 +93,7 @@ export class RestaurantResponse implements ResourceAuditResponse {
   isStandardPrice: boolean;
   remark: string;
   unit: string;
-  /** Null for migrated records that still need a price. */
-  price: string | null;
+  price: string;
   dinerCount: number | null;
   status: string;
 }

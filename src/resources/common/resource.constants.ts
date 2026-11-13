@@ -3,8 +3,6 @@ export enum ResourceStatus {
   Disabled = 'disabled',
 }
 
-export const RESOURCE_STATUSES = Object.values(ResourceStatus);
-
 export const ATTRACTION_CATEGORIES = [
   'scenic',
   'performance',
@@ -13,5 +11,3 @@ export const ATTRACTION_CATEGORIES = [
   'package',
 ] as const;
 export type AttractionCategory = (typeof ATTRACTION_CATEGORIES)[number];
-
-export type AttractionPriceItemType = string;

@@ -69,15 +69,16 @@ export function priceDraft(price: number | null = 100): ItineraryInput {
     vehiclePlans: [
       {
         tier: 'standard',
-        pricingMode: 'automatic',
-        totalPrice: 100,
+        quotationMode: 'stage',
+        totalPrice: null,
+        paxPrices: [{ pax: 10, totalPrice: 100, pricingMode: 'automatic' }],
         arrangements: [
           {
             id: 'range-1',
             startDate: '2026-10-16',
             endDate: '2026-10-16',
             vehicles: [],
-            totalPrice: 100,
+            paxPrices: [{ pax: 10, totalPrice: 100 }],
           },
         ],
       },

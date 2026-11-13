@@ -77,5 +77,3 @@ export class HotelResponse implements ResourceAuditResponse {
   unit: string;
   status: string;
 }
-export class HotelListItemResponse extends HotelResponse {}
-export class HotelDetailResponse extends HotelResponse {}

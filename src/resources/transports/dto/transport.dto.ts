@@ -49,5 +49,3 @@ export class TransportResponse implements ResourceAuditResponse {
   status: string;
   remark: string;
 }
-export class TransportListItemResponse extends TransportResponse {}
-export class TransportDetailResponse extends TransportResponse {}
