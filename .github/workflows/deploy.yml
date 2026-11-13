@@ -35,11 +35,40 @@ jobs:
   ready:
     if: github.repository == 'Prainn/sunrise-travelops-backend' && (github.ref == 'refs/heads/dev' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      verified_dev_sha: ${{ steps.verify-dev.outputs.sha }}
     steps:
       - name: Require registered runner and branch protections before cutover
         env:
           READY: ${{ vars.SELF_HOSTED_READY }}
         run: test "$READY" = true || { echo 'Self-hosted cutover not ready; registration and branch protections required'; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
+        with:
+          version: 11.22.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
+        with:
+          node-version: '24.22.1'
+          cache: pnpm
+      - name: Verify exact dev candidate on GitHub
+        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
+        id: verify-dev
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"
+          pnpm install --frozen-lockfile
+          pnpm verify:release
+          printf 'sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
   deploy:
     name: Build and release gate
     needs: ready
@@ -53,6 +82,7 @@ jobs:
       ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
       REVIEWED_MIGRATIONS: ${{ inputs.reviewed_migrations || '' }}
       EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
+      HOSTED_VERIFIED_DEV_SHA: ${{ needs.ready.outputs.verified_dev_sha }}
       BUILDX_CONFIG: /opt/sunrise-ci/buildx
       NODE_OPTIONS: --max-old-space-size=1400
       GH_TOKEN: ${{ github.token }}
@@ -62,7 +92,7 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          stage='Acquire release lock'
+          stage='Validate hosted dev gate'
           stage_started=$SECONDS
           release_started=$SECONDS
           outcome=failed
@@ -78,6 +108,10 @@ jobs:
           }
           trap finish EXIT
           trap 'code=$?; echo "::error title=Backend release failed::Stage: $stage (exit $code). See the command error above."; printf "\n### Backend release failed\n\nStage: %s (exit %s). See the command error in this step.\n" "$stage" "$code" >> "$GITHUB_STEP_SUMMARY"' ERR
+          if [[ "$DEPLOY_ENV" == dev && "$OPERATION" == deploy ]]; then
+            test "$HOSTED_VERIFIED_DEV_SHA" = "$GITHUB_SHA" || { echo 'Exact dev candidate has not passed hosted verify:release'; exit 1; }
+          fi
+          enter_stage "Acquire release lock"
           export PATH="/opt/sunrise-ci/node/bin:$PATH"
           exec 9>/opt/sunrise-ci/build.lock
           flock -w 2700 9

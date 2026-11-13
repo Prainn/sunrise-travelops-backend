@@ -8,7 +8,11 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { imageFile, imageUploadOptions } from '../media/media.controller';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -27,12 +31,53 @@ import {
   RetryMessageDto,
   SendTextDto,
   SendReactionDto,
+  SendImageDto,
+  SendImageBatchDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
 @ApiBearerAuth()
 @Controller('whatsapp')
 export class WhatsappController {
   constructor(private readonly service: WhatsappService) {}
+  @Post('conversations/:id/images')
+  @Permissions('whatsapp:message:send')
+  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
+  uploadImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.uploadImage(id, imageFile(file), user);
+  }
+  @Post('conversations/:id/image-messages')
+  @Permissions('whatsapp:message:send')
+  sendImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: SendImageDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.enqueue(
+      id,
+      {
+        clientRequestId: input.clientRequestId,
+        text: input.caption,
+        replyToMessageId: input.replyToMessageId,
+      },
+      user,
+      undefined,
+      undefined,
+      input.mediaAssetId,
+    );
+  }
+  @Post('conversations/:id/image-message-batches')
+  @Permissions('whatsapp:message:send')
+  sendImageBatch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: SendImageBatchDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.enqueueImageBatch(id, input, user);
+  }
   @Get('conversations')
   @Permissions('whatsapp:conversation:list')
   list(@Query() query: ChatListQuery, @CurrentUser() user: AuthenticatedUser) {

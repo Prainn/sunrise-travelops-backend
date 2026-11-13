@@ -11,3 +11,16 @@ services:
     volumes:
       - ./postgres-tls:/certs:ro
       - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+  api:
+    env_file:
+      - path: ./oss-media.env
+        required: false
+    environment:
+      WHATSAPP_CHAT_SEND_SOCKET: /run/sunrise-whatsapp-send/send.sock
+    group_add:
+      - "2000"
+    volumes: !override
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
+      - /run/sunrise-whatsapp-send-dev:/run/sunrise-whatsapp-send:ro
+      - /run/sunrise-oss-dev:/run/sunrise-oss-dev:ro

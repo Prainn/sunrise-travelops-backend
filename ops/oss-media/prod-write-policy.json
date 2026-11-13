@@ -1,0 +1,16 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:PutObject",
+        "oss:DeleteObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:sunrise-travelops-media/prod/whatsapp/*",
+        "acs:oss:*:*:sunrise-travelops-media/prod/upload/*"
+      ]
+    }
+  ]
+}

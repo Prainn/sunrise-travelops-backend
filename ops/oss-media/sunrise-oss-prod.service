@@ -1,0 +1,36 @@
+[Unit]
+Description=Sunrise prod scoped OSS writer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=OSS_RELAY_CONFIG=/etc/sunrise-oss-prod/config.json
+Type=simple
+User=root
+Group=sunrise-oss-prod
+ExecStart=/opt/sunrise-ci/node/bin/node /opt/sunrise-oss-prod/relay.cjs
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=sunrise-oss-prod
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+UMask=0007
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# ali-oss reads local interface metadata via os.networkInterfaces().
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/run/sunrise-oss-prod
+MemoryMax=192M
+TasksMax=32
+
+[Install]
+WantedBy=multi-user.target
