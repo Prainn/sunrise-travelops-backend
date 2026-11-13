@@ -78,7 +78,7 @@ async function main() {
         {
           vehicleType: null,
           hotelTier: null,
-          unitPrice: '123.45',
+          unitPrice: null,
         },
       ],
       days: [
@@ -104,44 +104,13 @@ async function main() {
       { ...input, inquiryVersion: inquiry.version },
       201,
     );
-    // Reconstruct predecessor only inside the disposable database.
-    await h.db.query(
-      `INSERT INTO website_vehicle_prices(itinerary_id,vehicle_type,plan,includes_driver,includes_guide,unit_price) VALUES($1,'7_seat','A',true,false,123.45)`,
-      [plan.id],
-    );
-    await h.db.query('DROP TABLE website_price_components');
-    await h.db.query('DELETE FROM migrations WHERE name=$1', [
-      'WebsitePriceComponents1794787200000',
-    ]);
-    const legacySnapshot = {
-      schemaVersion: 3,
-      english: {
-        quotation: [{ vehicle: '7-seat vehicle', price: 'RMB 123.45 PP' }],
-      },
-    };
-    await h.db.query(
-      `INSERT INTO website_quotations(id,itinerary_id,code,snapshot,confirmed_at,confirmed_by) VALUES($1,$2,'WQT-COMPONENT-LEGACY',$3,now(),$4)`,
-      [randomUUID(), plan.id, JSON.stringify(legacySnapshot), owner.id],
-    );
-    assert.equal((await h.db.runMigrations()).length, 1);
-    assert.equal((await h.db.runMigrations()).length, 0);
     plan = await h.call<WebsiteItinerary>(
       owner,
       'GET',
       `/website/itineraries/${plan.id}`,
     );
-    assert.equal(plan.previousPlanPrices?.[0].unitPrice, '123.45');
-    assert.equal(plan.previousPlanPrices?.[0].plan, 'A');
-    assert.equal(plan.vehiclePrices[0].unitPrice, '123.45');
+    assert.equal(plan.vehiclePrices[0].unitPrice, null);
     assert.deepEqual(plan.vehiclePrices[0].priceComponents, []);
-    const [snapshot] = await h.db.query<{ snapshot: unknown }[]>(
-      'SELECT snapshot FROM website_quotations WHERE itinerary_id=$1',
-      [plan.id],
-    );
-    assert.deepEqual(snapshot.snapshot, legacySnapshot);
-    await h.db.query('DELETE FROM website_quotations WHERE itinerary_id=$1', [
-      plan.id,
-    ]);
     const values = ['2000', '1000', '3000', '2000', '2000'];
     input.vehiclePrices[0].priceComponents = WEBSITE_PRICE_CATEGORIES.map(
       (category, index) => ({

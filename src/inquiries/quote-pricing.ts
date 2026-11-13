@@ -1,4 +1,7 @@
-import type { ItineraryRecord, PaxQuoteCalculation } from './itinerary.types';
+import type {
+  ItineraryRecord,
+  ItineraryQuoteCalculation,
+} from './itinerary.types';
 import { divideMoney, multiplyMoney, roundMoney, sumMoney } from './money';
 import { BusinessException } from '../common/exceptions/business.exception';
 
@@ -36,7 +39,7 @@ export function missingItineraryPrices(
       if (!ready(item.unitCost))
         missing.push(`dailyPlans[${day.id}].items[${item.id}].unitCost`);
   for (const plan of itinerary.vehiclePlans ?? [])
-    if (plan.quotationMode && plan.arrangements.length)
+    if (plan.arrangements.length)
       for (const pax of itinerary.paxTiers ?? [])
         if (
           !ready(plan.paxPrices?.find((p) => p.pax === pax)?.totalPrice ?? null)
@@ -50,7 +53,7 @@ export function missingItineraryPrices(
 export function calculateItineraryQuote(
   itinerary: QuotePlan,
   resourceCities: ReadonlyMap<string, string> = new Map(),
-): PaxQuoteCalculation {
+): ItineraryQuoteCalculation {
   if (
     itinerary.quote.chineseTip !== null &&
     itinerary.quote.englishTip !== null
@@ -182,9 +185,6 @@ export function calculateItineraryQuote(
       const vehiclePlan = itinerary.vehiclePlans.find(
         (plan) => plan.tier === option.vehicleTier,
       );
-      const vehicleTotal = vehiclePlan?.quotationMode
-        ? null
-        : roundMoney(vehiclePlan?.totalPrice ?? 0);
       const staffRoomTotal = sumMoney(
         itinerary.quote.staffRoomCosts.map((cost) => cost.total ?? 0),
       );
@@ -194,16 +194,15 @@ export function calculateItineraryQuote(
         vehicleTier: option.vehicleTier,
         hotelCityCosts,
         hotelUnitCost,
-        vehicleTotal,
+        vehicleTotal: null,
         staffRoomTotal,
         paxPrices: itinerary.paxTiers.map((pax) => {
           const paxOtherCost = itinerary.quote.paxOtherCosts.find(
             (cost) => cost.pax === pax,
           );
-          const paxVehicleTotal = vehiclePlan?.quotationMode
-            ? (vehiclePlan.paxPrices?.find((p) => p.pax === pax)?.totalPrice ??
-              null)
-            : vehicleTotal;
+          const paxVehicleTotal =
+            vehiclePlan?.paxPrices?.find((p) => p.pax === pax)?.totalPrice ??
+            null;
           const vehicleUnitCost = divideMoney(paxVehicleTotal ?? 0, pax);
           const guideServiceUnitCost = sumMoney([
             divideMoney(guideCost, pax),

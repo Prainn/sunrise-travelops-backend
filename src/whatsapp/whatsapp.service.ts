@@ -1077,7 +1077,7 @@ export class WhatsappService {
       )
         chatFail('CONFLICT', '只能回应客户的原始消息', 409);
       const aliases = await manager.query<{ messageId: string }[]>(
-        `SELECT coalesce(payload->'record'->>'UniqueMessageId',payload->>'UniqueMessageId') AS "messageId" FROM whatsapp_events WHERE message_id=$1
+        `SELECT payload->'record'->>'UniqueMessageId' AS "messageId" FROM whatsapp_events WHERE message_id=$1
        UNION ALL SELECT attachment->>'messageId' FROM whatsapp_messages WHERE kind='reaction' AND attachment->>'targetMessageId'=$1::text`,
         [target.id],
       );

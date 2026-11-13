@@ -185,7 +185,7 @@ export class RestaurantsService {
       isStandardPrice: entity.isStandardPrice,
       remark: entity.remark,
       unit: entity.unit,
-      price: entity.price == null ? null : normalizeMoney(entity.price),
+      price: normalizeMoney(entity.price),
       dinerCount: entity.dinerCount,
       status: entity.status,
     };

@@ -3,10 +3,6 @@ export type ItineraryStatus = 'draft' | 'quoted';
 
 export type ItineraryItemType =
   'hotel' | 'attraction' | 'restaurant' | 'vehicle' | 'guide';
-export type ItineraryDailyItemType = Extract<
-  ItineraryItemType,
-  'attraction' | 'restaurant'
->;
 export type ItineraryPriceUnit = string;
 export type ItineraryHotelTier = 3 | 4 | 5;
 export type ItineraryVehicleTier = VehicleServiceLevel;
@@ -50,7 +46,7 @@ export interface ItineraryVehicleArrangement {
   totalPrice?: number | null;
 }
 export interface ItineraryVehiclePlan {
-  quotationMode?: 'itinerary' | 'stage' | null;
+  quotationMode: 'itinerary' | 'stage';
   paxPrices?: VehiclePaxPrice[];
   pricingMode?: 'automatic' | 'manual' | 'unknown' | null;
   segmentTotal?: number | null;
@@ -124,41 +120,6 @@ export interface ItineraryMeals {
   dinner: boolean;
 }
 
-export type ItineraryQuoteLineType = 'adult' | 'child';
-
-export interface ItineraryQuoteLine {
-  type: ItineraryQuoteLineType;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-}
-
-export interface LegacyQuoteOptionCalculation {
-  optionId: string;
-  hotelTier: ItineraryHotelTier;
-  vehicleTier: ItineraryVehicleTier;
-  hotelCost: number;
-  vehicleCost: number;
-  commonGroupCost: number;
-  baseGroupCost: number;
-  baseCostPerPerson: number;
-  singleSupplementUnitCost: number;
-  adultUnitPrice: number;
-  childUnitPrice: number;
-  totalPrice: number;
-  profit: number;
-  actualMarginRate: number;
-  lines: ItineraryQuoteLine[];
-}
-
-export interface LegacyQuoteCalculation {
-  hotelGuestCount: number;
-  hotelRoomCount: number;
-  dailyResourceCost: number;
-  guideCost: number;
-  options: LegacyQuoteOptionCalculation[];
-}
-
 export interface ItineraryPaxCalculation {
   pax: number;
   /** Exact group vehicle price for this PAX; absent in historical freezes. */
@@ -194,7 +155,7 @@ export interface ItineraryQuoteOptionCalculation {
   paxPrices: ItineraryPaxCalculation[];
 }
 
-export interface PaxQuoteCalculation {
+export interface ItineraryQuoteCalculation {
   pricingVersion: 2;
   tableMealTotal?: number;
   /** Only the three Draft actual-price fields; historical snapshots may omit these. */
@@ -223,9 +184,6 @@ export interface PaxQuoteCalculation {
   guideCost: number;
   options: ItineraryQuoteOptionCalculation[];
 }
-
-export type ItineraryQuoteCalculation =
-  PaxQuoteCalculation | LegacyQuoteCalculation;
 
 export interface ItineraryResourceItem extends ReferencePrice {
   resourceNameEn?: string;

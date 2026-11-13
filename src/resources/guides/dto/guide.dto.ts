@@ -44,5 +44,3 @@ export class GuideResponse implements ResourceAuditResponse {
   secondLanguage: string;
   shopping: boolean;
 }
-export class GuideListItemResponse extends GuideResponse {}
-export class GuideDetailResponse extends GuideResponse {}

@@ -8,4 +8,3 @@ export const DEPARTMENT_OPTIONS = [
   { value: 7, label: '计调部', scope: 'website' },
   { value: 8, label: '资源管理部', scope: 'website' },
 ] as const;
-export const ROOT_ROLE_CODE = 'ROOT';

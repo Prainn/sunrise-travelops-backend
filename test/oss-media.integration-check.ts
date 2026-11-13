@@ -1,5 +1,6 @@
 /** Isolated database + synthetic media; no cloud writes or customer sends. */
 import assert from 'node:assert/strict';
+import { AddOssMedia1796256004000 } from '../src/migrations/1796256004000-AddOssMedia';
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { ConfigService } from '@nestjs/config';
@@ -40,14 +41,14 @@ type Resource = {
 };
 async function main() {
   await h.start();
-  // Roll back only this new additive migration in a disposable DB, then seed pre-upgrade messages.
-  const last = (
-    await h.db.query<{ name: string }[]>(
-      'SELECT name FROM migrations ORDER BY id DESC LIMIT 1',
-    )
-  )[0].name;
-  assert.equal(last, 'AddOssMedia1796256004000');
-  await h.db.undoLastMigration();
+  // Roll back only this additive migration in a disposable DB, then seed pre-upgrade messages.
+  // Later migrations do not touch OSS media, so its down() runs without undoing them.
+  const runner = h.db.createQueryRunner();
+  await new AddOssMedia1796256004000().down(runner);
+  await runner.release();
+  await h.db.query('DELETE FROM migrations WHERE name=$1', [
+    'AddOssMedia1796256004000',
+  ]);
   const root = await h.actor('headquarters', 'ROOT'),
     boss = await h.actor('headquarters', 'BOSS'),
     actor = await h.actor('website', 'BUSINESS_MANAGER');
@@ -169,14 +170,14 @@ async function main() {
   const draft = await upload(`/whatsapp/conversations/${cid}/images`);
   assert.equal(draft.objectKey, `dev/whatsapp/${draft.id}/original.png`);
   const request = {
-    clientRequestId: randomUUID(),
-    mediaAssetId: draft.id,
-    caption: 'synthetic caption',
+    images: [{ clientRequestId: randomUUID(), mediaAssetId: draft.id }],
   };
-  const sent = await h.call<ChatMessage>(
+  const {
+    messages: [sent],
+  } = await h.call<{ messages: ChatMessage[] }>(
     actor,
     'POST',
-    `/whatsapp/conversations/${cid}/image-messages`,
+    `/whatsapp/conversations/${cid}/image-message-batches`,
     request,
     201,
   );
@@ -184,21 +185,24 @@ async function main() {
   assert.equal(sent.status, 'queued');
   assert.equal(
     (
-      await h.call<ChatMessage>(
+      await h.call<{ messages: ChatMessage[] }>(
         actor,
         'POST',
-        `/whatsapp/conversations/${cid}/image-messages`,
+        `/whatsapp/conversations/${cid}/image-message-batches`,
         request,
         201,
       )
-    ).id,
+    ).messages[0].id,
     sent.id,
   );
   await h.call(
     actor,
     'POST',
-    `/whatsapp/conversations/${cid}/image-messages`,
-    { ...request, caption: 'changed' },
+    `/whatsapp/conversations/${cid}/image-message-batches`,
+    {
+      ...request,
+      textMessage: { clientRequestId: randomUUID(), text: 'changed' },
+    },
     409,
     'CONFLICT',
   );
@@ -206,7 +210,7 @@ async function main() {
   let sends = 0;
   provider.send = (...args) => {
     sends++;
-    assert.equal(args[6]?.caption, 'synthetic caption');
+    assert.equal(args[6]?.caption, '');
     assert.match(args[6].link, /^https:\/\/media.example.test\/dev\//);
     return Promise.resolve({
       status: 'failed',

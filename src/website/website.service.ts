@@ -1461,7 +1461,11 @@ export class WebsiteService {
       invalid('报价车型与酒店档次必须来自当前活动行程，请调整已失效的报价组合');
     let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
     try {
-      vehiclePrices = input.vehiclePrices.map(normalizeVehiclePrice);
+      vehiclePrices = input.vehiclePrices.map((price) => {
+        if (price.unitPrice !== null && !price.priceComponents?.length)
+          throw new Error('Price components required');
+        return normalizeVehiclePrice(price);
+      });
     } catch {
       invalid(
         '报价须包含五个不重复的分项，金额须有效且人均合计不超过9999999999.99元',
@@ -1503,18 +1507,6 @@ export class WebsiteService {
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
       ],
     );
-    if (metadata.sourceId) {
-      await manager.query(
-        `INSERT INTO website_vehicle_prices(itinerary_id,vehicle_type,plan,includes_driver,includes_guide,unit_price)
-        SELECT $1,vehicle_type,plan,includes_driver,includes_guide,unit_price FROM website_vehicle_prices WHERE itinerary_id=$2`,
-        [id, metadata.sourceId],
-      );
-      await manager.query(
-        `INSERT INTO website_price_components(itinerary_id,vehicle_type,plan,category,unit_price,show_in_pdf)
-        SELECT $1,vehicle_type,plan,category,unit_price,show_in_pdf FROM website_price_components WHERE itinerary_id=$2`,
-        [id, metadata.sourceId],
-      );
-    }
     await saveWebsiteDetails(
       manager,
       id,

@@ -24,8 +24,7 @@ export class SelectionService {
       .getRepository<RestaurantEntity | AttractionEntity>(entity)
       .createQueryBuilder('resource')
       .where('resource.status = :status', { status: 'enabled' })
-      .andWhere('resource.deletedAt IS NULL')
-      .andWhere('resource.price IS NOT NULL');
+      .andWhere('resource.deletedAt IS NULL');
     if (kind === 'restaurant')
       query.andWhere("resource.description ~ '[^[:space:]]'");
     return query;

@@ -1,13 +1,11 @@
 import { EntityManager } from 'typeorm';
-import { CurrentPdfData as PdfData } from './inquiry.entity';
+import { CurrentPdfData } from './inquiry.entity';
 export async function saveFrozenDetails(
   manager: EntityManager,
   id: string,
-  snapshot: PdfData,
+  snapshot: CurrentPdfData,
 ) {
   const calculation = snapshot.calculation;
-  if (!('pricingVersion' in calculation) || calculation.pricingVersion !== 2)
-    throw new Error('Only PAX quotes can be newly frozen');
   await manager.query(
     'UPDATE itinerary_quotes SET quote_code=$2,quote_version=$3,inquiry_id=$4,inquiry_version=$5,daily_resource_cost=$6,guide_cost=$7 WHERE id=$1',
     [
@@ -199,7 +197,6 @@ export async function saveFrozenDetails(
         );
     }
   for (const vehicle of plan.vehiclePlans) {
-    if (!vehicle.quotationMode) continue;
     for (const price of vehicle.paxPrices ?? [])
       await manager.query(
         'INSERT INTO quote_vehicle_pax_prices(quote_id,tier,pax,quotation_mode,total_price,pricing_mode,segment_total,adjustment_reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',

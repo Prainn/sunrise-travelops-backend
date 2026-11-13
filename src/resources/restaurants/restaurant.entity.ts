@@ -5,7 +5,7 @@ import { TopLevelResourceEntity } from '../common/resource.entity';
 @Entity({ name: 'resource_restaurants' })
 @Unique('UQ_resource_restaurants_code', ['code'])
 @Check('CHK_resource_restaurants_status', `"status" IN ('enabled', 'disabled')`)
-@Check('CHK_resource_restaurants_price', '"price" IS NULL OR "price" >= 0')
+@Check('CHK_resource_restaurants_price', '"price" >= 0')
 @Check(
   'CHK_resource_restaurants_diner_count',
   '"diner_count" IS NULL OR "diner_count" > 0',
@@ -33,9 +33,9 @@ export class RestaurantEntity extends TopLevelResourceEntity {
   @Column({ type: 'text', default: '' }) remark: string;
   /** personMeal (default) or table. */
   @Column({ type: 'varchar', length: 100 }) unit: string;
-  /** Price per person-meal or per table; null only for legacy records awaiting a price. */
-  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
-  price: string | null;
+  /** Price per person-meal or per table. */
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  price: string;
   /** Required positive integer only when the unit is per table. */
   @Column({ name: 'diner_count', type: 'integer', nullable: true })
   dinerCount: number | null;
