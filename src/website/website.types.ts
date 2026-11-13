@@ -206,15 +206,6 @@ export interface WebsiteVehiclePrice extends WebsiteVehiclePriceInput {
   includesDriver: boolean;
   includesGuide: boolean;
 }
-/** Read-only archive: old A/B totals have no reliable hotel-tier association. */
-export interface WebsitePreviousPlanPrice {
-  vehicleType: VehicleType;
-  plan: 'A' | 'B';
-  includesDriver: boolean;
-  includesGuide: boolean;
-  unitPrice: string | null;
-  priceComponents: WebsitePriceComponent[];
-}
 export interface WebsiteQuotationOptions {
   vehicleTypes: (string | null)[];
   hotelTiers: (WebsiteHotelTier | null)[];
@@ -237,7 +228,6 @@ export interface WebsiteItineraryInput {
 export interface WebsiteItinerary extends WebsiteItineraryInput {
   vehiclePrices: WebsiteVehiclePrice[];
   quotationOptions?: WebsiteQuotationOptions;
-  previousPlanPrices?: WebsitePreviousPlanPrice[];
   businessUnit: WebsiteBusinessUnit;
   id: string;
   inquiryId: string;
@@ -332,7 +322,7 @@ export interface WebsitePreview {
   sourceVersion: number;
   inquiryVersion: number;
   configVersion: number;
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  schemaVersion: 6;
   validationVersion: 1 | 2 | 3 | 4 | 5 | 6;
   issues: WebsiteValidation[];
   english: WebsiteOutput;

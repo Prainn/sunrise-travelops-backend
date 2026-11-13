@@ -1,6 +1,6 @@
 import { EntityManager } from 'typeorm';
 import { ItineraryInput } from './inquiry.dto';
-import { roundMoney, sumMoney } from './money';
+import { roundMoney } from './money';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { HttpStatus } from '@nestjs/common';
 export interface ReferencePrice {
@@ -39,14 +39,6 @@ export function requirePriceReason(
       : ''
     : (old?.adjustmentReason ?? fields.adjustmentReason ?? '');
 }
-export function vehicleSegmentTotal(
-  plan: ItineraryInput['vehiclePlans'][number],
-) {
-  return plan.arrangements.length &&
-    plan.arrangements.every((a) => a.totalPrice != null)
-    ? sumMoney(plan.arrangements.map((a) => a.totalPrice!))
-    : null;
-}
 function prices(data: ItineraryInput) {
   return [
     ...[
@@ -79,36 +71,20 @@ function prices(data: ItineraryInput) {
       price: g.dailyPrice,
       ...g,
     })),
-    ...data.vehiclePlans
-      .filter((v) => v.quotationMode)
-      .flatMap((v) =>
-        (v.paxPrices ?? [])
-          .filter((p) => p.totalPrice != null)
-          .map((p) => ({
-            key: `vehicle:${v.tier}:${p.pax}`,
-            type: 'vehicle',
-            name: `${v.tier === 'vip' ? 'VIP' : '标准'}车辆全程总价 · ${p.pax} PAX`,
-            source: `${v.tier}:${p.pax}:${p.pricingMode}:${p.segmentTotal}`,
-            price: p.totalPrice!,
-            referencePrice: p.segmentTotal,
-            referenceBasis:
-              p.segmentTotal == null ? 'unknown' : 'segment_total',
-            adjustmentReason: p.adjustmentReason,
-          })),
-      ),
-    ...data.vehiclePlans
-      .filter((v) => !v.quotationMode)
-      .filter((v) => v.totalPrice != null)
-      .map((v) => ({
-        key: `vehicle:${v.tier}`,
-        type: 'vehicle',
-        name: v.tier === 'vip' ? 'VIP 车辆全程总价' : '标准车辆全程总价',
-        source: `${v.tier}:${v.pricingMode ?? 'unknown'}:${vehicleSegmentTotal(v)}`,
-        price: v.totalPrice!,
-        referencePrice: v.segmentTotal,
-        referenceBasis: v.segmentTotal == null ? 'unknown' : 'segment_total',
-        adjustmentReason: v.adjustmentReason,
-      })),
+    ...data.vehiclePlans.flatMap((v) =>
+      (v.paxPrices ?? [])
+        .filter((p) => p.totalPrice != null)
+        .map((p) => ({
+          key: `vehicle:${v.tier}:${p.pax}`,
+          type: 'vehicle',
+          name: `${v.tier === 'vip' ? 'VIP' : '标准'}车辆全程总价 · ${p.pax} PAX`,
+          source: `${v.tier}:${p.pax}:${p.pricingMode}:${p.segmentTotal}`,
+          price: p.totalPrice!,
+          referencePrice: p.segmentTotal,
+          referenceBasis: p.segmentTotal == null ? 'unknown' : 'segment_total',
+          adjustmentReason: p.adjustmentReason,
+        })),
+    ),
   ];
 }
 export async function recordPriceAdjustments(

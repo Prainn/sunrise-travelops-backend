@@ -31,7 +31,6 @@ import {
   RetryMessageDto,
   SendTextDto,
   SendReactionDto,
-  SendImageDto,
   SendImageBatchDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
@@ -48,26 +47,6 @@ export class WhatsappController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.uploadImage(id, imageFile(file), user);
-  }
-  @Post('conversations/:id/image-messages')
-  @Permissions('whatsapp:message:send')
-  sendImage(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() input: SendImageDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.service.enqueue(
-      id,
-      {
-        clientRequestId: input.clientRequestId,
-        text: input.caption,
-        replyToMessageId: input.replyToMessageId,
-      },
-      user,
-      undefined,
-      undefined,
-      input.mediaAssetId,
-    );
   }
   @Post('conversations/:id/image-message-batches')
   @Permissions('whatsapp:message:send')

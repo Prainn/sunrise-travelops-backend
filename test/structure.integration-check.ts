@@ -300,7 +300,7 @@ async function main() {
       [ids.contact, ids.agency],
     );
     await db.query(
-      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明',5,900,'roomNight')",
+      "INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,'HTL-001','历史酒店','昆明','international_five_star',900,'roomNight')",
       [ids.hotel],
     );
     await db.query(
@@ -366,13 +366,13 @@ async function main() {
       })),
       hotelPlans: [
         {
-          tier: 5,
+          tier: 'international_five_star',
           hotels: [
             {
               destination: '昆明',
               hotelId: ids.hotel,
               hotelName: '历史名称酒店',
-              rating: 5,
+              rating: 'international_five_star',
               breakfast: '早餐',
               unit: 'roomNight',
               unitCost: 555.55,
@@ -437,7 +437,7 @@ async function main() {
         options: [
           {
             id: 'option-old',
-            hotelTier: 5,
+            hotelTier: 'international_five_star',
             vehicleTier: 'standard',
             adultUnitPrice: 2000,
             leaderFocEnabled: false,
@@ -507,7 +507,7 @@ async function main() {
         options: [
           {
             optionId: 'option-old',
-            hotelTier: 5,
+            hotelTier: 'international_five_star',
             vehicleTier: 'standard',
             hotelCost: 6666.6,
             vehicleCost: 1234.56,
@@ -532,7 +532,8 @@ async function main() {
           },
         ],
       },
-    } as PdfData;
+      // Pre-diamond snapshots stored text hotel tiers; PdfData only models later numeric tiers.
+    } as unknown as PdfData;
     snapshot.calculation.options[0].profit = -12.34;
     await db.query(
       'INSERT INTO itinerary_quotes(id,itinerary_id,source_version,created_by,snapshot) VALUES($1,$2,1,$3,$4)',
@@ -587,7 +588,11 @@ async function main() {
       FROM itinerary_quote_options WHERE itinerary_id=$1`,
       [ids.draft],
     );
-    db.migrations.splice(0, db.migrations.length, ...all);
+    // Legacy quote/vehicle storage is retired in a later phase below.
+    const beforeRetirement = all.filter(
+      (m) => Number((m.name ?? m.constructor.name).slice(-13)) < 1796256005000,
+    );
+    db.migrations.splice(0, db.migrations.length, ...beforeRetirement);
     await assert.rejects(db.runMigrations(), /Conflicting shared staff costs/);
     await db.query(
       `UPDATE itinerary_quote_options SET guide_service_total=1499.99 WHERE itinerary_id=$1`,
@@ -660,11 +665,24 @@ async function main() {
       id: 'vip',
       vehicleTier: 'vip',
     });
-    pricingPlan.vehiclePlans.push({
+    const paxVehiclePlan = (
+      tier: 'standard' | 'vip',
+      totalPrice: number,
+    ): (typeof pricingPlan.vehiclePlans)[number] => ({
       ...pricingPlan.vehiclePlans[0],
-      tier: 'vip',
-      totalPrice: 2234.56,
+      tier,
+      quotationMode: 'itinerary',
+      totalPrice: null,
+      paxPrices: pricingPlan.paxTiers.map((pax) => ({
+        pax,
+        totalPrice,
+        pricingMode: 'manual',
+      })),
     });
+    pricingPlan.vehiclePlans = [
+      paxVehiclePlan('standard', 1234.56),
+      paxVehiclePlan('vip', 2234.56),
+    ];
     pricingPlan.dailyPlans.forEach((day) => {
       day.items = [];
     });
@@ -813,11 +831,20 @@ async function main() {
         userId: id,
         scope,
       });
+      // getCurrentUser requires a live account session.
+      const sessionId = randomUUID();
+      await db.query(
+        `INSERT INTO auth_account_sessions(id,user_id,identity_id,version,refresh_token_hash,expires_at)
+         VALUES($1,$2,$3,1,'isolated-test',now()+interval '1 day')`,
+        [sessionId, id, identity.id],
+      );
       return auth.getCurrentUser(
         id,
         identity.id,
         scope,
         allowedMenuKeys(scope, []),
+        sessionId,
+        1,
       );
     };
     const root = await current(ids.root, 'headquarters');

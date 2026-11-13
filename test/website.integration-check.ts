@@ -37,6 +37,7 @@ import { CityEntity } from '../src/resources/cities/city.entity';
 import { ApiExceptionFilter } from '../src/common/filters/api-exception.filter';
 import { createValidationException } from '../src/common/validation/validation-exception.factory';
 import { buildWebsitePreview } from '../src/website/website-engine';
+import { WEBSITE_PRICE_CATEGORIES } from '../src/website/website-price';
 import type {
   WebsiteConfig,
   WebsiteDay,
@@ -60,6 +61,14 @@ const tourMigrationName = 'AddTourManagement1791452400000';
 const flightConstraintMigrationName =
   'RefineTourFlightConstraints1791532800000';
 const templateNameMigrationName = 'AddWebsiteTemplateNames1791273600000';
+
+/** Five-part price carrying the whole total on the hotel component. */
+const hotelOnlyComponents = (unitPrice: string) =>
+  WEBSITE_PRICE_CATEGORIES.map((category) => ({
+    category,
+    unitPrice: category === 'hotel' ? unitPrice : '0',
+    showInPdf: false,
+  }));
 
 async function main() {
   const admin = await new DataSource({
@@ -346,14 +355,15 @@ async function main() {
       vehiclePlans: [
         {
           tier: 'standard',
-          totalPrice: 600,
-          pricingMode: 'automatic',
+          quotationMode: 'itinerary',
+          totalPrice: null,
+          paxPrices: [{ pax: 2, totalPrice: 600, pricingMode: 'automatic' }],
           arrangements: [
             {
               id: randomUUID(),
               startDate: '2026-10-07',
               endDate: '2026-10-07',
-              totalPrice: 600,
+              paxPrices: [{ pax: 2, totalPrice: 600 }],
               vehicles: [
                 {
                   vehicleId,
@@ -513,7 +523,10 @@ async function main() {
       quotation: [],
       notes: [],
     };
-    const frozenBefore: WebsiteQuotation = {
+    // Historical schema-1 snapshot, older than the current WebsiteQuotation contract.
+    const frozenBefore: Omit<WebsiteQuotation, 'schemaVersion'> & {
+      schemaVersion: 1;
+    } = {
       id: oldQuotationId,
       code: 'WQT-NAME-MIGRATION',
       itineraryId: oldItineraryId,
@@ -1122,6 +1135,7 @@ async function main() {
               vehicleType: null,
               hotelTier: 'A',
               unitPrice: '1288.50',
+              priceComponents: hotelOnlyComponents('1288.50'),
             },
           ],
         };
@@ -1237,6 +1251,7 @@ async function main() {
           'VAL-E07',
           (plan) => {
             plan.vehiclePrices[0].unitPrice = null;
+            plan.vehiclePrices[0].priceComponents = [];
           },
         ],
       ];

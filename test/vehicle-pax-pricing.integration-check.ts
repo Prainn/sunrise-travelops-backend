@@ -6,6 +6,7 @@ import { IsolationHarness } from './business-isolation.harness';
 import { priceDraft, priceResourceIds } from './fixtures/nullable-draft-prices';
 import { ItineraryInput } from '../src/inquiries/inquiry.dto';
 import { AddVehiclePaxPrices1795737600000 } from '../src/migrations/1795737600000-AddVehiclePaxPrices';
+import { RequireVehicleQuotationMode1796256006000 } from '../src/migrations/1796256006000-RequireVehicleQuotationMode';
 
 type Record = ItineraryInput & { id: string; version: number };
 type Calculation = {
@@ -56,6 +57,14 @@ async function run() {
     );
     const initial = priceDraft();
     initial.paxTiers = [15, 20, 25];
+    initial.vehiclePlans[0].paxPrices = initial.paxTiers.map((pax) => ({
+      pax,
+      totalPrice: 100,
+      pricingMode: 'automatic',
+    }));
+    initial.vehiclePlans[0].arrangements[0].paxPrices = initial.paxTiers.map(
+      (pax) => ({ pax, totalPrice: 100 }),
+    );
     initial.quote.options[0].paxPrices = [];
     initial.guidePlans = [];
     initial.dailyPlans[0].items = [];
@@ -101,6 +110,49 @@ async function run() {
           [legacy.id],
         ),
         totals,
+      );
+      assert.deepEqual(
+        await q.query(
+          'SELECT snapshot FROM itinerary_quotes WHERE itinerary_id=$1',
+          [legacy.id],
+        ),
+        before,
+      );
+      // Shared-price plans become PAX-tier plans with the same totals; frozen quotes stay untouched.
+      await q.query(
+        "UPDATE itinerary_vehicle_plans SET total_price=100,pricing_mode='automatic',segment_total=100 WHERE itinerary_id=$1",
+        [legacy.id],
+      );
+      await q.query(
+        'UPDATE itinerary_vehicle_ranges SET total_price=100 WHERE itinerary_id=$1',
+        [legacy.id],
+      );
+      await new RequireVehicleQuotationMode1796256006000().up(q);
+      assert.deepEqual(
+        await q.query(
+          'SELECT quotation_mode,total_price,pricing_mode FROM itinerary_vehicle_plans WHERE itinerary_id=$1',
+          [legacy.id],
+        ),
+        [{ quotation_mode: 'stage', total_price: null, pricing_mode: null }],
+      );
+      assert.deepEqual(
+        await q.query(
+          'SELECT pax,total_price::text,pricing_mode,segment_total::text FROM itinerary_vehicle_pax_prices WHERE itinerary_id=$1 ORDER BY pax',
+          [legacy.id],
+        ),
+        [15, 20, 25].map((pax) => ({
+          pax,
+          total_price: '100',
+          pricing_mode: 'automatic',
+          segment_total: '100',
+        })),
+      );
+      assert.deepEqual(
+        await q.query(
+          'SELECT pax,total_price::text FROM itinerary_vehicle_range_pax_prices WHERE itinerary_id=$1 ORDER BY pax',
+          [legacy.id],
+        ),
+        [15, 20, 25].map((pax) => ({ pax, total_price: '100' })),
       );
       assert.deepEqual(
         await q.query(
@@ -169,9 +221,16 @@ async function run() {
       actor,
       'PUT',
       path,
-      { ...initial, version: record.version },
+      {
+        ...initial,
+        vehiclePlans: initial.vehiclePlans.map((p) => ({
+          ...p,
+          quotationMode: undefined,
+        })),
+        version: record.version,
+      },
       400,
-      'ITINERARY_INVALID',
+      'VALIDATION_ERROR',
     );
     const baseline = await h.call<Record>(actor, 'GET', path);
     next = body(record);

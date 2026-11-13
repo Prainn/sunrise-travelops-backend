@@ -63,7 +63,7 @@ export const ITINERARY_TABLES = {
   },
   itinerary_vehicle_plans: {
     tier: 'text',
-    quotationMode: 'text?',
+    quotationMode: 'text',
     totalPrice: 'numeric?',
     pricingMode: 'text?',
     segmentTotal: 'numeric?',
@@ -331,27 +331,17 @@ export async function loadItineraryData(
         .map((h) => omit(h, ['tier'])),
     })),
     vehiclePlans: rows.itinerary_vehicle_plans.map((p) => ({
-      ...omit(p, p.quotationMode ? [] : ['quotationMode']),
-      ...(p.quotationMode
-        ? {
-            paxPrices: rows.itinerary_vehicle_pax_prices
-              .filter((price) => price.tier === p.tier)
-              .map((price) => omit(price, ['tier'])),
-          }
-        : {}),
+      ...p,
+      paxPrices: rows.itinerary_vehicle_pax_prices
+        .filter((price) => price.tier === p.tier)
+        .map((price) => omit(price, ['tier'])),
       arrangements: rows.itinerary_vehicle_ranges
         .filter((a) => a.tier === p.tier)
         .map((a) => ({
           ...omit(a, ['tier']),
-          ...(p.quotationMode
-            ? {
-                paxPrices: rows.itinerary_vehicle_range_pax_prices
-                  .filter(
-                    (price) => price.tier === p.tier && price.rangeId === a.id,
-                  )
-                  .map((price) => omit(price, ['tier', 'rangeId'])),
-              }
-            : {}),
+          paxPrices: rows.itinerary_vehicle_range_pax_prices
+            .filter((price) => price.tier === p.tier && price.rangeId === a.id)
+            .map((price) => omit(price, ['tier', 'rangeId'])),
           vehicles: rows.itinerary_vehicles
             .filter((v) => v.tier === p.tier && v.rangeId === a.id)
             .map((v) => omit(v, ['tier', 'rangeId'])),

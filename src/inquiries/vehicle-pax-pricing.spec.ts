@@ -163,15 +163,10 @@ describe('PAX vehicle pricing', () => {
     shared.vehiclePlans[0].totalPrice = 100;
     await expect(normalize(shared)).rejects.toThrow('共用');
   });
-  it('rejects insufficient itinerary seats and old-editor downgrades', async () => {
+  it('rejects insufficient itinerary seats', async () => {
     const input = fixture('itinerary');
     input.vehiclePlans[0].arrangements[0].vehicles[0].seats = 20;
     await expect(normalize(input)).rejects.toThrow('insufficient seats');
-    const old = await normalize(fixture());
-    const legacy = priceDraft();
-    legacy.paxTiers = [15, 20, 25];
-    legacy.quote.options[0].paxPrices = [];
-    await expect(normalize(legacy, old)).rejects.toThrow('支持分档');
   });
   it('requires a per-PAX manual adjustment reason, isolates history and permits automatic restoration', async () => {
     const old = await normalize(fixture('itinerary'));

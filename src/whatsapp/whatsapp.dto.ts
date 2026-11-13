@@ -104,17 +104,6 @@ export class SendReactionDto {
   @IsUUID() clientRequestId: string;
   @IsIn(['👍', '❤️', '😂', '😮', '😢', '🙏', '']) emoji: string;
 }
-export class SendImageDto {
-  @IsUUID() clientRequestId: string;
-  @IsUUID() mediaAssetId: string;
-  @IsOptional() @IsUUID() replyToMessageId?: string;
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
-  @IsString()
-  @MaxLength(1024)
-  caption = '';
-}
 export class BatchImageDto {
   @IsUUID() clientRequestId: string;
   @IsUUID() mediaAssetId: string;

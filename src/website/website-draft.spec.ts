@@ -1,5 +1,6 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { WebsiteService } from './website.service';
+import { WEBSITE_PRICE_CATEGORIES } from './website-price';
 import type { WebsiteUpdateItineraryDto } from './website.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import type {
@@ -10,6 +11,14 @@ import type {
 } from './website.types';
 
 // Persistence/DTO roundtrips are exercised against PostgreSQL in website-sequence.integration-check.
+/** Five-part price carrying the whole total on the hotel component. */
+const hotelOnlyComponents = (unitPrice: string) =>
+  WEBSITE_PRICE_CATEGORIES.map((category) => ({
+    category,
+    unitPrice: category === 'hotel' ? unitPrice : '0',
+    showInPdf: false,
+  }));
+
 describe('website draft save and explicit validation', () => {
   const user = {
     scope: 'website',
@@ -205,7 +214,7 @@ describe('website draft save and explicit validation', () => {
         vehicleType: null,
         hotelTier: null,
         unitPrice: '500.00',
-        priceComponents: [],
+        priceComponents: hotelOnlyComponents('500.00'),
         includesDriver: false,
         includesGuide: false,
       },

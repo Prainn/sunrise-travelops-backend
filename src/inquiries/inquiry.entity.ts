@@ -11,9 +11,10 @@ import {
 import { AuditedEntity } from '../common/entities/audited.entity';
 import type { ItineraryInput, LogAction } from './inquiry.dto';
 import type {
+  ItineraryHotelTier,
   ItineraryRecord,
   ItineraryQuoteCalculation,
-  LegacyQuoteCalculation,
+  ItineraryVehicleTier,
 } from './itinerary.types';
 export interface InquiryData {
   isSeries?: boolean;
@@ -217,6 +218,28 @@ export interface CurrentPdfData {
   quoteVersion: number;
   calculation: ItineraryQuoteCalculation;
 }
+interface LegacyQuoteOptionCalculation {
+  optionId: string;
+  hotelTier: ItineraryHotelTier;
+  vehicleTier: ItineraryVehicleTier;
+  hotelCost: number;
+  vehicleCost: number;
+  commonGroupCost: number;
+  baseGroupCost: number;
+  baseCostPerPerson: number;
+  singleSupplementUnitCost: number;
+  adultUnitPrice: number;
+  childUnitPrice: number;
+  totalPrice: number;
+  profit: number;
+  actualMarginRate: number;
+  lines: {
+    type: 'adult' | 'child';
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+  }[];
+}
 /** Historical migration input: preserve the pre-PAX snapshot contract. */
 export interface PdfData extends Omit<
   CurrentPdfData,
@@ -258,7 +281,13 @@ export interface PdfData extends Omit<
       }>;
     };
   };
-  calculation: LegacyQuoteCalculation;
+  calculation: {
+    hotelGuestCount: number;
+    hotelRoomCount: number;
+    dailyResourceCost: number;
+    guideCost: number;
+    options: LegacyQuoteOptionCalculation[];
+  };
 }
 @Entity('itinerary_quotes')
 export class ItineraryQuoteEntity {
@@ -273,10 +302,6 @@ export class ItineraryQuoteEntity {
   @Column({ name: 'quote_version', type: 'integer' }) quoteVersion: number;
   @Column({ name: 'inquiry_id', type: 'uuid' }) inquiryId: string;
   @Column({ name: 'inquiry_version', type: 'integer' }) inquiryVersion: number;
-  @Column({ name: 'hotel_guest_count', type: 'integer', nullable: true })
-  hotelGuestCount: number | null;
-  @Column({ name: 'hotel_room_count', type: 'integer', nullable: true })
-  hotelRoomCount: number | null;
   @Column({ name: 'daily_resource_cost', type: 'numeric' })
   dailyResourceCost: number;
   @Column({ name: 'guide_cost', type: 'numeric' }) guideCost: number;

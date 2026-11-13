@@ -10,7 +10,6 @@ import type {
   WebsiteService,
   WebsiteVehiclePrice,
   WebsiteVehiclePriceInput,
-  WebsitePreviousPlanPrice,
 } from './website.types';
 
 type DayRow = Omit<
@@ -69,30 +68,6 @@ export async function loadWebsiteDetails(
       ) AS value FROM website_services WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
   );
-  const previousPlanPrices = await manager.query<WebsitePreviousPlanPrice[]>(
-    `SELECT vehicle_type AS "vehicleType",plan,includes_driver AS "includesDriver",includes_guide AS "includesGuide",unit_price::text AS "unitPrice"
-      FROM website_vehicle_prices WHERE itinerary_id=$1 ORDER BY CASE vehicle_type
-        WHEN '5_seat' THEN 1 WHEN '7_seat' THEN 2 WHEN '9_seat' THEN 3 WHEN '14_seat' THEN 4 ELSE 5 END,plan`,
-    [itineraryId],
-  );
-  const components = await manager.query<
-    (WebsitePriceComponent & { vehicleType: string; plan: string })[]
-  >(
-    `SELECT vehicle_type AS "vehicleType", plan, category, unit_price::text AS "unitPrice", show_in_pdf AS "showInPdf"
-     FROM website_price_components WHERE itinerary_id=$1 ORDER BY category`,
-    [itineraryId],
-  );
-  for (const price of previousPlanPrices)
-    price.priceComponents = components
-      .filter(
-        (row) =>
-          row.vehicleType === price.vehicleType && row.plan === price.plan,
-      )
-      .map(({ category, unitPrice, showInPdf }) => ({
-        category,
-        unitPrice,
-        showInPdf,
-      }));
   const vehiclePrices = await manager.query<WebsiteVehiclePrice[]>(
     `SELECT NULLIF(vehicle_type,'') AS "vehicleType",NULLIF(hotel_tier,'') AS "hotelTier",unit_price::text AS "unitPrice"
      FROM website_quotation_prices WHERE itinerary_id=$1 ORDER BY hotel_tier,CASE vehicle_type
@@ -146,7 +121,6 @@ export async function loadWebsiteDetails(
   return {
     days: activeDays,
     quotationOptions,
-    previousPlanPrices,
     deletedDays: days
       .filter((day) => day.isDeleted)
       .map((day) => ({ day: readDay(day), originalDate: day.originalDate })),

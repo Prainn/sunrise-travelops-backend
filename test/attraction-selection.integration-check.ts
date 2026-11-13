@@ -34,7 +34,6 @@ async function run() {
     for (const [index, fixture] of [
       { name: '空描述免费', description: '', price: '0.00' },
       { name: '空白描述', description: ' \t\n　', price: '10.00' },
-      { name: '待补价', description: '', price: null },
       {
         name: '停用',
         description: '',
@@ -92,7 +91,7 @@ async function run() {
     const restaurant = (await restaurants.find())[0];
     await assert.rejects(selection.detail('restaurant', restaurant.id));
     console.log(
-      'PASS: blank/whitespace attraction descriptions, zero price, list/detail/search/city; unpriced/disabled/deleted excluded; restaurant rule preserved.',
+      'PASS: blank/whitespace attraction descriptions, zero price, list/detail/search/city; disabled/deleted excluded; restaurant rule preserved.',
     );
   } finally {
     if (db?.isInitialized) await db.destroy();

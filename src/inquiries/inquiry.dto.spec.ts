@@ -26,6 +26,7 @@ function request() {
     hotelPlans: [3, 4, 5].map((tier) => ({ tier, hotels: [] })),
     vehiclePlans: ['standard', 'vip'].map((tier) => ({
       tier,
+      quotationMode: 'itinerary',
       arrangements: [],
       totalPrice: null,
     })),

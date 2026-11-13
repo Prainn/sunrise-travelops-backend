@@ -15,7 +15,7 @@ import { AttractionCategory } from '../common/resource.constants';
   'CHK_resource_attractions_category',
   "\"category\" IN ('scenic', 'performance', 'experience', 'transport', 'package')",
 )
-@Check('CHK_resource_attractions_price', '"price" IS NULL OR "price" >= 0')
+@Check('CHK_resource_attractions_price', '"price" >= 0')
 export class AttractionEntity extends TopLevelResourceEntity {
   @Column({ name: 'english_name', type: 'varchar', length: 150, default: '' })
   englishName: string;
@@ -36,7 +36,7 @@ export class AttractionEntity extends TopLevelResourceEntity {
   @Column({ type: 'text', default: '' }) description: string;
   @Column({ type: 'text', default: '' }) remark: string;
   @Column({ type: 'varchar', length: 100 }) unit: string;
-  /** Settlement price; null only for migrated legacy records still waiting for a price. */
-  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
-  price: string | null;
+  /** Settlement price. */
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  price: string;
 }
