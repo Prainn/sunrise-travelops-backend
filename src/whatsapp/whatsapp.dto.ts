@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsDefined,
   IsIn,
@@ -36,6 +37,15 @@ export class MessageListQuery extends PaginationQueryDto {
 }
 export class ChatVersionDto {
   @IsInt() @Min(1) version: number;
+}
+export class UpdateWhatsappRuntimeDto extends ChatVersionDto {
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsBoolean()
+  inboundEnabled?: boolean;
+
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsBoolean()
+  outboundEnabled?: boolean;
 }
 export class AssignChatDto extends ChatVersionDto {
   @IsUUID() ownerId: string;
@@ -128,6 +138,17 @@ export class SendImageBatchDto {
   textMessage?: BatchTextDto;
 
   @IsOptional() @IsUUID() replyToMessageId?: string;
+}
+export class SendDocumentDto {
+  @IsUUID() clientRequestId: string;
+  @IsUUID() documentId: string;
+
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsDefined()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => BatchTextDto)
+  textMessage?: BatchTextDto;
 }
 export class RetryMessageDto {
   @IsUUID() clientRequestId: string;

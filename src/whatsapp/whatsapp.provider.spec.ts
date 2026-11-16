@@ -200,6 +200,35 @@ describe('WhatsApp official SDK adapter', () => {
       await provider.send(account, 'ZZ.synthetic', 'Synthetic', 'task'),
     ).toEqual({ status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' });
   });
+  it('does not send a document with an oversized link and preserves a definitive validation error', async () => {
+    const transport = jest
+      .spyOn(Cams.prototype, 'sendChatappMessageWithOptions')
+      .mockRejectedValue(
+        Object.assign(new Error('private content'), {
+          code: 'InvalidParameter.DocumentError',
+        }),
+      );
+    const send = (link: string) =>
+      provider.send(
+        account,
+        'ZZ.synthetic',
+        '',
+        'task',
+        undefined,
+        undefined,
+        undefined,
+        { link, fileName: 'example.pdf' },
+      );
+    expect(await send('https://example.test/' + 'x'.repeat(1024))).toEqual({
+      status: 'failed',
+      errorCode: 'InvalidParameter.LinkMaxSize',
+    });
+    expect(transport).not.toHaveBeenCalled();
+    expect(await send('https://example.test/example.pdf')).toEqual({
+      status: 'failed',
+      errorCode: 'InvalidParameter.DocumentError',
+    });
+  });
   it('does not call the SDK for an unauthorized test recipient', async () => {
     const transport = jest.spyOn(
       Cams.prototype,

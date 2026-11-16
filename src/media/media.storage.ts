@@ -7,14 +7,27 @@ import { MediaConfig } from './media.config';
 export class MediaStorage {
   constructor(private readonly config: MediaConfig) {}
   call<T>(body: Record<string, unknown>): Promise<T> {
+    return this.send<T>(
+      '/objects',
+      'POST',
+      { 'content-type': 'application/json' },
+      JSON.stringify(body),
+    );
+  }
+  private send<T>(
+    path: string,
+    method: string,
+    headers: Record<string, string>,
+    body: string | Buffer,
+  ): Promise<T> {
     this.config.assertEnabled();
     return new Promise((resolve, reject) => {
       const req = request(
         {
           socketPath: this.config.socket,
-          path: '/objects',
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          path,
+          method,
+          headers,
         },
         (res) => {
           let data = '';
@@ -37,7 +50,7 @@ export class MediaStorage {
       );
       req.setTimeout(45000, () => req.destroy());
       req.on('error', () => reject(new Error('OSS_UNAVAILABLE')));
-      req.end(JSON.stringify(body));
+      req.end(body);
     });
   }
   put(key: string, body: Buffer, mime: string) {
@@ -50,5 +63,25 @@ export class MediaStorage {
   }
   remove(keys: string[]) {
     return this.call<{ deleted: boolean }>({ action: 'delete', keys });
+  }
+  putDocument(key: string, body: Buffer) {
+    return this.send<{ etag: string }>(
+      '/documents',
+      'PUT',
+      {
+        'content-type': 'application/octet-stream',
+        'content-length': String(body.length),
+        'x-oss-object-key': key,
+      },
+      body,
+    );
+  }
+  signDocument(key: string, purpose: 'download' | 'send', fileName: string) {
+    return this.call<{ url: string }>({
+      action: 'sign-document',
+      key,
+      purpose,
+      fileName,
+    });
   }
 }

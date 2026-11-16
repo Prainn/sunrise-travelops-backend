@@ -108,11 +108,11 @@ def prepare(source, source_sha, workflow_sha, operation, release_id):
         raise ValueError('Candidate preparation requires the workflow build lock')
     if not deploy.ID.fullmatch(release_id) or not release_id.startswith(source_sha + '-'):
         raise ValueError('Release ID does not match source')
-    verified_dev_sha = os.environ.get('HOSTED_VERIFIED_DEV_SHA', '')
-    if verified_dev_sha and not (
-        deploy.ENVIRONMENT == 'dev' and operation == 'deploy' and verified_dev_sha == source_sha == workflow_sha
+    verified_sha = os.environ.get('HOSTED_VERIFIED_SHA', '')
+    if verified_sha and not (
+        deploy.ENVIRONMENT in ('dev', 'prod') and operation == 'deploy' and verified_sha == source_sha == workflow_sha
     ):
-        raise ValueError('Hosted verification must match the exact ordinary dev candidate')
+        raise ValueError('Hosted verification must match the exact ordinary release candidate')
     check_branch(workflow_sha)
     binding = identity(source, source_sha, workflow_sha, operation)
     key = hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
@@ -152,7 +152,7 @@ def prepare(source, source_sha, workflow_sha, operation, release_id):
         with deploy.timed('Build and verify application image'):
             tag = 'sunrise-travelops-api:candidate-' + key
             # Hosted verification changes where lint runs; both paths compile identical inputs.
-            checks = ['--build-arg', 'SUNRISE_BUILD_CHECKS=hosted-dev'] if verified_dev_sha else []
+            checks = ['--build-arg', 'SUNRISE_BUILD_CHECKS=hosted-release'] if verified_sha else []
             build(['docker', 'buildx', 'build', '--builder', 'sunrise', '--load',
                    *checks,
                    '--label', 'org.opencontainers.image.revision=' + source_sha,

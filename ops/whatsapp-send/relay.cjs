@@ -31,12 +31,29 @@ async function lookupMessageId(client, config, { providerId, occurredAt }) {
 }
 function validateSend(value, mediaOrigin, environment) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId', 'image'].includes(key)) ||
+      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId', 'image', 'document'].includes(key)) ||
       typeof value.recipient !== 'string' || !/^(\d{5,20}|[A-Z]{2}\.[A-Za-z0-9.]+)$/.test(value.recipient) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.taskId) ||
       typeof value.text !== 'string' || value.text.length > 4096) return false;
   if (value.contextMessageId !== undefined &&
       (typeof value.contextMessageId !== 'string' || !value.contextMessageId.length || value.contextMessageId.length > 1000 || value.reaction !== undefined)) return false;
+  if (value.document !== undefined) {
+    const doc = value.document;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc) || value.image !== undefined ||
+        value.reaction !== undefined || value.contextMessageId !== undefined || value.text !== '' ||
+        Object.keys(doc).some(key => !['link', 'fileName'].includes(key)) ||
+        typeof doc.link !== 'string' || doc.link.length > 1024 ||
+        typeof doc.fileName !== 'string' || doc.fileName.length > 245 || /[\p{C}\\/]/u.test(doc.fileName) ||
+        !['dev', 'prod'].includes(environment)) return false;
+    try {
+      const url = new URL(doc.link);
+      const uuid = '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}';
+      const m = new RegExp('^/api/whatsapp/document-transfer/' + uuid + '/[0-9a-z]{1,10}\\.[A-Za-z0-9_-]{43}/file\\.(pdf|docx?)$').exec(url.pathname);
+      const apiOrigin = environment === 'dev' ? 'https://api-dev.sunrisevacation.cn' : 'https://api.sunrisevacation.cn';
+      return !!m && doc.fileName.toLowerCase().endsWith('.' + m[1]) &&
+        url.origin === apiOrigin && !url.username && !url.password && !url.hash && !url.search;
+    } catch { return false; }
+  }
   if (value.image !== undefined) {
     const image = value.image;
     if (!image || typeof image !== 'object' || Array.isArray(image) || value.reaction !== undefined ||
@@ -58,6 +75,11 @@ function validateSend(value, mediaOrigin, environment) {
       EMOJIS.includes(reaction.emoji) && reaction.emoji === value.text;
   }
   return value.text.trim().length > 0;
+}
+
+function validationCode(error) {
+  return error && typeof error.code === 'string' && /^InvalidParameter\.[A-Za-z0-9]{1,64}$/.test(error.code)
+    ? error.code : null;
 }
 
 function createRelay(send, health, lookup, mediaOrigin, environment) {
@@ -90,7 +112,9 @@ function createRelay(send, health, lookup, mediaOrigin, environment) {
       }
       if (!validateSend(body, mediaOrigin, environment)) { respond(400, { error: 'INVALID_SEND' }); return; }
       respond(200, await send(body));
-    } catch {
+    } catch (error) {
+      const errorCode = validationCode(error);
+      if (errorCode) { respond(200, { status: 'failed', errorCode }); return; }
       // An interrupted request is never retried here. Preserve ambiguity upstream.
       respond(200, { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' });
     }
@@ -114,16 +138,16 @@ async function main() {
   const client = new CamsModule.default(new $OpenApiUtil.Config({
     credential, endpoint: 'cams.ap-southeast-1.aliyuncs.com',
   }));
-  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId, image }) => {
+  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId, image, document }) => {
     const result = await client.sendChatappMessageWithOptions(new CamsModule.SendChatappMessageRequest({
-      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : image ? 'image' : 'text',
+      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : image ? 'image' : document ? 'document' : 'text',
       custSpaceId: config.spaceId, from: config.phone, to: recipient,
-      content: JSON.stringify(reaction ?? image ?? { text }), taskId, contextMessageId,
+      content: JSON.stringify(reaction ?? image ?? document ?? { text }), taskId, contextMessageId,
     }), new RuntimeOptions({ autoretry: false, maxAttempts: 1, connectTimeout: 5000, readTimeout: 10000 }));
     if (result.body?.code === 'OK' && result.body.messageId)
       return { status: 'accepted', providerId: result.body.messageId };
     if (result.body?.code && result.body.code !== 'OK')
-      return { status: 'failed', errorCode: 'PROVIDER_REJECTED' };
+      return { status: 'failed', errorCode: validationCode(result.body) ?? 'PROVIDER_REJECTED' };
     return { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' };
   }, async () => {
     const value = await credential.getCredential();

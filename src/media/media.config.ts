@@ -8,6 +8,12 @@ export class MediaConfig {
   get enabled() {
     return this.config.get<string>('OSS_MEDIA_ENABLED') === 'true';
   }
+  get documentsEnabled() {
+    return (
+      this.enabled &&
+      this.config.get<string>('OSS_WHATSAPP_DOCUMENTS_ENABLED') === 'true'
+    );
+  }
   get environment(): 'dev' | 'prod' {
     const value = this.config.get<string>('OSS_MEDIA_ENVIRONMENT');
     if (value !== 'dev' && value !== 'prod')
@@ -19,6 +25,14 @@ export class MediaConfig {
   }
   get publicOrigin() {
     return this.config.get<string>('OSS_MEDIA_PUBLIC_ORIGIN') ?? '';
+  }
+  get documentTransferOrigin() {
+    return this.environment === 'dev'
+      ? 'https://api-dev.sunrisevacation.cn'
+      : 'https://api.sunrisevacation.cn';
+  }
+  get documentTransferSecret() {
+    return this.config.getOrThrow<string>('JWT_SECRET');
   }
   assertEnabled() {
     if (!this.enabled || !this.socket)

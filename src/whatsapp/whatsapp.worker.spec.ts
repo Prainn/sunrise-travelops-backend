@@ -10,6 +10,8 @@ import { WhatsappEvents } from './whatsapp.events';
 import { WhatsappQueueToken } from './whatsapp.queue-token';
 import { WhatsappWorker } from './whatsapp.worker';
 import { MediaService } from '../media/media.service';
+import { WhatsappDocuments } from '../media/media.whatsapp-documents';
+import { WhatsappRuntime } from './whatsapp-runtime.service';
 
 const root: AuthenticatedUser = {
   id: 'root',
@@ -48,6 +50,11 @@ describe('WhatsApp current-process worker diagnostics', () => {
       config,
       {} as WhatsappProvider,
       {} as MediaService,
+      { enabled: false } as WhatsappDocuments,
+      {
+        state: () =>
+          Promise.resolve({ inboundEnabled: true, outboundEnabled: true }),
+      } as WhatsappRuntime,
     );
     jest.spyOn(service, 'dispatchOne').mockResolvedValue(false);
     processOne.mockReset().mockResolvedValue(false);

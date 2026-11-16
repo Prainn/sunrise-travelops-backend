@@ -99,6 +99,7 @@ describe('OperationLogInterceptor', () => {
       'WhatsappController.send',
       'WhatsappController.sendImage',
       'WhatsappController.sendImageBatch',
+      'WhatsappController.sendDocument',
       'WhatsappController.react',
       'WhatsappController.retry',
       'WhatsappController.confirmFailed',
