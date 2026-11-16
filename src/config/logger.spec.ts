@@ -101,3 +101,26 @@ describe('certificate log protection', () => {
     }
   });
 });
+
+it('does not log a document transfer token from a request path or route parameters', () => {
+  const options = createLoggerModuleOptions().pinoHttp as Options;
+  const request = {
+    method: 'GET',
+    url: '/api/whatsapp/document-transfer/message/test-credential/file.pdf',
+  } as IncomingMessage;
+  const response = {
+    statusCode: 200,
+    locals: {
+      httpLogSource: {
+        context: 'WhatsappDocumentTransferController',
+        params: { token: 'test-credential' },
+      },
+    },
+  } as unknown as ServerResponse;
+  const result: unknown = options.customSuccessObject!(request, response, {});
+  expect(result).toMatchObject({
+    path: '/api/whatsapp/document-transfer/[REDACTED]',
+    params: { token: '[REDACTED]' },
+  });
+  expect(JSON.stringify(result)).not.toContain('test-credential');
+});

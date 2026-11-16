@@ -42,20 +42,16 @@ function validateSend(value, mediaOrigin, environment) {
     if (!doc || typeof doc !== 'object' || Array.isArray(doc) || value.image !== undefined ||
         value.reaction !== undefined || value.contextMessageId !== undefined || value.text !== '' ||
         Object.keys(doc).some(key => !['link', 'fileName'].includes(key)) ||
-        typeof doc.link !== 'string' || doc.link.length > 8192 ||
+        typeof doc.link !== 'string' || doc.link.length > 1024 ||
         typeof doc.fileName !== 'string' || doc.fileName.length > 245 || /[\p{C}\\/]/u.test(doc.fileName) ||
         !['dev', 'prod'].includes(environment)) return false;
     try {
       const url = new URL(doc.link);
       const uuid = '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}';
-      const m = new RegExp('^/private/' + environment + '/whatsapp/' + uuid + '/' + uuid + '\\.(pdf|docx?)$').exec(url.pathname);
-      const ttl = Number(url.searchParams.get('x-oss-expires'));
+      const m = new RegExp('^/api/whatsapp/document-transfer/' + uuid + '/[0-9a-z]{1,10}\\.[A-Za-z0-9_-]{43}/file\\.(pdf|docx?)$').exec(url.pathname);
+      const apiOrigin = environment === 'dev' ? 'https://api-dev.sunrisevacation.cn' : 'https://api.sunrisevacation.cn';
       return !!m && doc.fileName.toLowerCase().endsWith('.' + m[1]) &&
-        url.origin === 'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com' &&
-        !url.username && !url.password && !url.hash &&
-        Number.isInteger(ttl) && ttl > 0 && ttl <= 900 &&
-        url.searchParams.get('x-oss-signature-version') === 'OSS4-HMAC-SHA256' &&
-        /^[a-f0-9]{64}$/.test(url.searchParams.get('x-oss-signature') ?? '');
+        url.origin === apiOrigin && !url.username && !url.password && !url.hash && !url.search;
     } catch { return false; }
   }
   if (value.image !== undefined) {
@@ -79,6 +75,11 @@ function validateSend(value, mediaOrigin, environment) {
       EMOJIS.includes(reaction.emoji) && reaction.emoji === value.text;
   }
   return value.text.trim().length > 0;
+}
+
+function validationCode(error) {
+  return error && typeof error.code === 'string' && /^InvalidParameter\.[A-Za-z0-9]{1,64}$/.test(error.code)
+    ? error.code : null;
 }
 
 function createRelay(send, health, lookup, mediaOrigin, environment) {
@@ -111,7 +112,9 @@ function createRelay(send, health, lookup, mediaOrigin, environment) {
       }
       if (!validateSend(body, mediaOrigin, environment)) { respond(400, { error: 'INVALID_SEND' }); return; }
       respond(200, await send(body));
-    } catch {
+    } catch (error) {
+      const errorCode = validationCode(error);
+      if (errorCode) { respond(200, { status: 'failed', errorCode }); return; }
       // An interrupted request is never retried here. Preserve ambiguity upstream.
       respond(200, { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' });
     }
@@ -135,7 +138,7 @@ async function main() {
     if (result.body?.code === 'OK' && result.body.messageId)
       return { status: 'accepted', providerId: result.body.messageId };
     if (result.body?.code && result.body.code !== 'OK')
-      return { status: 'failed', errorCode: 'PROVIDER_REJECTED' };
+      return { status: 'failed', errorCode: validationCode(result.body) ?? 'PROVIDER_REJECTED' };
     return { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' };
   }, async () => {
     const value = await credential.getCredential();

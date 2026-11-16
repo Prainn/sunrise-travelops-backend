@@ -3,8 +3,11 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  StreamableFile,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { chatFail } from '../whatsapp/whatsapp.policy';
@@ -13,6 +16,9 @@ import { validateDocument } from './media.document-format';
 import { MediaStorage } from './media.storage';
 
 const DRAFT_MS = 24 * 60 * 60 * 1000;
+const TRANSFER_TTL_SECONDS = 15 * 60;
+const OSS_DOCUMENT_ORIGIN =
+  'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com';
 type DocumentRow = {
   id: string;
   conversation_id: string;
@@ -183,6 +189,113 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
       );
     } catch {
       chatFail('CONFLICT', '文件暂不可下载，请稍后重试', 409);
+    }
+  }
+
+  private transferMac(messageId: string, file: string, expiry: string) {
+    // Domain separation from bearer JWT signing, with binding to this deployment.
+    const key = createHmac('sha256', this.config.documentTransferSecret)
+      .update('sunrise-whatsapp-document-transfer-v1')
+      .digest();
+    return createHmac('sha256', key)
+      .update([this.config.environment, messageId, file, expiry].join('\n'))
+      .digest('base64url');
+  }
+
+  private async transferRecord(messageId: string) {
+    const [row] = await this.db.query<DocumentRow[]>(
+      `SELECT d.* FROM whatsapp_messages m JOIN whatsapp_documents d
+        ON d.id=(m.attachment->>'documentId')::uuid AND d.conversation_id=m.conversation_id
+        WHERE m.id=$1 AND m.direction='outbound' AND m.source='system'
+          AND m.kind='document' AND m.status IN ('sending','accepted','sent','delivered','read','unknown')
+          AND d.state='ready' AND d.claimed_at IS NOT NULL`,
+      [messageId],
+    );
+    return row;
+  }
+
+  async createTransfer(messageId: string) {
+    this.assertEnabled();
+    const row = await this.transferRecord(messageId);
+    if (!row) chatFail('NOT_FOUND', '文件不存在', 404);
+    const file = 'file.' + row.extension;
+    const expiry = (
+      Math.floor(Date.now() / 1000) + TRANSFER_TTL_SECONDS
+    ).toString(36);
+    const token = expiry + '.' + this.transferMac(messageId, file, expiry);
+    return {
+      link: `${this.config.documentTransferOrigin}/api/whatsapp/document-transfer/${messageId}/${token}/${file}`,
+      fileName: row.file_name,
+    };
+  }
+
+  async readTransfer(
+    messageId: string,
+    token: string,
+    file: string,
+    headOnly: boolean,
+  ) {
+    const parts = /^([0-9a-z]{1,10})\.([a-zA-Z0-9_-]{43})$/.exec(token);
+    const notFound = () => chatFail('NOT_FOUND', '文件链接无效或已过期', 404);
+    if (!this.enabled || !parts || !/^file\.(pdf|docx?)$/.test(file))
+      return notFound();
+    const [, expiry, signature] = parts;
+    const expiresAt = Number.parseInt(expiry, 36);
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      expiresAt <= now ||
+      expiresAt > now + TRANSFER_TTL_SECONDS ||
+      !timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(this.transferMac(messageId, file, expiry)),
+      )
+    )
+      return notFound();
+    const row = await this.transferRecord(messageId);
+    if (!row || file !== 'file.' + row.extension) return notFound();
+    const headers = { type: row.mime_type, length: row.size_bytes };
+    if (headOnly) return new StreamableFile(Buffer.alloc(0), headers);
+
+    try {
+      const key = this.key(row);
+      const { url } = await this.storage.signDocument(
+        key,
+        'send',
+        row.file_name,
+      );
+      const signed = new URL(url);
+      if (
+        signed.origin !== OSS_DOCUMENT_ORIGIN ||
+        signed.pathname !== '/' + key ||
+        signed.username ||
+        signed.password ||
+        signed.hash ||
+        !signed.search
+      )
+        throw new Error('DOCUMENT_OSS_URL_INVALID');
+      const response = await fetch(signed, {
+        redirect: 'error',
+        headers: { 'accept-encoding': 'identity' },
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (
+        response.status !== 200 ||
+        Number(response.headers.get('content-length')) !== row.size_bytes ||
+        !response.body ||
+        ![null, 'identity'].includes(response.headers.get('content-encoding'))
+      ) {
+        await response.body?.cancel();
+        throw new Error('DOCUMENT_OSS_READ_INVALID');
+      }
+      // Node fetch provides a native web stream; DOM and node:stream/web declare different overloads.
+      return new StreamableFile(
+        Readable.fromWeb(
+          response.body as unknown as NodeReadableStream<Uint8Array>,
+        ),
+        headers,
+      );
+    } catch {
+      chatFail('CONFLICT', '文档暂时无法读取', 409);
     }
   }
 

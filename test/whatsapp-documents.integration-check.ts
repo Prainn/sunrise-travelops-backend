@@ -1,7 +1,9 @@
 /** Disposable Postgres. No real OSS or WhatsApp sends. */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { Server } from 'node:http';
 import { ConfigService } from '@nestjs/config';
+import { HttpAdapterHost } from '@nestjs/core';
 import { MAX_DOCUMENT_BYTES } from '../src/media/media.document-format';
 import { MediaStorage } from '../src/media/media.storage';
 import { WhatsappDocuments } from '../src/media/media.whatsapp-documents';
@@ -98,7 +100,12 @@ async function main() {
   storage.signDocument = (key, purpose) => {
     assert(objects.has(key));
     return Promise.resolve({
-      url: 'https://synthetic.example.test/' + purpose + '/' + key,
+      url:
+        purpose === 'download'
+          ? 'https://synthetic.example.test/' + purpose + '/' + key
+          : 'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com/' +
+            key +
+            '?synthetic-signature=1',
     });
   };
   const pdf = Buffer.from('%PDF-1.4\n%%EOF\n');
@@ -221,7 +228,36 @@ async function main() {
   assert.deepEqual([...objects.keys()], [key]);
   const provider = h.get(WhatsappProvider);
   const order: string[] = [];
-  provider.send = (
+  const http = h.get(HttpAdapterHost).httpAdapter.getHttpServer() as Server;
+  const address = http.address();
+  assert(address && typeof address !== 'string');
+  const originalFetch = globalThis.fetch;
+  let storageReads = 0;
+  globalThis.fetch = (input, options) => {
+    const url =
+      input instanceof URL
+        ? input
+        : typeof input === 'string'
+          ? new URL(input)
+          : new URL(input.url);
+    if (
+      url.hostname === 'sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com'
+    ) {
+      storageReads++;
+      assert.equal(url.pathname, '/' + key);
+      assert.equal(options?.redirect, 'error');
+      return Promise.resolve(
+        new Response(new Uint8Array(pdf), {
+          headers: {
+            'content-length': String(pdf.length),
+            'content-type': 'application/pdf',
+          },
+        }),
+      );
+    }
+    return originalFetch(input, options);
+  };
+  provider.send = async (
     _a,
     _recipient,
     text,
@@ -233,19 +269,53 @@ async function main() {
   ) => {
     order.push(document?.fileName ?? text);
     if (document) {
-      assert.match(document.link, /\/send\/private\/dev\/whatsapp\//);
-      return Promise.resolve({
+      const providerUrl = new URL(document.link);
+      assert(document.link.length < 200);
+      assert.equal(providerUrl.origin, 'https://api-dev.sunrisevacation.cn');
+      assert(providerUrl.pathname.endsWith('/file.pdf'));
+      assert(!document.link.includes('aliyuncs.com'));
+      const route = 'http://127.0.0.1:' + address.port + providerUrl.pathname;
+      const head = await fetch(route, { method: 'HEAD' });
+      assert.equal(head.status, 200);
+      assert.equal(head.headers.get('content-length'), String(pdf.length));
+      assert.equal(head.headers.get('content-type'), 'application/pdf');
+      assert.equal(storageReads, 0);
+      const get = await fetch(route);
+      assert.equal(get.status, 200);
+      assert.equal(get.headers.get('cache-control'), 'private, no-store');
+      assert.deepEqual(Buffer.from(await get.arrayBuffer()), pdf);
+      assert.equal(storageReads, 1);
+      assert.equal(
+        (await fetch(route.replace(messages[0].id, randomUUID()))).status,
+        404,
+      );
+      const tampered = await fetch(route.replace('/file.pdf', '/file.docx'));
+      assert.equal(tampered.status, 404);
+      assert(!(await tampered.text()).includes(providerUrl.pathname));
+      const clock = Date.now;
+      try {
+        Date.now = () => clock() + 16 * 60_000;
+        assert.equal((await fetch(route)).status, 404);
+      } finally {
+        Date.now = clock;
+      }
+      assert.equal(storageReads, 1);
+      return {
         status: 'failed',
         errorCode: 'SYNTHETIC_FAILURE',
-      });
+      };
     }
-    return Promise.resolve({
+    return {
       status: 'accepted',
       providerId: 'synthetic-text-sent',
-    });
+    };
   };
-  assert.equal(await h.get(WhatsappService).dispatchOne(), true);
-  assert.equal(await h.get(WhatsappService).dispatchOne(), true);
+  try {
+    assert.equal(await h.get(WhatsappService).dispatchOne(), true);
+    assert.equal(await h.get(WhatsappService).dispatchOne(), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
   assert.deepEqual(order, ['行程.PDF', '附上您的行程。']);
   const retried = await h.call<ChatMessage>(
     manager,

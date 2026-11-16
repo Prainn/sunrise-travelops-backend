@@ -1439,25 +1439,10 @@ export class WhatsappService {
     if (job.skip) return true;
     let document: { link: string; fileName: string } | undefined;
     if (job.m.kind === 'document') {
-      const documentId = job.m.attachment?.documentId;
-      const metadata = job.m.attachment?.document;
-      if (
-        typeof documentId === 'string' &&
-        metadata &&
-        typeof metadata === 'object' &&
-        'fileName' in metadata &&
-        typeof metadata.fileName === 'string'
-      ) {
-        try {
-          const { url } = await this.documents.signedLink(
-            documentId,
-            job.c.id,
-            'send',
-          );
-          document = { link: url, fileName: metadata.fileName };
-        } catch {
-          /* The supplier has not been called; retry is safe. */
-        }
+      try {
+        document = await this.documents.createTransfer(job.m.id);
+      } catch {
+        /* The supplier has not been called; retry is safe. */
       }
     }
     const result: SendResult =

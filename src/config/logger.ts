@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RequestMethod } from '@nestjs/common';
 import type { Type } from '@nestjs/common';
 import type { Params } from 'nestjs-pino';
+import { privateRequestPath } from '../common/http/private-request-path';
 
 interface HttpLogSource {
   context: string;
@@ -72,7 +73,7 @@ const REDACTED_LOG_PATHS = [
 ];
 
 function requestPath(request: IncomingMessage): string {
-  return request.url?.split('?')[0] || '-';
+  return privateRequestPath(request.url?.split('?')[0] || '-');
 }
 
 function isSensitiveField(field: string): boolean {

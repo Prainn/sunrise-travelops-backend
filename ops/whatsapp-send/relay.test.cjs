@@ -3,15 +3,29 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { createRelay, validateSend, validateLookup, lookupMessageId } = require('./relay.cjs');
 
-test('document send is limited to signed private OSS URL, matching file name and environment', () => {
+test('document send accepts only short environment-local file URLs', () => {
   const id = randomUUID();
-  const link = 'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com/private/dev/whatsapp/' + id + '/' + id + '.pdf?x-oss-expires=900&x-oss-signature-version=OSS4-HMAC-SHA256&x-oss-signature=' + 'a'.repeat(64);
+  const link = 'https://api-dev.sunrisevacation.cn/api/whatsapp/document-transfer/' + id + '/abc123.' + 'a'.repeat(43) + '/file.pdf';
   const send = { recipient:'ZZ.synthetic', text:'', taskId:randomUUID(), document:{link,fileName:'行程.PDF'} };
   assert(validateSend(send, undefined, 'dev'));
   assert(!validateSend(send, undefined, 'prod'));
   assert(!validateSend({...send,text:'caption'}, undefined, 'dev'));
-  assert(!validateSend({...send,document:{...send.document,link:link.replace('oss-cn-hangzhou.aliyuncs.com','example.test')}}, undefined, 'dev'));
-  assert(!validateSend({...send,document:{...send.document,link:link.replace('900','901')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('api-dev.sunrisevacation.cn','example.test')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('/file.pdf','/file.docx')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link+'?'+'x'.repeat(1024)}}, undefined, 'dev'));
+});
+
+test('relay keeps explicit supplier validation codes and suppresses request details', async () => {
+  const relay = createRelay(async () => {
+    throw Object.assign(new Error('private content must never leave the relay'), {code:'InvalidParameter.LinkMaxSize'});
+  }, async () => {});
+  await new Promise(resolve => relay.listen(0,'127.0.0.1',resolve));
+  try {
+    const result = await fetch('http://127.0.0.1:' + relay.address().port + '/send', {
+      method:'POST', body: JSON.stringify({recipient:'ZZ.synthetic',text:'example',taskId:randomUUID()}),
+    });
+    assert.deepEqual(await result.json(),{status:'failed',errorCode:'InvalidParameter.LinkMaxSize'});
+  } finally { await new Promise(resolve => relay.close(resolve)); }
 });
 
 test('relay restricts request shape to text/reaction sends without credential or action overrides', () => {
