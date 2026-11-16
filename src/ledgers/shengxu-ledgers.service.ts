@@ -170,19 +170,27 @@ export class ShengxuLedgersService {
     }
     const delegate = isHeadquartersBusinessAdmin(actor);
     const params: unknown[] = [delegate ? 'shengxu' : owner];
-    let where = `WHERE business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL AND ${
+    let where = `WHERE agency.business_unit='shengxu' AND agency.status='enabled' AND agency.deleted_at IS NULL AND ${
       delegate
-        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND u.id=resource_agencies.coordinator_id)`
-        : 'coordinator_id=$1'
+        ? `EXISTS (SELECT 1 ${COORDINATOR_FROM} AND u.id=agency.coordinator_id)`
+        : 'agency.coordinator_id=$1'
     }`;
     if (query.keyword?.trim())
-      where += ` AND name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
+      where += ` AND agency.name ILIKE $${params.push(`%${query.keyword.trim()}%`)}`;
     const [count] = await this.db.query<{ total: string }[]>(
-      `SELECT count(*) AS total FROM resource_agencies ${where}`,
+      `SELECT count(*) AS total FROM resource_agencies agency ${where}`,
       params,
     );
     const list = await this.db.query<Record<string, unknown>[]>(
-      `SELECT id,name,city,country_or_region AS "countryOrRegion"${delegate ? ',coordinator_id AS "coordinatorId",(SELECT nickname FROM users WHERE id=coordinator_id) AS "coordinatorName"' : ''} FROM resource_agencies ${where} ORDER BY name,id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT agency.id, agency.name, agency.city, COALESCE(country.name, '') AS "countryOrRegion"${
+        delegate
+          ? ', agency.coordinator_id AS "coordinatorId", (SELECT nickname FROM users WHERE id=agency.coordinator_id) AS "coordinatorName"'
+          : ''
+      }
+      FROM resource_agencies agency
+      LEFT JOIN system_business_dictionary_items country
+        ON country.id=agency.country_item_id AND country.deleted_at IS NULL
+      ${where} ORDER BY agency.name, agency.id LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
@@ -243,7 +251,14 @@ export class ShengxuLedgersService {
     let agency = existing;
     if (!existing || existing.agencyId !== input.agencyId) {
       [agency] = await manager.query<ShengxuRow[]>(
-        `SELECT name AS "agencyName",country_or_region AS "countryOrRegion",city,coordinator_id AS "coordinatorId" FROM resource_agencies WHERE id=$1 AND ($2::uuid IS NULL OR coordinator_id=$2) AND business_unit='shengxu' AND status='enabled' AND deleted_at IS NULL FOR SHARE`,
+        `SELECT agency.name AS "agencyName", COALESCE(country.name, '') AS "countryOrRegion",
+                agency.city, agency.coordinator_id AS "coordinatorId"
+         FROM resource_agencies agency
+         LEFT JOIN system_business_dictionary_items country
+           ON country.id=agency.country_item_id AND country.deleted_at IS NULL
+         WHERE agency.id=$1 AND ($2::uuid IS NULL OR agency.coordinator_id=$2)
+           AND agency.business_unit='shengxu' AND agency.status='enabled' AND agency.deleted_at IS NULL
+         FOR SHARE OF agency`,
         [input.agencyId, owner],
       );
       if (!agency) invalid('请选择关联计调的启用盛旭组团社');

@@ -174,7 +174,7 @@ describe('ledger conflict API codes', () => {
     const [sql] = f.query.mock.calls[0] as [string];
     expect(sql).not.toContain('coordinator_duty');
     expect(sql).toContain("r.code='COORDINATOR' AND r.is_enabled");
-    expect(sql).toContain('u.id=resource_agencies.coordinator_id');
+    expect(sql).toContain('u.id=agency.coordinator_id');
   });
 
   it.each(['create', 'update'] as const)(
