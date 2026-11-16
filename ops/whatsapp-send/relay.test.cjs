@@ -3,6 +3,31 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { createRelay, validateConfig, validateSend, validateLookup, lookupMessageId } = require('./relay.cjs');
 
+test('document send accepts only short environment-local file URLs', () => {
+  const id = randomUUID();
+  const link = 'https://api-dev.sunrisevacation.cn/api/whatsapp/document-transfer/' + id + '/abc123.' + 'a'.repeat(43) + '/file.pdf';
+  const send = { recipient:'ZZ.synthetic', text:'', taskId:randomUUID(), document:{link,fileName:'行程.PDF'} };
+  assert(validateSend(send, undefined, 'dev'));
+  assert(!validateSend(send, undefined, 'prod'));
+  assert(!validateSend({...send,text:'caption'}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('api-dev.sunrisevacation.cn','example.test')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('/file.pdf','/file.docx')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link+'?'+'x'.repeat(1024)}}, undefined, 'dev'));
+});
+
+test('relay keeps explicit supplier validation codes and suppresses request details', async () => {
+  const relay = createRelay(async () => {
+    throw Object.assign(new Error('private content must never leave the relay'), {code:'InvalidParameter.LinkMaxSize'});
+  }, async () => {});
+  await new Promise(resolve => relay.listen(0,'127.0.0.1',resolve));
+  try {
+    const result = await fetch('http://127.0.0.1:' + relay.address().port + '/send', {
+      method:'POST', body: JSON.stringify({recipient:'ZZ.synthetic',text:'example',taskId:randomUUID()}),
+    });
+    assert.deepEqual(await result.json(),{status:'failed',errorCode:'InvalidParameter.LinkMaxSize'});
+  } finally { await new Promise(resolve => relay.close(resolve)); }
+});
+
 test('relay restricts request shape to text/reaction sends without credential or action overrides', () => {
   const text = { recipient: 'ZZ.synthetic', text: 'hello', taskId: randomUUID() };
   assert.equal(validateSend(text), true);

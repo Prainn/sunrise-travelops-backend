@@ -12,6 +12,17 @@ import { WhatsappConfig } from './whatsapp.config';
 export type SendResult =
   | { status: 'accepted'; providerId: string }
   | { status: 'failed' | 'unknown'; errorCode: string };
+
+function providerValidationCode(value: unknown) {
+  return value !== null &&
+    typeof value === 'object' &&
+    'code' in value &&
+    typeof value.code === 'string' &&
+    /^InvalidParameter\.[A-Za-z0-9]{1,64}$/.test(value.code)
+    ? value.code
+    : null;
+}
+
 @Injectable()
 export class WhatsappProvider {
   constructor(private readonly config: WhatsappConfig) {}
@@ -118,8 +129,11 @@ export class WhatsappProvider {
     reaction?: { messageId: string; emoji: string },
     contextMessageId?: string,
     image?: { link: string; caption: string },
+    document?: { link: string; fileName: string },
   ): Promise<SendResult> {
     this.config.assertSend(recipient);
+    if (document && document.link.length > 1024)
+      return { status: 'failed', errorCode: 'InvalidParameter.LinkMaxSize' };
     if (reaction && !/^wamid\.[A-Za-z0-9+/=_-]+$/.test(reaction.messageId))
       return { status: 'failed', errorCode: 'REACTION_TARGET_UNAVAILABLE' };
     const socketPath = this.config.get('SEND_SOCKET');
@@ -131,6 +145,7 @@ export class WhatsappProvider {
         ...(reaction ? { reaction } : {}),
         ...(contextMessageId ? { contextMessageId } : {}),
         ...(image ? { image } : {}),
+        ...(document ? { document } : {}),
       });
     // Construct only on an authorized send; no credential resolution/network at module import.
     const client = new Cams(
@@ -144,11 +159,17 @@ export class WhatsappProvider {
         new SendChatappMessageRequest({
           channelType: 'whatsapp',
           type: 'message',
-          messageType: reaction ? 'reaction' : image ? 'image' : 'text',
+          messageType: reaction
+            ? 'reaction'
+            : image
+              ? 'image'
+              : document
+                ? 'document'
+                : 'text',
           custSpaceId: account.spaceId,
           from: account.phone,
           to: recipient,
-          content: JSON.stringify(reaction ?? image ?? { text }),
+          content: JSON.stringify(reaction ?? image ?? document ?? { text }),
           taskId,
           contextMessageId,
         }),
@@ -163,9 +184,14 @@ export class WhatsappProvider {
         return { status: 'accepted', providerId: result.body.messageId };
       // A structured negative response is definite; transport exceptions are ambiguous.
       if (result.body?.code && result.body.code !== 'OK')
-        return { status: 'failed', errorCode: 'PROVIDER_REJECTED' };
+        return {
+          status: 'failed',
+          errorCode: providerValidationCode(result.body) ?? 'PROVIDER_REJECTED',
+        };
       return { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' };
-    } catch {
+    } catch (error) {
+      const errorCode = providerValidationCode(error);
+      if (errorCode) return { status: 'failed', errorCode };
       return { status: 'unknown', errorCode: 'PROVIDER_RESULT_UNKNOWN' };
     }
   }
@@ -203,7 +229,14 @@ export class WhatsappProvider {
               )
                 resolve({ status: 'accepted', providerId: value.providerId });
               else if (res.statusCode === 200 && value.status === 'failed')
-                resolve({ status: 'failed', errorCode: 'PROVIDER_REJECTED' });
+                resolve({
+                  status: 'failed',
+                  errorCode:
+                    providerValidationCode({ code: value.errorCode }) ??
+                    'PROVIDER_REJECTED',
+                });
+              else if (res.statusCode === 400 && value.error === 'INVALID_SEND')
+                resolve({ status: 'failed', errorCode: 'RELAY_INVALID_SEND' });
               else resolve(unknown);
             } catch {
               resolve(unknown);

@@ -11,8 +11,10 @@ import { WhatsappProvider } from './whatsapp.provider';
 import { WhatsappEvents } from './whatsapp.events';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappWorker } from './whatsapp.worker';
+import { WhatsappRuntime } from './whatsapp-runtime.service';
 import { WhatsappQueueToken } from './whatsapp.queue-token';
 import { WhatsappController } from './whatsapp.controller';
+import { WhatsappDocumentTransferController } from './whatsapp-document-transfer.controller';
 import { WhatsappIngressController } from './whatsapp-ingress.controller';
 import {
   WhatsappQuickReplies,
@@ -22,6 +24,7 @@ import {
   imports: [WebsiteModule, FeishuModule, AuthModule, MediaModule],
   controllers: [
     WhatsappController,
+    WhatsappDocumentTransferController,
     WhatsappStreamController,
     WhatsappIngressController,
     WhatsappQuickRepliesController,
@@ -34,6 +37,7 @@ import {
     WhatsappEvents,
     WhatsappService,
     WhatsappWorker,
+    WhatsappRuntime,
     WhatsappQueueToken,
     WhatsappQuickReplies,
   ],

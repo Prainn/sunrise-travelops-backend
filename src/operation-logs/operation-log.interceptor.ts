@@ -75,6 +75,8 @@ function actionFor(
       resultId: true,
       parentKey: 'id',
     };
+  if (controller === 'WhatsappController' && handler === 'updateRuntime')
+    return { category: 'system-category', label: '修改WhatsApp收发开关' };
   if (controller === 'WhatsappQuickRepliesController') {
     if (handler === 'create')
       return {

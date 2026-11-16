@@ -24,7 +24,7 @@ COPY scripts/check-migration-names.mjs ./scripts/check-migration-names.mjs
 ARG SUNRISE_BUILD_CHECKS=full
 RUN case "$SUNRISE_BUILD_CHECKS" in \
       full) pnpm verify:release ;; \
-      hosted-dev) pnpm check:migrations && pnpm build ;; \
+      hosted-release) pnpm check:migrations && pnpm build ;; \
       *) echo 'Unknown Sunrise build checks' >&2; exit 1 ;; \
     esac
 

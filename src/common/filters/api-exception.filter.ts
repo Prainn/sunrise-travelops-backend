@@ -11,6 +11,7 @@ import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import { ErrorCode, ErrorCodeValue } from '../constants/error-code';
 import { ApiErrorResponse } from '../interfaces/api-error-response.interface';
+import { privateRequestPath } from '../http/private-request-path';
 
 interface ErrorBody {
   code?: unknown;
@@ -62,7 +63,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const logContext = {
       userId,
       method: request.method,
-      path: request.path,
+      path: privateRequestPath(request.path),
       statusCode: normalized.status,
       code: normalized.code,
       ...(typeof source?.context === 'string'
@@ -87,7 +88,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       data: null,
       details: normalized.details,
       timestamp: new Date().toISOString(),
-      path: request.originalUrl,
+      path: privateRequestPath(request.originalUrl),
       ...(requestId ? { requestId } : {}),
     };
     response.status(normalized.status).json(body);

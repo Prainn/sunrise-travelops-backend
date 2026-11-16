@@ -65,7 +65,8 @@
     "rxjs": "^7.8.0",
     "sharp": "^0.35.5",
     "typeorm": "^0.3.0",
-    "word-extractor": "^1.0.4"
+    "word-extractor": "^1.0.4",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.0.0",
@@ -82,6 +83,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/supertest": "^6.0.0",
     "@types/word-extractor": "^1.0.6",
+    "@types/yauzl": "^2.10.3",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-prettier": "^5.0.0",
