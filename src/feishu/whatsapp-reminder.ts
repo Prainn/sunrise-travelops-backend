@@ -55,7 +55,7 @@ export function formatWhatsAppReminder(
     ...(kind ? [`最新消息：${notificationSummary(text ?? '', kind)}`] : []),
     ...(occurred_at
       ? [
-          `收到时间：${occurred_at.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}（北京时间）`,
+          `收到时间：${occurred_at.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`,
         ]
       : []),
     type === 'whatsapp_unassigned'

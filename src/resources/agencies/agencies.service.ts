@@ -11,6 +11,7 @@ import { BusinessUnit } from '../../users/user-identity.entity';
 import { PageResult } from '../../common/types/page-result';
 import { BusinessException } from '../../common/exceptions/business.exception';
 import { ErrorCode } from '../../common/constants/error-code';
+import { BusinessDictionaryItemEntity } from '../../system/business-dictionaries/business-dictionary-item.entity';
 import { AgencyContactEntity, AgencyEntity } from './agency.entity';
 import {
   AgencyContactResponse,
@@ -174,6 +175,8 @@ export class AgenciesService {
     const builder = this.agencies
       .createQueryBuilder('agency')
       .leftJoinAndSelect('agency.parent', 'parent')
+      .leftJoin('agency.country', 'country')
+      .addSelect(['country.id', 'country.name'])
       .loadRelationCountAndMap('agency.contactCount', 'agency.contacts')
       .loadRelationCountAndMap('agency.childCount', 'agency.children')
       .addSelect(
@@ -198,7 +201,7 @@ export class AgenciesService {
     const keyword = actualKeyword(query);
     if (keyword)
       builder.andWhere(
-        '(agency.code ILIKE :keyword OR agency.name ILIKE :keyword OR agency.city ILIKE :keyword OR agency.countryOrRegion ILIKE :keyword OR agency.email ILIKE :keyword)',
+        '(agency.code ILIKE :keyword OR agency.name ILIKE :keyword OR agency.city ILIKE :keyword OR country.name ILIKE :keyword OR agency.email ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       );
     if (query.status)
@@ -223,7 +226,7 @@ export class AgenciesService {
   async get(id: string): Promise<AgencyDetailResponse> {
     const entity = await this.agencies.findOne({
       where: { id },
-      relations: { contacts: true, parent: true },
+      relations: { contacts: true, parent: true, country: true },
     });
     if (!entity)
       throw new BusinessException({
@@ -272,7 +275,6 @@ export class AgenciesService {
       );
       const entity = repository.create({
         ...input,
-        countryOrRegion: country.name,
         parentId: parent?.id ?? null,
         parent,
         name: this.agencyName(input.name, parent),
@@ -284,7 +286,7 @@ export class AgenciesService {
       });
       const saved = await insertResource(repository, entity);
       saved.parent = parent;
-      return this.getResponse(saved, [], coordinator.nickname);
+      return this.getResponse(saved, [], coordinator.nickname, country.name);
     });
   }
 
@@ -323,19 +325,20 @@ export class AgenciesService {
         input.countryItemId === undefined
           ? entity.countryItemId
           : input.countryItemId;
-      const country =
-        entity.countryItemId === countryItemId
-          ? { name: entity.countryOrRegion }
-          : countryItemId
-            ? await requireDictionaryItem(
-                manager,
-                'country-region',
-                countryItemId,
-              )
-            : { name: '' };
+      const country = countryItemId
+        ? entity.countryItemId === countryItemId
+          ? await manager.findOne(BusinessDictionaryItemEntity, {
+              where: { id: countryItemId },
+              select: { name: true },
+            })
+          : await requireDictionaryItem(
+              manager,
+              'country-region',
+              countryItemId,
+            )
+        : null;
       Object.assign(entity, input, {
         id,
-        countryOrRegion: country.name,
         countryItemId: countryItemId ?? null,
         businessUnit,
         parentId: parent?.id ?? null,
@@ -366,6 +369,7 @@ export class AgenciesService {
         saved,
         contacts,
         coordinator.nickname,
+        country?.name ?? '',
         await repository.countBy({ parentId: id }),
       );
     });
@@ -550,10 +554,11 @@ export class AgenciesService {
     entity: AgencyEntity,
     contacts: AgencyContactEntity[],
     coordinatorName: string,
+    countryName: string,
     childCount = 0,
   ): AgencyDetailResponse {
     return {
-      ...this.toListResponse(entity, coordinatorName),
+      ...this.toListResponse(entity, coordinatorName, countryName),
       contactCount: contacts.length,
       childCount,
       contacts: contacts.map((item) => this.toContactResponse(item)),
@@ -562,6 +567,7 @@ export class AgenciesService {
   private toListResponse(
     entity: AgencyEntity,
     coordinatorName: string | null,
+    countryName = entity.country?.name ?? '',
   ): AgencyListItemResponse {
     return {
       ...auditResponse(entity),
@@ -577,7 +583,7 @@ export class AgenciesService {
       name: entity.name,
       city: entity.city,
       countryItemId: entity.countryItemId,
-      countryOrRegion: entity.countryOrRegion,
+      countryOrRegion: countryName,
       email: entity.email,
       status: entity.status,
       remark: entity.remark,
