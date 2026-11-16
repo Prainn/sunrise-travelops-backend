@@ -631,6 +631,7 @@ export function buildWebsitePreview(
       'meal',
       'entry',
       'service',
+      'driver',
       'transport',
     ] as const;
     type Category = (typeof categories)[number];
@@ -723,11 +724,7 @@ export function buildWebsitePreview(
         return values[key];
       });
     }
-    function includeService(
-      name: string,
-      state: FeeState,
-      category: Category = 'service',
-    ) {
+    function includeService(name: string, state: FeeState, category: Category) {
       if (state === 'INCLUDED')
         include(template('included-service', { service: name }), category);
     }
@@ -773,12 +770,6 @@ export function buildWebsitePreview(
             ? `D${day.dayNumber}: Tour guide (${dictionaryLabel(day.guideLanguage, 'languages')}) included.`
             : `第${day.dayNumber}天：包含${dictionaryLabel(day.guideLanguage, 'languages')}导游服务。`;
         include(line, 'service');
-      }
-      for (const service of day.services) {
-        includeService(
-          language === 'en' ? service.nameEn : service.nameZh,
-          service.feeState,
-        );
       }
       const orderedLegs = [...day.legs].sort((a, b) => {
         const order = day.eventOrder ?? [];
@@ -909,7 +900,7 @@ export function buildWebsitePreview(
         language === 'en'
           ? `Private driver included on ${days}. The driver provides transportation and ticketing assistance only; guiding and commentary inside scenic areas are not included in the driver's service.`
           : `第${quotationOptions.driverDays.join('、')}天包含专车司机。司机仅提供交通与票务协助，不提供景区内导览或讲解服务。`,
-        'service',
+        'driver',
       );
       include(
         language === 'en'

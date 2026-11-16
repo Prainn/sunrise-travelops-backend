@@ -302,7 +302,7 @@ export interface WebsiteOutput {
     }>;
   }>;
   teamStandard?: Array<{
-    category: 'hotel' | 'meal' | 'entry' | 'service' | 'transport';
+    category: 'hotel' | 'meal' | 'entry' | 'service' | 'driver' | 'transport';
     included: string[];
   }>;
   mileage?: Array<{
