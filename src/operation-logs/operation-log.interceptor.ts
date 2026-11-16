@@ -68,10 +68,16 @@ function actionFor(
     return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'WhatsappController' && handler === 'retryEvent')
     return { category: 'system-category', label: '重试WhatsApp接收事件' };
-  if (controller === 'WhatsappController' && handler === 'uploadImage')
+  if (
+    controller === 'WhatsappController' &&
+    (handler === 'uploadImage' || handler === 'uploadDocument')
+  )
     return {
       category: 'business-category',
-      label: '上传WhatsApp图片草稿',
+      label:
+        handler === 'uploadImage'
+          ? '上传WhatsApp图片草稿'
+          : '上传WhatsApp文件草稿',
       resultId: true,
       parentKey: 'id',
     };
