@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Param,
   ParseUUIDPipe,
@@ -13,7 +14,8 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { imageFile, imageUploadOptions } from '../media/media.controller';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { MAX_DOCUMENT_BYTES } from '../media/media.document-format';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -32,12 +34,55 @@ import {
   SendTextDto,
   SendReactionDto,
   SendImageBatchDto,
+  SendDocumentDto,
+  UpdateWhatsappRuntimeDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
 @ApiBearerAuth()
 @Controller('whatsapp')
 export class WhatsappController {
   constructor(private readonly service: WhatsappService) {}
+  @Post('conversations/:id/documents')
+  @Permissions('whatsapp:message:send')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_DOCUMENT_BYTES + 1, files: 1, fields: 0 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  uploadDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.uploadDocument(id, file, user);
+  }
+  @Post('conversations/:id/document-messages')
+  @Permissions('whatsapp:message:send')
+  sendDocument(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() input: SendDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.enqueueDocument(id, input, user);
+  }
+  @Get('conversations/:id/messages/:messageId/document-download')
+  @Permissions('whatsapp:conversation:list')
+  @Header('Cache-Control', 'private, no-store')
+  documentDownload(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.documentDownload(id, messageId, user);
+  }
   @Post('conversations/:id/images')
   @Permissions('whatsapp:message:send')
   @UseInterceptors(FileInterceptor('file', imageUploadOptions))
@@ -225,6 +270,14 @@ export class WhatsappController {
   @Permissions('whatsapp:integration:manage')
   integration(@CurrentUser() user: AuthenticatedUser) {
     return this.service.integration(user);
+  }
+  @Put('integration/runtime')
+  @Permissions('whatsapp:integration:manage')
+  updateRuntime(
+    @Body() input: UpdateWhatsappRuntimeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.updateRuntime(input, user);
   }
   @Get('integration/failed-events')
   @Permissions('whatsapp:integration:manage')

@@ -31,12 +31,33 @@ async function lookupMessageId(client, config, { providerId, occurredAt }) {
 }
 function validateSend(value, mediaOrigin, environment) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
-      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId', 'image'].includes(key)) ||
+      Object.keys(value).some((key) => !['recipient', 'text', 'taskId', 'reaction', 'contextMessageId', 'image', 'document'].includes(key)) ||
       typeof value.recipient !== 'string' || !/^(\d{5,20}|[A-Z]{2}\.[A-Za-z0-9.]+)$/.test(value.recipient) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.taskId) ||
       typeof value.text !== 'string' || value.text.length > 4096) return false;
   if (value.contextMessageId !== undefined &&
       (typeof value.contextMessageId !== 'string' || !value.contextMessageId.length || value.contextMessageId.length > 1000 || value.reaction !== undefined)) return false;
+  if (value.document !== undefined) {
+    const doc = value.document;
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc) || value.image !== undefined ||
+        value.reaction !== undefined || value.contextMessageId !== undefined || value.text !== '' ||
+        Object.keys(doc).some(key => !['link', 'fileName'].includes(key)) ||
+        typeof doc.link !== 'string' || doc.link.length > 8192 ||
+        typeof doc.fileName !== 'string' || doc.fileName.length > 245 || /[\p{C}\\/]/u.test(doc.fileName) ||
+        !['dev', 'prod'].includes(environment)) return false;
+    try {
+      const url = new URL(doc.link);
+      const uuid = '[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}';
+      const m = new RegExp('^/private/' + environment + '/whatsapp/' + uuid + '/' + uuid + '\\.(pdf|docx?)$').exec(url.pathname);
+      const ttl = Number(url.searchParams.get('x-oss-expires'));
+      return !!m && doc.fileName.toLowerCase().endsWith('.' + m[1]) &&
+        url.origin === 'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com' &&
+        !url.username && !url.password && !url.hash &&
+        Number.isInteger(ttl) && ttl > 0 && ttl <= 900 &&
+        url.searchParams.get('x-oss-signature-version') === 'OSS4-HMAC-SHA256' &&
+        /^[a-f0-9]{64}$/.test(url.searchParams.get('x-oss-signature') ?? '');
+    } catch { return false; }
+  }
   if (value.image !== undefined) {
     const image = value.image;
     if (!image || typeof image !== 'object' || Array.isArray(image) || value.reaction !== undefined ||
@@ -105,11 +126,11 @@ async function main() {
   const client = new CamsModule.default(new $OpenApiUtil.Config({
     credential, endpoint: 'cams.ap-southeast-1.aliyuncs.com',
   }));
-  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId, image }) => {
+  const server = createRelay(async ({ recipient, text, taskId, reaction, contextMessageId, image, document }) => {
     const result = await client.sendChatappMessageWithOptions(new CamsModule.SendChatappMessageRequest({
-      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : image ? 'image' : 'text',
+      channelType: 'whatsapp', type: 'message', messageType: reaction ? 'reaction' : image ? 'image' : document ? 'document' : 'text',
       custSpaceId: config.spaceId, from: config.phone, to: recipient,
-      content: JSON.stringify(reaction ?? image ?? { text }), taskId, contextMessageId,
+      content: JSON.stringify(reaction ?? image ?? document ?? { text }), taskId, contextMessageId,
     }), new RuntimeOptions({ autoretry: false, maxAttempts: 1, connectTimeout: 5000, readTimeout: 10000 }));
     if (result.body?.code === 'OK' && result.body.messageId)
       return { status: 'accepted', providerId: result.body.messageId };

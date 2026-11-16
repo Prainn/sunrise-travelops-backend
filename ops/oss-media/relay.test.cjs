@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { validate } = require('./relay.cjs');
+const { createRelay, validate } = require('./relay.cjs');
 const key = 'dev/whatsapp/00000000-0000-4000-8000-000000000001/original.png';
 test('relay bounds environment, keys, body size and MIME', () => {
   const value = { action: 'put', key, body: Buffer.from('synthetic').toString('base64'), mime: 'image/png' };
@@ -24,4 +24,25 @@ test('management upload keys allow put and delete only in the current environmen
   assert(!validate(value, 'prod'));
   assert(!validate(remove, 'prod'));
   assert(!validate({ ...value, key: uploadKey.replace('/upload/', '/other/') }, 'dev'));
+});
+
+test('documents only use the private environment prefix and bound binary uploads', async () => {
+  const documentKey = 'private/dev/whatsapp/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002.pdf';
+  const value = { action: 'sign-document', key: documentKey, purpose: 'send', fileName: '行程.PDF' };
+  assert(validate(value, 'dev'));
+  assert(!validate(value, 'prod'));
+  assert(!validate({ ...value, key: key }, 'dev'));
+  assert(!validate({ ...value, fileName: 'file.pdf\r\nbad' }, 'dev'));
+  let request;
+  const server = createRelay({environment:'dev'}, async (input) => { request=input; return {etag:'example'}; });
+  await new Promise(resolve=> server.listen(0,'127.0.0.1',resolve));
+  try {
+    const url='http://127.0.0.1:' + server.address().port + '/documents';
+    const init={ method:'PUT', headers:{'content-type':'application/octet-stream','x-oss-object-key':documentKey}, body:Buffer.from('synthetic') };
+    assert.equal((await fetch(url,init)).status, 200);
+    assert.equal(request.action,'put-document');
+    assert.equal(request.mime,'application/pdf');
+    assert.equal(request.body.toString(),'synthetic');
+    assert.equal((await fetch(url,{...init,headers:{...init.headers,'x-oss-object-key':documentKey.replace('/dev/','/prod/')}})).status,400);
+  } finally { await new Promise(resolve=>server.close(resolve)); }
 });

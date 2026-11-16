@@ -68,6 +68,8 @@ function actionFor(
     return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'WhatsappController' && handler === 'retryEvent')
     return { category: 'system-category', label: '重试WhatsApp接收事件' };
+  if (controller === 'WhatsappController' && handler === 'updateRuntime')
+    return { category: 'system-category', label: '修改WhatsApp收发开关' };
   if (controller === 'WhatsappQuickRepliesController') {
     if (handler === 'create')
       return {

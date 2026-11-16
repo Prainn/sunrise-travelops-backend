@@ -3,6 +3,17 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { createRelay, validateSend, validateLookup, lookupMessageId } = require('./relay.cjs');
 
+test('document send is limited to signed private OSS URL, matching file name and environment', () => {
+  const id = randomUUID();
+  const link = 'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com/private/dev/whatsapp/' + id + '/' + id + '.pdf?x-oss-expires=900&x-oss-signature-version=OSS4-HMAC-SHA256&x-oss-signature=' + 'a'.repeat(64);
+  const send = { recipient:'ZZ.synthetic', text:'', taskId:randomUUID(), document:{link,fileName:'行程.PDF'} };
+  assert(validateSend(send, undefined, 'dev'));
+  assert(!validateSend(send, undefined, 'prod'));
+  assert(!validateSend({...send,text:'caption'}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('oss-cn-hangzhou.aliyuncs.com','example.test')}}, undefined, 'dev'));
+  assert(!validateSend({...send,document:{...send.document,link:link.replace('900','901')}}, undefined, 'dev'));
+});
+
 test('relay restricts request shape to text/reaction sends without credential or action overrides', () => {
   const text = { recipient: 'ZZ.synthetic', text: 'hello', taskId: randomUUID() };
   assert.equal(validateSend(text), true);

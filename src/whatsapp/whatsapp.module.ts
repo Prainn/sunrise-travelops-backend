@@ -11,6 +11,7 @@ import { WhatsappProvider } from './whatsapp.provider';
 import { WhatsappEvents } from './whatsapp.events';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappWorker } from './whatsapp.worker';
+import { WhatsappRuntime } from './whatsapp-runtime.service';
 import { WhatsappQueueToken } from './whatsapp.queue-token';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappIngressController } from './whatsapp-ingress.controller';
@@ -34,6 +35,7 @@ import {
     WhatsappEvents,
     WhatsappService,
     WhatsappWorker,
+    WhatsappRuntime,
     WhatsappQueueToken,
     WhatsappQuickReplies,
   ],

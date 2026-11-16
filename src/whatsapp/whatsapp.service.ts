@@ -1,5 +1,6 @@
 import { notifyWhatsappChange } from './whatsapp-changes';
 import { MediaService } from '../media/media.service';
+import { WhatsappDocuments } from '../media/media.whatsapp-documents';
 import {
   cancelWhatsappNotifications,
   enqueueWhatsappAssignment,
@@ -14,7 +15,8 @@ import { WebsiteService } from '../website/website.service';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { requireDictionaryItem } from '../common/dictionary-items';
 import { WhatsappConfig } from './whatsapp.config';
-import { WhatsappProvider } from './whatsapp.provider';
+import { WhatsappRuntime } from './whatsapp-runtime.service';
+import { SendResult, WhatsappProvider } from './whatsapp.provider';
 import {
   interaction,
   MessageAlias,
@@ -30,6 +32,8 @@ import {
   MessageSourceDto,
   SendTextDto,
   SendImageBatchDto,
+  SendDocumentDto,
+  UpdateWhatsappRuntimeDto,
 } from './whatsapp.dto';
 import {
   ChatAccount,
@@ -69,6 +73,7 @@ type EnqueueOptions = {
   retryOf?: string;
   reaction?: { targetMessageId: string; emoji: string };
   mediaAssetId?: string;
+  documentId?: string;
   resolved?: ReactionLookup & { messageId: string | null };
   batchFingerprint?: string;
 };
@@ -133,6 +138,8 @@ export class WhatsappService {
     private readonly config: WhatsappConfig,
     private readonly provider: WhatsappProvider,
     private readonly media: MediaService,
+    private readonly documents: WhatsappDocuments,
+    private readonly runtime: WhatsappRuntime,
   ) {}
   private scope(user: AuthenticatedUser, params: unknown[]) {
     chatPermission(user);
@@ -220,9 +227,20 @@ export class WhatsappService {
       related = await this.related(this.db.manager, c);
     const ownOrManager = chatManager(user) || c.ownerId === user.id;
     const formed = related.tours.some((t) => t.conversationId === c.id);
-    const sendBlockedReason = this.config.sendBlockedReason(
+    const configuredSendBlock = this.config.sendBlockedReason(
       c.bsuid || c.phone || '',
     );
+    const { outboundEnabled } = await this.runtime.state();
+    const sendBlockedReason =
+      configuredSendBlock ?? (outboundEnabled ? null : 'send_disabled');
+    const canReply =
+      c.state === 'open' &&
+      sendBlockedReason === null &&
+      ownOrManager &&
+      user.permissions.includes('whatsapp:message:send') &&
+      !!c.lastInboundAt &&
+      c.lastInboundAt.getTime() <= Date.now() &&
+      Date.now() - c.lastInboundAt.getTime() < 86400000;
     return {
       ...c,
       ...related,
@@ -232,14 +250,8 @@ export class WhatsappService {
         ? new Date(c.lastInboundAt.getTime() + 86400000).toISOString()
         : null,
       capabilities: {
-        canReply:
-          c.state === 'open' &&
-          sendBlockedReason === null &&
-          ownOrManager &&
-          user.permissions.includes('whatsapp:message:send') &&
-          !!c.lastInboundAt &&
-          c.lastInboundAt.getTime() <= Date.now() &&
-          Date.now() - c.lastInboundAt.getTime() < 86400000,
+        canReply,
+        canSendDocuments: canReply && this.documents.enabled,
         canAssign:
           c.state !== 'archived' &&
           chatManager(user) &&
@@ -325,7 +337,7 @@ export class WhatsappService {
       `SELECT ${CONVERSATION_COLUMNS},${unread} AS "unreadCount",
       lm.text AS "lastMessageText",lm.occurred_at AS "lastMessageAt"
       ${CONVERSATION_FROM}
-      LEFT JOIN LATERAL (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' ELSE text END AS text,occurred_at FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) lm ON true
+      LEFT JOIN LATERAL (SELECT CASE WHEN kind='reaction' THEN coalesce(attachment->>'emoji','◌') WHEN kind='edit' THEN attachment#>>'{edit,message,text,body}' WHEN kind='document' THEN coalesce(attachment#>>'{document,fileName}',text) ELSE text END AS text,occurred_at FROM whatsapp_messages WHERE conversation_id=c.id ORDER BY occurred_at DESC,seq DESC LIMIT 1) lm ON true
       WHERE ${sql} ORDER BY lm.occurred_at DESC NULLS LAST,c.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
@@ -876,6 +888,7 @@ export class WhatsappService {
     retryOf?: string,
     reaction?: { targetMessageId: string; emoji: string },
     mediaAssetId?: string,
+    documentId?: string,
   ) {
     chatPermission(user, 'whatsapp:message:send');
     const enqueueInTransaction = (resolved?: EnqueueOptions['resolved']) =>
@@ -885,6 +898,7 @@ export class WhatsappService {
           retryOf,
           reaction,
           mediaAssetId,
+          documentId,
           resolved,
         });
         if (!('lookup' in result))
@@ -903,6 +917,49 @@ export class WhatsappService {
     const queued = await enqueueInTransaction({ ...result.lookup, messageId });
     if ('lookup' in queued) chatFail('CONFLICT', '请稍后再试', 409);
     return queued;
+  }
+  async enqueueDocument(
+    id: string,
+    input: SendDocumentDto,
+    user: AuthenticatedUser,
+  ) {
+    chatPermission(user, 'whatsapp:message:send');
+    const documentId = input.documentId.toLowerCase();
+    const clientRequestId = input.clientRequestId.toLowerCase();
+    const text = input.textMessage && {
+      ...input.textMessage,
+      clientRequestId: input.textMessage.clientRequestId.toLowerCase(),
+    };
+    if (text?.clientRequestId === clientRequestId)
+      chatFail('VALIDATION_ERROR', '文件和文字的请求编号不能相同', 400);
+    const batchFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify([
+          'document',
+          documentId,
+          clientRequestId,
+          text?.clientRequestId ?? null,
+          text?.text ?? null,
+        ]),
+      )
+      .digest('hex');
+    return this.db.transaction(async (manager) => {
+      const c = await this.conversation(id, user, manager, true);
+      const items = [
+        { input: { clientRequestId, text: '' }, documentId },
+        ...(text ? [{ input: text, documentId: undefined }] : []),
+      ];
+      const messages: ChatMessage[] = [];
+      for (const item of items) {
+        const queued = await this.enqueueMessage(manager, c, item.input, user, {
+          documentId: item.documentId,
+          batchFingerprint,
+        });
+        if ('lookup' in queued) chatFail('CONFLICT', '请稍后再试', 409);
+        messages.push(queued);
+      }
+      return { messages };
+    });
   }
   async enqueueImageBatch(
     id: string,
@@ -963,11 +1020,19 @@ export class WhatsappService {
       retryOf,
       reaction,
       mediaAssetId,
+      documentId,
       resolved,
       batchFingerprint,
     }: EnqueueOptions,
   ) {
     const id = c.id;
+    const kind = reaction
+      ? 'reaction'
+      : mediaAssetId
+        ? 'image'
+        : documentId
+          ? 'document'
+          : 'text';
     const [existing] = await manager.query<ChatMessage[]>(
       `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND client_request_id=$2`,
       [id, input.clientRequestId],
@@ -975,8 +1040,9 @@ export class WhatsappService {
     if (existing) {
       if (
         existing.text !== input.text ||
-        existing.kind !==
-          (reaction ? 'reaction' : mediaAssetId ? 'image' : 'text') ||
+        existing.kind !== kind ||
+        (existing.attachment?.documentId ?? null) !== (documentId ?? null) ||
+        (!!documentId && existing.actorIdentityId !== user.identityId) ||
         (existing.attachment?.mediaAssetId ?? null) !==
           (mediaAssetId ?? null) ||
         (existing.attachment?.targetMessageId ?? null) !==
@@ -1006,6 +1072,8 @@ export class WhatsappService {
     mutableChat(c);
     assertWindow(c.lastInboundAt);
     this.config.assertSend(c.bsuid || c.phone || '');
+    if (!(await this.runtime.state(manager, true)).outboundEnabled)
+      chatFail('CONFLICT', 'WhatsApp 出站已暂停', 409);
     if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
     if (retryOf) {
       const [old] = await manager.query<ChatMessage[]>(
@@ -1022,6 +1090,17 @@ export class WhatsappService {
         chatFail('CONFLICT', '该消息已经重试，请查看新的发送记录', 409);
     }
     let attachment: Record<string, unknown> | null = null;
+    if (documentId)
+      attachment = {
+        documentId,
+        document: await this.documents.claim(
+          documentId,
+          id,
+          user,
+          manager,
+          !!retryOf,
+        ),
+      };
     if (mediaAssetId)
       attachment = await this.media.sendingAsset(
         mediaAssetId,
@@ -1128,7 +1207,7 @@ export class WhatsappService {
         input.text,
         user.id,
         user.identityId,
-        reaction ? 'reaction' : mediaAssetId ? 'image' : 'text',
+        kind,
         attachment ? JSON.stringify(attachment) : null,
       ],
     );
@@ -1201,7 +1280,38 @@ export class WhatsappService {
       old.kind === 'image' && typeof old.attachment?.mediaAssetId === 'string'
         ? old.attachment.mediaAssetId
         : undefined,
+      old.kind === 'document' && typeof old.attachment?.documentId === 'string'
+        ? old.attachment.documentId
+        : undefined,
     );
+  }
+  async uploadDocument(
+    id: string,
+    file: Express.Multer.File | undefined,
+    user: AuthenticatedUser,
+  ) {
+    chatPermission(user, 'whatsapp:message:send');
+    const c = await this.conversation(id, user);
+    mutableChat(c);
+    assertWindow(c.lastInboundAt);
+    if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
+    if (!file) chatFail('VALIDATION_ERROR', '请选择文件', 400);
+    return this.documents.upload(file, user, id);
+  }
+  async documentDownload(
+    id: string,
+    messageId: string,
+    user: AuthenticatedUser,
+  ) {
+    await this.conversation(id, user);
+    const [message] = await this.db.query<ChatMessage[]>(
+      `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND id=$2 AND kind='document' AND direction='outbound' AND source='system'`,
+      [id, messageId],
+    );
+    const documentId = message?.attachment?.documentId;
+    if (typeof documentId !== 'string')
+      chatFail('NOT_FOUND', '文件不存在', 404);
+    return this.documents.signedLink(documentId, id, 'download');
   }
   async uploadImage(
     id: string,
@@ -1271,6 +1381,8 @@ export class WhatsappService {
       );
       for (const row of interrupted)
         await notifyWhatsappChange(manager, { ...row, reason: 'status' });
+      if (!(await this.runtime.state(manager, true)).outboundEnabled)
+        return null;
       const [m] = await manager.query<ChatMessage[]>(
         `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE m.status='queued' AND NOT EXISTS (
           SELECT 1 FROM whatsapp_messages earlier WHERE earlier.conversation_id=m.conversation_id
@@ -1325,27 +1437,55 @@ export class WhatsappService {
     });
     if (!job) return false;
     if (job.skip) return true;
-    const result = await this.provider.send(
-      job.a,
-      job.c.bsuid || job.c.phone || '',
-      job.m.text,
-      job.m.id,
-      job.m.kind === 'reaction'
-        ? {
-            messageId:
-              typeof job.m.attachment?.messageId === 'string'
-                ? job.m.attachment.messageId
-                : '',
-            emoji: job.m.text,
-          }
-        : undefined,
-      typeof job.m.attachment?.contextMessageId === 'string'
-        ? job.m.attachment.contextMessageId
-        : undefined,
-      job.m.kind === 'image' && typeof job.m.attachment?.mediaLink === 'string'
-        ? { link: job.m.attachment.mediaLink, caption: job.m.text }
-        : undefined,
-    );
+    let document: { link: string; fileName: string } | undefined;
+    if (job.m.kind === 'document') {
+      const documentId = job.m.attachment?.documentId;
+      const metadata = job.m.attachment?.document;
+      if (
+        typeof documentId === 'string' &&
+        metadata &&
+        typeof metadata === 'object' &&
+        'fileName' in metadata &&
+        typeof metadata.fileName === 'string'
+      ) {
+        try {
+          const { url } = await this.documents.signedLink(
+            documentId,
+            job.c.id,
+            'send',
+          );
+          document = { link: url, fileName: metadata.fileName };
+        } catch {
+          /* The supplier has not been called; retry is safe. */
+        }
+      }
+    }
+    const result: SendResult =
+      job.m.kind === 'document' && !document
+        ? { status: 'failed', errorCode: 'DOCUMENT_LINK_UNAVAILABLE' }
+        : await this.provider.send(
+            job.a,
+            job.c.bsuid || job.c.phone || '',
+            job.m.text,
+            job.m.id,
+            job.m.kind === 'reaction'
+              ? {
+                  messageId:
+                    typeof job.m.attachment?.messageId === 'string'
+                      ? job.m.attachment.messageId
+                      : '',
+                  emoji: job.m.text,
+                }
+              : undefined,
+            typeof job.m.attachment?.contextMessageId === 'string'
+              ? job.m.attachment.contextMessageId
+              : undefined,
+            job.m.kind === 'image' &&
+              typeof job.m.attachment?.mediaLink === 'string'
+              ? { link: job.m.attachment.mediaLink, caption: job.m.text }
+              : undefined,
+            document,
+          );
     await this.db.transaction(async (manager) => {
       await manager.query(
         'SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
@@ -1471,6 +1611,7 @@ export class WhatsappService {
   }
   async integration(user: AuthenticatedUser) {
     this.integrationPermission(user);
+    const runtime = await this.runtime.state();
     const [summary] = await this.db.query<
       Record<string, unknown>[]
     >(`SELECT max(received_at) AS "lastReceivedAt",max(processed_at) AS "lastProcessedAt",
@@ -1493,7 +1634,8 @@ export class WhatsappService {
       enabled: this.config.enabled,
       workerEnabled: this.config.workerEnabled,
       receiveMode: this.config.mode,
-      sendEnabled: this.config.get('SEND_ENABLED') === 'true',
+      sendEnabled: runtime.outboundEnabled,
+      runtime,
       worker: {
         scope: 'current_process' as const,
         events: this.workerStatus('events'),
@@ -1502,6 +1644,10 @@ export class WhatsappService {
       outbound,
       ...summary,
     };
+  }
+  updateRuntime(input: UpdateWhatsappRuntimeDto, user: AuthenticatedUser) {
+    this.integrationPermission(user);
+    return this.runtime.update(input);
   }
   async failedEvents(query: PaginationQueryDto, user: AuthenticatedUser) {
     this.integrationPermission(user);

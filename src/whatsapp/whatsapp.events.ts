@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { WhatsappConfig } from './whatsapp.config';
+import { WhatsappRuntime } from './whatsapp-runtime.service';
 import {
   ChatAccount,
   ChatMessage,
@@ -133,6 +134,7 @@ export class WhatsappEvents {
   constructor(
     private readonly db: DataSource,
     private readonly config: WhatsappConfig,
+    private readonly runtime: WhatsappRuntime,
   ) {}
   async account(manager = this.db.manager): Promise<ChatAccount> {
     const a = this.config.account();
@@ -171,6 +173,7 @@ export class WhatsappEvents {
   }
   async processOne(): Promise<boolean> {
     return this.db.transaction(async (manager) => {
+      const { inboundEnabled } = await this.runtime.state(manager, true);
       const [event] = await manager.query<
         {
           id: string;
@@ -179,8 +182,12 @@ export class WhatsappEvents {
           kind: string;
           attempts: number;
         }[]
-      >(`SELECT id,account_id AS "accountId",payload,kind,attempts FROM whatsapp_events
-        WHERE state='pending' AND available_at<=now() ORDER BY received_at,id FOR UPDATE SKIP LOCKED LIMIT 1`);
+      >(
+        `SELECT id,account_id AS "accountId",payload,kind,attempts FROM whatsapp_events
+        WHERE state='pending' AND available_at<=now() AND ($1 OR kind<>'inbound')
+        ORDER BY received_at,id FOR UPDATE SKIP LOCKED LIMIT 1`,
+        [inboundEnabled],
+      );
       if (!event) return false;
       const [account] = await manager.query<ChatAccount[]>(
         `SELECT id,space_id AS "spaceId",waba_id AS "wabaId",phone FROM whatsapp_accounts WHERE id=$1`,

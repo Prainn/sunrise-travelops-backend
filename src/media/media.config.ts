@@ -8,6 +8,12 @@ export class MediaConfig {
   get enabled() {
     return this.config.get<string>('OSS_MEDIA_ENABLED') === 'true';
   }
+  get documentsEnabled() {
+    return (
+      this.enabled &&
+      this.config.get<string>('OSS_WHATSAPP_DOCUMENTS_ENABLED') === 'true'
+    );
+  }
   get environment(): 'dev' | 'prod' {
     const value = this.config.get<string>('OSS_MEDIA_ENVIRONMENT');
     if (value !== 'dev' && value !== 'prod')
