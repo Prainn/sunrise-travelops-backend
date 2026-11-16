@@ -788,6 +788,14 @@ describe('website report plans and mileage', () => {
         line.includes('Private driver included on D1.'),
       ),
     ).toBe(true);
+    const standard = (category: string) =>
+      preview.english.teamStandard?.find((row) => row.category === category)
+        ?.included ?? [];
+    expect(standard('service')).toContain('D1: Tour guide (English) included.');
+    expect(standard('service').join(' ')).not.toContain('Private driver');
+    expect(standard('driver').join(' ')).toContain(
+      'Private driver included on D1.',
+    );
     expect(preview.chinese.quotation[0].hotelCategory).toBe('五星');
     expect(preview.english.hotelOptions[0]).toMatchObject({
       startDay: 1,
@@ -993,11 +1001,21 @@ describe('compact bilingual customer itinerary', () => {
     });
     expect(preview.english.inclusions).toEqual(
       expect.arrayContaining([
-        'Reception included.',
         'D1: Tour guide (English) included.',
         'Hotel Manual Hotel with breakfast included.',
       ]),
     );
+    for (const [output, name] of [
+      [preview.english, 'Reception'],
+      [preview.chinese, '接待'],
+    ] as const) {
+      expect(output.inclusions.join(' ')).not.toContain(name);
+      expect(
+        output.teamStandard
+          ?.find((row) => row.category === 'service')
+          ?.included.join(' '),
+      ).not.toContain(name);
+    }
     expect(preview.english.itinerary[1]).toMatchObject({
       transportation: '',
       sightseeing: '',

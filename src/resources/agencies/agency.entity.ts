@@ -12,6 +12,7 @@ import {
   TopLevelResourceEntity,
   VersionedResourceEntity,
 } from '../common/resource.entity';
+import { BusinessDictionaryItemEntity } from '../../system/business-dictionaries/business-dictionary-item.entity';
 
 @Entity({ name: 'resource_agencies' })
 @Unique('UQ_resource_agencies_code', ['code'])
@@ -52,16 +53,15 @@ export class AgencyEntity extends TopLevelResourceEntity {
   @Column({ type: 'varchar', length: 100, default: '' })
   city: string;
 
-  @Column({
-    name: 'country_or_region',
-    type: 'varchar',
-    length: 100,
-    default: '',
-  })
-  countryOrRegion: string;
-
   @Column({ name: 'country_item_id', type: 'uuid', nullable: true })
   countryItemId: string | null;
+
+  @ManyToOne(() => BusinessDictionaryItemEntity, { nullable: true })
+  @JoinColumn({
+    name: 'country_item_id',
+    foreignKeyConstraintName: 'fk_resource_agencies_country',
+  })
+  country: BusinessDictionaryItemEntity | null;
 
   @Column({ type: 'varchar', length: 254, default: '' })
   email: string;

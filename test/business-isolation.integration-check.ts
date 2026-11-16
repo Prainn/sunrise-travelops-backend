@@ -995,12 +995,149 @@ async function main() {
     await tours();
     await inquiries();
     await boundaries();
+    await agencyCountry();
     console.log(
       `Business isolation passed: ${groups} groups, ${h.requests} HTTP checks; real JWT/guards/services/PostgreSQL. No business database accessed.`,
     );
   } finally {
     await h.close();
   }
+}
+
+async function agencyCountry() {
+  await check(
+    '组团社按国家字典显示和搜索；新台账取当前名称，历史快照保持原值',
+    async () => {
+      const sx = businesses[0];
+      const [existing] = sx.agencies;
+      const inquiryUrl = `/inquiries/${sx.inquiries[0].id}`;
+      const originalInquiry = await h.call(root, 'GET', inquiryUrl);
+      const quoteUrl = frozenPath(sx, 0);
+      const originalQuote = await h.call(root, 'GET', quoteUrl);
+      type Agency = RecordRef & {
+        countryItemId: string | null;
+        countryOrRegion: string;
+      };
+      type Region = RecordRef & { countryOrRegion: string };
+      const [unknown] = await h.db.query<{ id: string }[]>(
+        "SELECT id FROM system_business_dictionary_items WHERE code='UNKNOWN'",
+      );
+      const agencyInput = {
+        name: 'Dictionary agency',
+        city: '昆明',
+        businessUnit: 'shengxu',
+        coordinatorId: sx.a.id,
+        status: 'enabled',
+        email: '',
+        remark: '',
+      };
+      const agency = await h.call<Agency>(
+        root,
+        'POST',
+        '/resources/agencies',
+        {
+          ...agencyInput,
+          countryItemId: unknown.id,
+        },
+        201,
+      );
+      assert.equal(agency.countryItemId, unknown.id);
+      assert.equal(agency.countryOrRegion, '未知/待确认');
+      const agencyUrl = `/resources/agencies/${agency.id}`;
+      const editedAgency = await h.call<Agency>(root, 'PUT', agencyUrl, {
+        ...agencyInput,
+        version: agency.version,
+        countryItemId: countryId,
+      });
+      assert.equal(editedAgency.countryItemId, countryId);
+      assert.equal(editedAgency.countryOrRegion, '马来西亚');
+      const [stored] = await h.db.query<{ legacyName: string }[]>(
+        'SELECT country_or_region AS "legacyName" FROM resource_agencies WHERE id=$1',
+        [agency.id],
+      );
+      assert.equal(stored.legacyName, '');
+      const contact = await h.call(
+        root,
+        'POST',
+        `${agencyUrl}/contacts`,
+        { name: 'Test contact', phone: '' },
+        201,
+      );
+
+      const ledgerInput = {
+        recordDate: '2030-01-02',
+        ...existing,
+        quotedGroups: 1,
+        convertedGroups: 0,
+      };
+      const previousLedger = await h.call<Region>(
+        sx.a,
+        'POST',
+        '/ledgers/shengxu',
+        ledgerInput,
+        201,
+      );
+      assert.equal(previousLedger.countryOrRegion, '马来西亚');
+      const renamed = '马来西亚（新版字典）';
+      await h.db.query(
+        'UPDATE system_business_dictionary_items SET name=$2 WHERE id=$1',
+        [countryId, renamed],
+      );
+      assert.equal(
+        (await h.call<Agency>(root, 'GET', agencyUrl)).countryOrRegion,
+        renamed,
+      );
+      const search = (keyword: string) =>
+        h.call<Page<Agency>>(
+          root,
+          'GET',
+          `/resources/agencies?keyword=${encodeURIComponent(keyword)}&pageSize=1`,
+        );
+      const results = await search(renamed);
+      assert.equal(results.total, businesses.length * 2 + 1);
+      assert.equal(results.list[0].countryOrRegion, renamed);
+      const options = await h.call<Page<Region>>(
+        sx.a,
+        'GET',
+        '/ledgers/shengxu/agencies?keyword=Dictionary',
+      );
+      assert.equal(options.total, 1);
+      assert.equal(options.list[0].countryOrRegion, renamed);
+      const retained = await h.call<Agency>(root, 'PUT', agencyUrl, {
+        ...agencyInput,
+        version: editedAgency.version,
+      });
+      assert.equal(retained.countryOrRegion, renamed);
+      assert.equal(retained.countryItemId, countryId);
+      const newLedger = await h.call<Region>(
+        sx.a,
+        'POST',
+        '/ledgers/shengxu',
+        {
+          ...ledgerInput,
+          recordDate: '2030-01-03',
+        },
+        201,
+      );
+      assert.equal(newLedger.countryOrRegion, renamed);
+      const ledgerUrl = `/ledgers/shengxu/${previousLedger.id}`;
+      const retainedLedger = await h.call<Region>(sx.a, 'PUT', ledgerUrl, {
+        ...ledgerInput,
+        quotedGroups: 2,
+        version: previousLedger.version,
+      });
+      assert.equal(retainedLedger.countryOrRegion, '马来西亚');
+      const reassigned = await h.call<Region>(sx.a, 'PUT', ledgerUrl, {
+        ...ledgerInput,
+        agencyId: agency.id,
+        contactId: contact.id,
+        version: retainedLedger.version,
+      });
+      assert.equal(reassigned.countryOrRegion, renamed);
+      assert.deepEqual(await h.call(root, 'GET', inquiryUrl), originalInquiry);
+      assert.deepEqual(await h.call(root, 'GET', quoteUrl), originalQuote);
+    },
+  );
 }
 
 async function boundaries() {
