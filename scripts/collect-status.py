@@ -17,8 +17,11 @@ import time
 import urllib.error
 import urllib.request
 
-BASE = Path('/opt/sunrise-travelops-dev')
-PUBLIC = BASE / 'status'
+LOCAL_ENV = os.environ.get('STATUS_LOCAL_ENV')
+if LOCAL_ENV not in (None, 'dev', 'prod'):
+    raise ValueError('Invalid status environment')
+BASE = Path('/opt/sunrise-travelops-' + (LOCAL_ENV or 'dev'))
+PUBLIC = BASE / ('frontend/status' if LOCAL_ENV == 'dev' else 'status')
 PRIVATE = BASE / 'status-state'
 WORKFLOWS = {
     'frontend': ('Prainn/sunrise-travelops-web', 'deploy.yml'),
@@ -215,7 +218,7 @@ def collect(force=False):
     PUBLIC.chmod(0o755)
     environments = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for environment in ('dev', 'prod'):
+        for environment in ((LOCAL_ENV,) if LOCAL_ENV else ('dev', 'prod')):
             probes = {name: pool.submit(probe_service, lambda fn=fn: fn(environment)) for name, fn in
                       [('frontend', frontend), ('backend', backend), ('database', database)]}
             workflows = {name: pool.submit(cached_deployment, name, environment, force) for name in WORKFLOWS}
@@ -223,6 +226,14 @@ def collect(force=False):
                 'checkedAt': utc_now(),
                 'services': {name: future.result() for name, future in probes.items()},
                 'deployments': {name: future.result() for name, future in workflows.items()}}
+    if LOCAL_ENV == 'prod':
+        try:
+            code, raw = fetch('https://ops-dev.sunrisevacation.cn/.well-known/sunrise-status.json')
+            if code != 200:
+                raise ValueError('Dev status unavailable')
+            environments['dev'] = json.loads(raw)['environments']['dev']
+        except (OSError, ValueError, KeyError, TypeError):
+            environments['dev'] = {'services': {}, 'deployments': {}, 'checkedAt': None}
     snapshot = {'environments': environments, 'staleAfterSeconds': 180}
     snapshot['checkedAt'] = utc_now()
     save(PUBLIC / 'status.json', snapshot, 0o644)
