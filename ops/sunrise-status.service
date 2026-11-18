@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-EnvironmentFile=/etc/sunrise-status.env
+Environment=STATUS_LOCAL_ENV=prod
+EnvironmentFile=-/etc/sunrise-status.env
 ExecStart=/usr/bin/python3 /usr/local/sbin/sunrise-collect-status
 TimeoutStartSec=90
 UMask=0077
@@ -14,4 +15,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/opt/sunrise-travelops-dev/status /opt/sunrise-travelops-dev/status-state
+ReadWritePaths=/opt/sunrise-travelops-prod/status /opt/sunrise-travelops-prod/status-state

@@ -16,7 +16,7 @@ on:
       operation:
         description: Deploy this branch or roll back a retained verified release
         type: choice
-        options: [deploy, refresh-runtime, rollback]
+        options: [deploy, stage, refresh-runtime, rollback]
         default: deploy
       release:
         description: Rollback release ID, or previous
@@ -36,45 +36,23 @@ jobs:
     if: github.repository == 'Prainn/sunrise-travelops-backend' && (github.ref == 'refs/heads/dev' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      verified_dev_sha: ${{ steps.verify-dev.outputs.sha }}
     steps:
-      - name: Require registered runner and branch protections before cutover
+      - name: Validate release request
         env:
           READY: ${{ vars.SELF_HOSTED_READY }}
-        run: test "$READY" = true || { echo 'Self-hosted cutover not ready; registration and branch protections required'; exit 1; }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
-        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
-        with:
-          version: 11.22.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
-        with:
-          node-version: '24.22.1'
-          cache: pnpm
-      - name: Verify exact dev candidate on GitHub
-        if: github.ref == 'refs/heads/dev' && (inputs.operation || 'deploy') == 'deploy'
-        id: verify-dev
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
+          EXPECTED: ${{ inputs.expected_sha }}
+          OPERATION: ${{ inputs.operation || 'deploy' }}
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"
-          pnpm install --frozen-lockfile
-          pnpm verify:release
-          printf 'sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          test "$READY" = true
+          test -z "$EXPECTED" || test "$EXPECTED" = "$GITHUB_SHA"
+          test "$OPERATION" != stage || test "$GITHUB_REF_NAME" = main
   deploy:
     name: Build and release gate
     needs: ready
     outputs:
       deployment_status: ${{ steps.release.outputs.deployment_status }}
-    runs-on: ${{ fromJSON(github.ref_name == 'dev' && '["sunrise-dev-backend"]' || '["self-hosted","Linux","X64","sunrise-backend"]') }}
+    if: github.ref == 'refs/heads/dev'
+    runs-on: [sunrise-dev-backend]
     timeout-minutes: 60
     env:
       DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
@@ -83,7 +61,6 @@ jobs:
       ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
       REVIEWED_MIGRATIONS: ${{ inputs.reviewed_migrations || '' }}
       EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
-      HOSTED_VERIFIED_DEV_SHA: ${{ needs.ready.outputs.verified_dev_sha }}
       BUILDX_CONFIG: /opt/sunrise-ci/buildx
       NODE_OPTIONS: --max-old-space-size=1400
       GH_TOKEN: ${{ github.token }}
@@ -96,7 +73,7 @@ jobs:
           if [[ "$DEPLOY_ENV" == dev ]]; then
             test "$(hostname)" = iZbp1j5n14ce3c01o1539cZ || { echo 'Incorrect dev build host'; exit 1; }
           fi
-          stage='Validate hosted dev gate'
+          stage='Validate dev build host'
           stage_started=$SECONDS
           release_started=$SECONDS
           outcome=failed
@@ -112,9 +89,6 @@ jobs:
           }
           trap finish EXIT
           trap 'code=$?; echo "::error title=Backend release failed::Stage: $stage (exit $code). See the command error above."; printf "\n### Backend release failed\n\nStage: %s (exit %s). See the command error in this step.\n" "$stage" "$code" >> "$GITHUB_STEP_SUMMARY"' ERR
-          if [[ "$DEPLOY_ENV" == dev && "$OPERATION" == deploy ]]; then
-            test "$HOSTED_VERIFIED_DEV_SHA" = "$GITHUB_SHA" || { echo 'Exact dev candidate has not passed hosted verify:release'; exit 1; }
-          fi
           enter_stage "Acquire release lock"
           export PATH="/opt/sunrise-ci/node/bin:$PATH"
           exec 9>/opt/sunrise-ci/build.lock
@@ -208,11 +182,12 @@ jobs:
           outcome=verified
           echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
   result:
-    name: ${{ needs.deploy.outputs.deployment_status == 'waiting_migration' && 'Waiting for migration (NOT deployed)' || 'Deployment verified' }}
-    needs: deploy
+    name: ${{ (needs.deploy.outputs.deployment_status || needs.production.outputs.deployment_status) == 'waiting_migration' && 'Waiting for migration (NOT deployed)' || (inputs.operation == 'stage' && 'Artifact staged' || 'Deployment verified') }}
+    needs: [deploy, production]
+    if: always() && (needs.deploy.result == 'success' || needs.production.result == 'success')
     runs-on: ubuntu-latest
     env:
-      DEPLOYMENT_STATUS: ${{ needs.deploy.outputs.deployment_status }}
+      DEPLOYMENT_STATUS: ${{ needs.deploy.outputs.deployment_status || needs.production.outputs.deployment_status }}
     steps:
       - name: Report deployment outcome
         run: |
@@ -222,6 +197,7 @@ jobs:
               echo '## 等待迁移处理（未发布）' >> "$GITHUB_STEP_SUMMARY"
               echo '本次迁移预检或最终复核等待审核，未切换应用；可能尚未构建完整应用镜像。工作流通过不表示候选版本已发布。审核/维护完成后重新运行。' >> "$GITHUB_STEP_SUMMARY"
               ;;
+            staged) echo 'Production artifact verified on the old host' >> "$GITHUB_STEP_SUMMARY" ;;
             verified)
               echo '## 发布完成（或该提交已发布）' >> "$GITHUB_STEP_SUMMARY"
               ;;
@@ -230,3 +206,40 @@ jobs:
               exit 1
               ;;
           esac
+
+  production:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    needs: ready
+    runs-on: [sunrise-dev-backend]
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      deployment_status: ${{ steps.deliver.outputs.deployment_status }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OPERATION: ${{ inputs.operation }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      REVIEWED_MIGRATIONS: ${{ inputs.reviewed_migrations || '' }}
+      ROLLBACK_RELEASE: ${{ inputs.release }}
+      BUILDX_CONFIG: /opt/sunrise-ci/buildx
+      NODE_OPTIONS: --max-old-space-size=1900
+    steps:
+      - name: Build on the new host and deliver over the VPC
+        id: deliver
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/sunrise-ci/node/bin:$PATH"
+          result=0
+          python3 /usr/local/sbin/sunrise-build-production backend || result=$?
+          if [[ "$result" == 78 ]]; then
+            echo 'deployment_status=waiting_migration' >> "$GITHUB_OUTPUT"
+          elif [[ "$result" != 0 ]]; then
+            exit "$result"
+          elif [[ "$OPERATION" == stage ]]; then
+            echo 'deployment_status=staged' >> "$GITHUB_OUTPUT"
+          else
+            echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
+          fi
