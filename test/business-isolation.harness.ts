@@ -4,9 +4,23 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { WhatsappModule } from '../src/whatsapp/whatsapp.module';
-import { Type, INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  Type,
+  INestApplication,
+  ValidationPipe,
+  NestApplicationOptions,
+  ExecutionContext,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
+import { AuthGuard } from '@nestjs/passport';
+import { createRequire } from 'node:module';
+const passport = createRequire(__filename)('passport') as {
+  use(name: string, strategy: JwtStrategy): void;
+  unuse(name: string): void;
+};
+import { JwtStrategy } from '../src/auth/jwt.strategy';
+import { IS_PUBLIC_KEY } from '../src/auth/decorators/public.decorator';
 import { Test } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -24,6 +38,8 @@ import { OperationLogsModule } from '../src/operation-logs/operation-logs.module
 import { SystemModule } from '../src/system/system.module';
 import { WebsiteModule } from '../src/website/website.module';
 import { LoginScope } from '../src/users/user-identity.entity';
+import { LynxModule } from '../src/lynx/lynx.module';
+import { createCorsOptions } from '../src/config/cors';
 
 export interface Actor {
   id: string;
@@ -54,7 +70,13 @@ export class IsolationHarness {
   private actors = 0;
   requests = 0;
 
-  constructor(private readonly extraConfig: Record<string, string> = {}) {
+  constructor(
+    private readonly extraConfig: Record<string, string> = {},
+    private readonly options: {
+      lynx?: boolean;
+      httpsOptions?: NestApplicationOptions['httpsOptions'];
+    } = {},
+  ) {
     const port = Number(process.env.ISOLATION_PG_PORT ?? '55457');
     assert(Number.isInteger(port) && port > 0 && port <= 65535);
     const connection = {
@@ -77,6 +99,13 @@ export class IsolationHarness {
     });
   }
 
+  get databaseName() {
+    return this.database;
+  }
+  get url() {
+    return this.base;
+  }
+
   async start() {
     await this.admin.initialize();
     assert.match(this.database, /^travelops_isolation_\d+_[a-f0-9]{32}$/);
@@ -91,6 +120,28 @@ export class IsolationHarness {
       (await this.db.runMigrations()).length,
       this.db.migrations.length,
     );
+    // Passport's registry is process-global; name each app's real JWT strategy.
+    const strategyName = this.database;
+    class AppJwtGuard extends AuthGuard(strategyName) {
+      constructor(private readonly reflector: Reflector) {
+        super();
+      }
+      canActivate(context: ExecutionContext) {
+        return this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+          context.getHandler(),
+          context.getClass(),
+        ])
+          ? true
+          : super.canActivate(context);
+      }
+      handleRequest<T>(
+        error: unknown,
+        user: T | false | null,
+        info: unknown,
+      ): T {
+        return JwtAuthGuard.prototype.handleRequest<T>(error, user, info);
+      }
+    }
     const module = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({
@@ -117,14 +168,27 @@ export class IsolationHarness {
         SystemModule,
         OperationLogsModule,
         LedgersModule,
+        ...(this.options.lynx ? [LynxModule] : []),
       ],
       providers: [
-        { provide: APP_GUARD, useClass: JwtAuthGuard },
+        {
+          provide: APP_GUARD,
+          inject: [Reflector],
+          useFactory: (reflector: Reflector) =>
+            this.options.lynx
+              ? new AppJwtGuard(reflector)
+              : new JwtAuthGuard(reflector),
+        },
         { provide: APP_GUARD, useClass: PermissionsGuard },
         { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
       ],
     }).compile();
-    this.app = module.createNestApplication({ logger: false });
+    passport.use(strategyName, module.get(JwtStrategy));
+    this.app = module.createNestApplication({
+      logger: false,
+      httpsOptions: this.options.httpsOptions,
+    });
+    if (this.options.lynx) this.app.enableCors(createCorsOptions([]));
     this.app.setGlobalPrefix('api');
     this.app.useGlobalPipes(
       new ValidationPipe({
@@ -145,6 +209,7 @@ export class IsolationHarness {
   }
 
   async close() {
+    passport.unuse(this.database);
     try {
       await this.app?.close();
     } finally {

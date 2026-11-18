@@ -29,7 +29,7 @@ export type VisitRow = Record<(typeof VISIT_COLUMNS)[number], string | null> & {
   created_at_utc: string;
 };
 
-/** Dedicated SELECT-only development source, separate from the environment's business DataSource. */
+/** Dedicated SELECT-only source, separate from the environment's business DataSource. */
 @Injectable()
 export class WebsiteVisitsReader implements OnModuleDestroy {
   private source?: DataSource;

@@ -104,6 +104,8 @@ describe('OperationLogInterceptor', () => {
       'ToursController.availableGuides', // POST body is a read-only scheduling query.
       'WebsiteController.validateItinerary', // Read-only validation does not record operation logs.
       'LynxController.register', // Public attribution collection, not an internal page.
+      // Dedicated machine GET API has no business actor; the caller's business export is audited locally.
+      'WebsiteVisitsApiController.export',
       // These services save audit rows in their transaction; account-links.integration-check
       // verifies the committed audit alongside relation/session changes.
       'AuthController.switchAccount',
@@ -130,6 +132,22 @@ describe('OperationLogInterceptor', () => {
     }
     expect(missing).toEqual([]);
   });
+
+  it.each(['list', 'export', 'row'])(
+    'does not write user operation logs for machine visit source %s',
+    async (handler) => {
+      await firstValueFrom(
+        interceptor.intercept(
+          context('WebsiteVisitsApiController', handler, {
+            params: {},
+            query: {},
+          }),
+          { handle: () => of({}) },
+        ),
+      );
+      expect(logs.append).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ['InquiriesController', '删除询盘'],

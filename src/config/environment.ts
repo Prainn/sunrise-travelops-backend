@@ -1,3 +1,4 @@
+import { validateVisitsEnvironment } from '../lynx/website-visits-api.config';
 type Environment = Record<string, string | undefined>;
 
 const REQUIRED_ENVIRONMENT_VARIABLES = [
@@ -71,6 +72,7 @@ export function validateEnvironment(environment: Environment): Environment {
   }
 
   parseTrustProxy(environment.TRUST_PROXY);
+  validateVisitsEnvironment(environment);
 
   return environment;
 }

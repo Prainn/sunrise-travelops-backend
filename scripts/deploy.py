@@ -16,10 +16,24 @@ ENVIRONMENT = os.environ.get('DEPLOY_ENV', 'dev')
 if ENVIRONMENT not in ('dev', 'prod'):
     raise ValueError('Invalid environment')
 BASE = Path('/opt/sunrise-travelops-' + ENVIRONMENT)
+TARGET = ENVIRONMENT == 'dev' and os.environ.get('SUNRISE_DEV_REMOTE') == '1'
+TARGET_CLIENT = '/usr/local/libexec/sunrise-dev-release/client.py'
+SCOPE = os.environ.get('SUNRISE_ACTIVATION_SCOPE') if ENVIRONMENT == 'dev' else None
+API_CONTAINER = 'sunrise-travelops-' + ENVIRONMENT + '-api-1'
+INGRESS_PORT = 8089
+if SCOPE == 'rehearsal':
+    BASE = Path('/opt/sunrise-dev-release-rehearsal')
+    API_CONTAINER = 'sunrise-release-check-api-1'
+    INGRESS_PORT = 18089
 STATE = BASE / 'backend'
 COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.ecs.yml']
 if ENVIRONMENT == 'dev':
     COMPOSE += ['-f', 'compose.dev.yml']
+if SCOPE == 'rehearsal':
+    COMPOSE = ['docker', 'compose', '-p', 'sunrise-release-check', '--env-file', 'server.env', '-f', 'compose.json']
+elif SCOPE == 'live':
+    COMPOSE += [arg for name in ('rehearsal', 'visits-client', 'preview-relays', 'release')
+                for arg in ('-f', 'compose.' + name + '.yml')]
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
@@ -235,6 +249,13 @@ def check_schema(target, current, database, compatible, allow_migrations=False):
 
 
 def review_migrations(target):
+    if TARGET:
+        process = subprocess.run([TARGET_CLIENT, 'backend', 'review'], text=True, capture_output=True,
+                                 input=json.dumps(target), timeout=150)
+        if process.returncode == 78:
+            raise MigrationRequired(process.stderr.strip())
+        process.check_returncode()
+        return json.loads(process.stdout)
     state = read_state()
     pending = check_schema(target, state['migration_history'], applied(),
                            state['compatible_migrations'], allow_migrations=True)
@@ -263,7 +284,7 @@ def activate(image):
     run(COMPOSE + ['up', '-d', '--no-deps', 'api'])
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1']))[0]
+        info = json.loads(run(['docker', 'inspect', API_CONTAINER]))[0]
         if info['Image'] == image and info['State'].get('Health', {}).get('Status') == 'healthy':
             break
         if info['State']['Status'] in ['exited', 'dead', 'restarting'] or info['State'].get('Health', {}).get('Status') == 'unhealthy':
@@ -273,7 +294,7 @@ def activate(image):
         raise RuntimeError('API did not become healthy within 90 seconds')
     # Validate the shared ingress locally even before new public DNS/TLS is ready.
     host = 'api-dev.sunrisevacation.cn' if ENVIRONMENT == 'dev' else 'api.sunrisevacation.cn'
-    request = urllib.request.Request('http://127.0.0.1:8089/api/health', headers={'Host': host})
+    request = urllib.request.Request(f'http://127.0.0.1:{INGRESS_PORT}/api/health', headers={'Host': host})
     with urllib.request.urlopen(request, timeout=15) as response:
         result = json.load(response)
     if result.get('status') != 'ok' or result.get('details', {}).get('postgres', {}).get('status') != 'up':
@@ -438,7 +459,7 @@ def bootstrap():
     if (STATE / 'state.json').exists():
         raise ValueError('Deployment state is already initialized')
     release_id = 'bootstrap-' + time.strftime('%Y%m%d%H%M%S')
-    image = run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1', '--format', '{{.Image}}'])
+    image = run(['docker', 'inspect', API_CONTAINER, '--format', '{{.Image}}'])
     target = migrations(image)
     if set(applied()) != set(target):
         raise ValueError('Bootstrap image and database migrations do not match')
@@ -453,6 +474,8 @@ def bootstrap():
 
 def main():
     os.umask(0o077)
+    if TARGET:
+        os.execv(TARGET_CLIENT, [TARGET_CLIENT, 'backend', *sys.argv[1:]])
     if sys.argv[1:] == ['preflight']:
         print(json.dumps(preflight()))
         return

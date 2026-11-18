@@ -17,6 +17,8 @@ export function createCorsOptions(
       ['GET', 'OPTIONS'].includes(request.method) &&
       LYNX_ORIGINS.includes(request.get('origin') ?? '');
     if (
+      path === '/api/internal/website-visits' ||
+      path.startsWith('/api/internal/website-visits/') ||
       path === '/v1/private/whatsapp' ||
       path.startsWith('/v1/private/whatsapp/')
     ) {

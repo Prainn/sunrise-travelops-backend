@@ -1,0 +1,14 @@
+# Candidate only: explicitly include after compose.ecs.yml, AFTER cutover approval.
+# Does not configure the main business DATABASE_* connection.
+services:
+  api:
+    environment:
+      LYNX_VISITS_SOURCE_MODE: database
+      LYNX_VISITS_DB_HOST: postgres-prod-app
+      LYNX_VISITS_DB_PORT: 5432
+      LYNX_VISITS_DB_NAME: travelops_prod
+      LYNX_VISITS_DB_USER: lynxtour_viewer
+      LYNX_VISITS_DB_PASSWORD: ${VISITS_SOURCE_READER_PASSWORD:?dedicated production SELECT-only password required}
+      LYNX_VISITS_API_ENABLED: "true"
+      LYNX_VISITS_API_SERVER_TOKEN: ${VISITS_SOURCE_API_TOKEN:?dedicated visits API token required}
+      LYNX_VISITS_API_ALLOWED_IPS: ${VISITS_SOURCE_ALLOWED_IPS:?exact observed new-host source IP required}
