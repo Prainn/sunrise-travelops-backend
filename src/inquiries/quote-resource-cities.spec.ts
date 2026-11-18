@@ -140,8 +140,8 @@ describe('quote resource cities', () => {
     expect(result.attractionDetails).toMatchObject([
       { city: '大理', totalCost: 20 },
     ]);
-    expect(result.mealCost).toBe(115);
-    expect(result.attractionCost).toBe(27);
+    expect(result.mealCost).toBe(110);
+    expect(result.attractionCost).toBe(20);
   });
 
   it('does not infer a missing resource city from the day destination', async () => {

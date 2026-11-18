@@ -36,6 +36,7 @@ ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
 BREAKING_MIGRATIONS = {
+    'PerDayHotelsAndTotalOtherCosts1796256009000',
     'RemoveExecutiveRole1796256003000',
     'SeriesInquiries1796083202000',
     'ItineraryCustomerPresentation1796083201000',
@@ -188,6 +189,20 @@ def read_state():
     return json.loads(path.read_text())
 
 
+def approved_offline_activation(current):
+    """Root hands this exact dev run the stopped API after a maintenance migration."""
+    marker = Path('/run/sunrise-dev-offline-release')
+    sha = os.environ.get('GITHUB_SHA', '')
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    if (SCOPE != 'live' or ENVIRONMENT != 'dev' or os.environ.get('OPERATION') != 'deploy'
+            or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[0-9]+', run_id)
+            or not marker.is_file() or marker.is_symlink()):
+        return False
+    info = marker.stat()
+    return (info.st_uid == 0 and not info.st_mode & 0o022
+            and marker.read_text().splitlines() == [current, sha, run_id])
+
+
 def preflight():
     """Fail before a costly build if maintenance left private files inaccessible."""
     if os.geteuid() == 0:
@@ -208,8 +223,11 @@ def preflight():
             release(state[key])
     if SCOPE in ('rehearsal', 'live') and state.get('current'):
         active = release(state['current'])
-        identity = run(['docker', 'inspect', API_CONTAINER, '--format', '{{.Image}} {{.State.Health.Status}}'])
-        if active['status'] != 'verified' or identity != active['image'] + ' healthy':
+        identity = run(['docker', 'inspect', API_CONTAINER, '--format',
+                        '{{.Image}} {{.State.Status}} {{.State.Health.Status}}']).split()
+        ready = identity == [active['image'], 'running', 'healthy']
+        stopped = identity[:2] == [active['image'], 'exited'] and approved_offline_activation(state['current'])
+        if active['status'] != 'verified' or not (ready or stopped):
             raise ValueError('Dev release state does not match the healthy running image')
     return {'preflight': 'passed'}
 

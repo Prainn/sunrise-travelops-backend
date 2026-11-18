@@ -230,23 +230,32 @@ export async function buildCustomerPresentation(
           }),
         };
       }),
+      // Several nights in one hotel are listed once.
       hotels: plan.hotelPlans.flatMap((p) =>
-        p.hotels.map((h) => ({
-          hotelId: h.hotelId,
-          name: en
-            ? english(
-                resourceMap.get(`hotel:${h.hotelId}`)?.englishName,
-                `hotels[${h.hotelId}].englishName`,
-              )
-            : h.hotelName,
-          destination: en
-            ? city(
-                h.destination,
-                undefined,
-                `cities[${h.destination}].englishName`,
-              )
-            : h.destination,
-        })),
+        p.hotels
+          .filter(
+            (h, i, all) =>
+              all.findIndex(
+                (o) =>
+                  o.hotelId === h.hotelId && o.destination === h.destination,
+              ) === i,
+          )
+          .map((h) => ({
+            hotelId: h.hotelId,
+            name: en
+              ? english(
+                  resourceMap.get(`hotel:${h.hotelId}`)?.englishName,
+                  `hotels[${h.hotelId}].englishName`,
+                )
+              : h.hotelName,
+            destination: en
+              ? city(
+                  h.destination,
+                  undefined,
+                  `cities[${h.destination}].englishName`,
+                )
+              : h.destination,
+          })),
       ),
       notes: (
         [

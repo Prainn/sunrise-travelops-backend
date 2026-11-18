@@ -53,6 +53,24 @@ class ReleaseSafety(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, 'sunrise-runner'):
                 release.preflight()
 
+    def test_offline_handoff_is_bound_to_live_dev_commit_run_and_previous_release(self):
+        sha = 'b' * 40
+        with patch.object(release, 'SCOPE', 'live'), patch.object(release, 'ENVIRONMENT', 'dev'), \
+             patch.dict(os.environ, {'GITHUB_SHA': sha, 'GITHUB_RUN_ID': '901', 'OPERATION': 'deploy'}), \
+             patch.object(release, 'Path') as path:
+            marker = path.return_value
+            marker.is_file.return_value = True
+            marker.is_symlink.return_value = False
+            marker.stat.return_value.st_uid = 0
+            marker.stat.return_value.st_mode = 0o100644
+            marker.read_text.return_value = 'previous\n' + sha + '\n901\n'
+            self.assertTrue(release.approved_offline_activation('previous'))
+            self.assertFalse(release.approved_offline_activation('different'))
+            with patch.dict(os.environ, {'GITHUB_RUN_ID': '902'}):
+                self.assertFalse(release.approved_offline_activation('previous'))
+            marker.stat.return_value.st_uid = 1002
+            self.assertFalse(release.approved_offline_activation('previous'))
+
     def test_retired_permissions_cannot_be_marked_compatible(self):
         name = 'RetireUnusedPermissions1793577600000'
         with self.assertRaises(release.MigrationRequired):
