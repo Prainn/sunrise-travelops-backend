@@ -1,0 +1,11 @@
+# Candidate only: explicitly include after the existing new-dev Compose overlays.
+services:
+  api:
+    environment:
+      LYNX_VISITS_SOURCE_MODE: http
+      LYNX_VISITS_API_ENABLED: "false"
+      LYNX_VISITS_API_URL: https://api.sunrisevacation.cn
+      LYNX_VISITS_API_CONNECT_IP: 172.29.23.197
+      LYNX_VISITS_API_CLIENT_TOKEN: ${VISITS_SOURCE_API_TOKEN:?dedicated visits API token required}
+      LYNX_VISITS_DB_HOST: ""
+      LYNX_VISITS_DB_PASSWORD: ""

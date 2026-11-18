@@ -11,6 +11,7 @@ import {
   Res,
   UnauthorizedException,
   Body,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiExcludeController } from '@nestjs/swagger';
@@ -35,6 +36,7 @@ export class LynxController {
     @Body() body: WhatsappRegisterDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ recorded: true }> {
+    this.requireLocalSource();
     const inserted = await this.registry.register(body);
     if (!inserted) response.status(200);
     return { recorded: true };
@@ -44,6 +46,7 @@ export class LynxController {
   @Get('private/whatsapp')
   @Header('Cache-Control', 'no-store')
   list(@Query() query: WhatsappListQueryDto, @Req() request: Request) {
+    this.requireLocalSource();
     this.authorizeResolver(request);
     return this.registry.list(query);
   }
@@ -55,8 +58,17 @@ export class LynxController {
     @Param('whatsapp_reference') reference: string,
     @Req() request: Request,
   ): Promise<Record<string, string>> {
+    this.requireLocalSource();
     this.authorizeResolver(request);
     return this.registry.resolve(reference);
+  }
+
+  private requireLocalSource(): void {
+    if (this.config.get<string>('LYNX_VISITS_SOURCE_MODE') === 'http') {
+      throw new ServiceUnavailableException(
+        'Visit registration and legacy resolution require the canonical source host',
+      );
+    }
   }
 
   private authorizeResolver(request: Request): void {

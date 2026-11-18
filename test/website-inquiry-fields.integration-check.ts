@@ -2,6 +2,9 @@ import { ConfigService } from '@nestjs/config';
 import { WebsiteVisitsController } from '../src/lynx/website-visits.controller';
 import { WebsiteVisitsService } from '../src/lynx/website-visits.service';
 import { WebsiteVisitsReader } from '../src/lynx/website-visits-reader';
+import { WebsiteVisitsDatabaseSource } from '../src/lynx/website-visits-database.source';
+import { WebsiteVisitsHttpSource } from '../src/lynx/website-visits-http.source';
+import { WebsiteVisitsSource } from '../src/lynx/website-visits.source';
 /** Disposable localhost PostgreSQL 16 only; never loads application .env files. */
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
@@ -24,9 +27,9 @@ import { WebsiteInquiry, WebsiteItinerary } from '../src/website/website.types';
 const connection = {
   type: 'postgres' as const,
   host: '127.0.0.1',
-  port: 55451,
+  port: Number(process.env.ISOLATION_PG_PORT ?? '55451'),
   username: 'postgres',
-  password: 'isolated-website-fields-test',
+  password: process.env.ISOLATION_PG_PASSWORD ?? 'isolated-website-fields-test',
 };
 const admin = new DataSource({ ...connection, database: 'postgres' });
 const names = [
@@ -286,11 +289,14 @@ async function run() {
         WebsiteService,
         WebsiteVisitsService,
         WebsiteVisitsReader,
+        WebsiteVisitsDatabaseSource,
+        WebsiteVisitsHttpSource,
+        WebsiteVisitsSource,
         {
           provide: ConfigService,
           useValue: new ConfigService({
             LYNX_VISITS_DB_HOST: '127.0.0.1',
-            LYNX_VISITS_DB_PORT: 55451,
+            LYNX_VISITS_DB_PORT: connection.port,
             LYNX_VISITS_DB_NAME: names[0],
             LYNX_VISITS_DB_USER: 'visits_test_reader',
             LYNX_VISITS_DB_PASSWORD: 'readonly-test',
@@ -384,7 +390,9 @@ async function run() {
       403,
     );
     await call('shengxu', 'GET', 'inquiries', undefined, 403);
-    await call('noCode', 'POST', 'inquiries', input, 400);
+    // API §18.3 uses the shared INQ counter; tour_code is no longer required.
+    const noCode = await call('noCode', 'POST', 'inquiries', input, 201);
+    assert.equal(noCode.code, `INQ-${date}-03`);
     for (const patch of [
       { phone: '' },
       { email: '' },

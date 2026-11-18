@@ -19,13 +19,16 @@ import { WebsiteService } from '../src/website/website.service';
 import { WebsiteVisitsController } from '../src/lynx/website-visits.controller';
 import { WebsiteVisitsService } from '../src/lynx/website-visits.service';
 import { WebsiteVisitsReader } from '../src/lynx/website-visits-reader';
+import { WebsiteVisitsDatabaseSource } from '../src/lynx/website-visits-database.source';
+import { WebsiteVisitsHttpSource } from '../src/lynx/website-visits-http.source';
+import { WebsiteVisitsSource } from '../src/lynx/website-visits.source';
 
 const connection = {
   type: 'postgres' as const,
   host: '127.0.0.1',
-  port: 55451,
+  port: Number(process.env.ISOLATION_PG_PORT ?? '55451'),
   username: 'postgres',
-  password: 'isolated-website-fields-test',
+  password: process.env.ISOLATION_PG_PASSWORD ?? 'isolated-website-fields-test',
 };
 const admin = new DataSource({ ...connection, database: 'postgres' });
 const names = [
@@ -193,6 +196,9 @@ async function run() {
       providers: [
         WebsiteVisitsService,
         WebsiteVisitsReader,
+        WebsiteVisitsDatabaseSource,
+        WebsiteVisitsHttpSource,
+        WebsiteVisitsSource,
         { provide: DataSource, useValue: db },
         {
           provide: WebsiteService,
@@ -207,7 +213,7 @@ async function run() {
           provide: ConfigService,
           useValue: new ConfigService({
             LYNX_VISITS_DB_HOST: '127.0.0.1',
-            LYNX_VISITS_DB_PORT: 55451,
+            LYNX_VISITS_DB_PORT: connection.port,
             LYNX_VISITS_DB_NAME: names[0],
             LYNX_VISITS_DB_USER: readerRole,
             LYNX_VISITS_DB_PASSWORD: 'confirmation-reader-only',
