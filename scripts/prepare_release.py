@@ -15,6 +15,18 @@ import deploy
 
 
 def build(command):
+    if deploy.TARGET and command[:3] == ['docker', 'buildx', 'build']:
+        # The docker-container builder nests executor cgroups below its own scope.
+        # A same-named host slice does not constrain these RUN processes.
+        builder_id = subprocess.check_output(['docker', 'inspect', '--format', '{{.Id}}',
+                                              'buildx_buildkit_sunrise0'], text=True).strip()
+        if not re.fullmatch(r'[0-9a-f]{64}', builder_id):
+            raise ValueError('Unexpected build worker identity')
+        group = Path('/sys/fs/cgroup/system.slice') / ('docker-' + builder_id + '.scope') / 'sunrise-devcompile.slice'
+        ceiling = (group / 'memory.max').read_text().strip()
+        if not ceiling.isdigit() or not 0 < int(ceiling) <= 720 * 1024 * 1024:
+            raise RuntimeError('Dev compiler hard memory limit is unavailable')
+        command = [*command[:3], '--cgroup-parent=sunrise-devcompile.slice', *command[3:]]
     # Inherit output: Docker build output contains no server.env or database rows.
     subprocess.run(command, check=True, timeout=1800, pass_fds=(9,))
 
