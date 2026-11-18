@@ -2,67 +2,121 @@ name: Verify backend
 on:
   pull_request:
     branches: [main, dev]
+  pull_request_target:
+    branches: [main, dev]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   push:
     branches: [main]
 permissions:
   contents: read
+  statuses: read
 jobs:
+  fork:
+    name: Dispatch fork checks from the trusted base
+    if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - name: Select the exact candidate
+        id: candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = Prainn/sunrise-travelops-backend
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          sha="$HEAD_SHA"
+          if [[ -n "$PR" ]]; then
+            [[ "$PR" =~ ^[0-9]+$ ]]
+            data=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR")
+            test "$(jq -r .head.sha <<< "$data")" = "$HEAD_SHA"
+            sha=$(git ls-remote "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "refs/pull/$PR/merge" | cut -f1)
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+            # A required status on the PR head must refer to a merge with that exact head.
+            parents=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$sha" --jq '[.parents[].sha] | join(" ")')
+            test "$parents" = "$(jq -r .base.sha <<< "$data") $HEAD_SHA"
+          fi
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          for target in $(printf '%s\n' "$sha" "$HEAD_SHA" | sort -u); do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$target" -f state=pending -f context=isolated-fork-backend \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --silent
+          done
+      - name: Run checks in a disposable sandbox on the build host
+        env:
+          KEY: ${{ secrets.ISOLATED_CI_SSH_KEY }}
+          HOST_KEY: ${{ vars.ISOLATED_CI_HOST_KEY }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          temp=$(mktemp -d); trap 'rm -rf -- "$temp"' EXIT
+          printf '%s\n' "$KEY" > "$temp/key"
+          printf '%s\n' "$HOST_KEY" > "$temp/hosts"
+          unset KEY
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
+            -o UserKnownHostsFile="$temp/hosts" -i "$temp/key" sunrise-ci-check@ops-dev.sunrisevacation.cn "$SHA"
+      - name: Publish the required check
+        if: always() && steps.candidate.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+          SHA: ${{ steps.candidate.outputs.sha }}
+          HEAD_SHA: ${{ steps.candidate.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=failure
+          if [[ "$RESULT" == success ]]; then state=success; fi
+          for target in $(printf '%s\n' "$SHA" "$HEAD_SHA" | sort -u); do
+            gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$target" -f state="$state" -f context=isolated-fork-backend \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --silent
+          done
+
   verify:
     name: verify-backend
+    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: ci-only, POSTGRES_DB: travelops_ci}
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
-    env:
-      DATABASE_HOST: 127.0.0.1
-      DATABASE_PORT: '5432'
-      DATABASE_USER: postgres
-      DATABASE_PASSWORD: ci-only
-      DATABASE_NAME: travelops_ci
-      DATABASE_SSL: 'false'
+    timeout-minutes: 105
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
-        with:
-          version: 11.22.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: '24.22.1'
-          cache: pnpm
-      - run: python3 scripts/test_deploy.py
-      - run: python3 scripts/test_prepare_release.py
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec jest --runInBand
-      - run: pnpm verify:release
-      - name: Compiled migration manifest matches release build
-        run: node scripts/test-migration-manifest.mjs
-      - name: Empty database migrations and repeat execution
+      - name: Run checks in a disposable sandbox on the build host
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KEY: ${{ secrets.ISOLATED_CI_SSH_KEY }}
+          HOST_KEY: ${{ vars.ISOLATED_CI_HOST_KEY }}
+          SHA: ${{ github.sha }}
+        shell: bash
         run: |
-          node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
-          node node_modules/typeorm/cli.js migration:run -d dist/database/data-source.js --transaction all
-      - name: Business data isolation (disposable database)
+          set -euo pipefail
+          umask 077
+          temp=$(mktemp -d); trap 'rm -rf -- "$temp"' EXIT
+          printf '%s\n' "$KEY" > "$temp/key"
+          printf '%s\n' "$HOST_KEY" > "$temp/hosts"
+          unset KEY
+          ssh -T -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 \
+            -o UserKnownHostsFile="$temp/hosts" -i "$temp/key" sunrise-ci-check@ops-dev.sunrisevacation.cn "$SHA"
+      - name: Await the isolated check for this exact fork merge commit
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         env:
-          ISOLATION_PG_PORT: '5432'
-          ISOLATION_PG_PASSWORD: ci-only
-        run: pnpm test:isolation
-      - name: Sunrise account menu permissions (disposable database)
-        env:
-          ISOLATION_PG_PORT: '5432'
-          ISOLATION_PG_PASSWORD: ci-only
-        run: pnpm exec ts-node test/headquarters-boss.integration-check.ts
-      - name: Headquarters role assignment and retirement (disposable database)
-        env:
-          ISOLATION_PG_PORT: '5432'
-          ISOLATION_PG_PASSWORD: ci-only
-        run: pnpm exec ts-node test/headquarters-role-assignment.integration-check.ts
-      - name: Backend review regressions (disposable database)
-        env:
-          ISOLATION_PG_PORT: '5432'
-          ISOLATION_PG_PASSWORD: ci-only
-        run: pnpm exec ts-node test/backend-review.integration-check.ts
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 190); do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/status" \
+              --jq '.statuses | map(select(.context == "isolated-fork-backend")) | .[0].state // "pending"')
+            case "$state" in success) exit 0 ;; failure|error) exit 1 ;; esac
+            sleep 30
+          done
+          exit 1
