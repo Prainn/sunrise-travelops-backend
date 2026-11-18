@@ -16,8 +16,6 @@ ENVIRONMENT = os.environ.get('DEPLOY_ENV', 'dev')
 if ENVIRONMENT not in ('dev', 'prod'):
     raise ValueError('Invalid environment')
 BASE = Path('/opt/sunrise-travelops-' + ENVIRONMENT)
-TARGET = ENVIRONMENT == 'dev' and os.environ.get('SUNRISE_DEV_REMOTE') == '1'
-TARGET_CLIENT = '/usr/local/libexec/sunrise-dev-release/client.py'
 SCOPE = os.environ.get('SUNRISE_ACTIVATION_SCOPE') if ENVIRONMENT == 'dev' else None
 API_CONTAINER = 'sunrise-travelops-' + ENVIRONMENT + '-api-1'
 INGRESS_PORT = 8089
@@ -208,6 +206,11 @@ def preflight():
     for key in ('current', 'previous'):
         if state.get(key):
             release(state[key])
+    if SCOPE in ('rehearsal', 'live') and state.get('current'):
+        active = release(state['current'])
+        identity = run(['docker', 'inspect', API_CONTAINER, '--format', '{{.Image}} {{.State.Health.Status}}'])
+        if active['status'] != 'verified' or identity != active['image'] + ' healthy':
+            raise ValueError('Dev release state does not match the healthy running image')
     return {'preflight': 'passed'}
 
 
@@ -249,13 +252,6 @@ def check_schema(target, current, database, compatible, allow_migrations=False):
 
 
 def review_migrations(target):
-    if TARGET:
-        process = subprocess.run([TARGET_CLIENT, 'backend', 'review'], text=True, capture_output=True,
-                                 input=json.dumps(target), timeout=150)
-        if process.returncode == 78:
-            raise MigrationRequired(process.stderr.strip())
-        process.check_returncode()
-        return json.loads(process.stdout)
     state = read_state()
     pending = check_schema(target, state['migration_history'], applied(),
                            state['compatible_migrations'], allow_migrations=True)
@@ -474,8 +470,6 @@ def bootstrap():
 
 def main():
     os.umask(0o077)
-    if TARGET:
-        os.execv(TARGET_CLIENT, [TARGET_CLIENT, 'backend', *sys.argv[1:]])
     if sys.argv[1:] == ['preflight']:
         print(json.dumps(preflight()))
         return

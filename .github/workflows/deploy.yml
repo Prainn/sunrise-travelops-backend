@@ -74,11 +74,11 @@ jobs:
     needs: ready
     outputs:
       deployment_status: ${{ steps.release.outputs.deployment_status }}
-    runs-on: [self-hosted, Linux, X64, sunrise-backend]
+    runs-on: ${{ fromJSON(github.ref_name == 'dev' && '["sunrise-dev-backend"]' || '["self-hosted","Linux","X64","sunrise-backend"]') }}
     timeout-minutes: 60
     env:
       DEPLOY_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
-      SUNRISE_DEV_REMOTE: ${{ github.ref_name == 'dev' && '1' || '0' }}
+      SUNRISE_ACTIVATION_SCOPE: ${{ github.ref_name == 'dev' && 'live' || '' }}
       OPERATION: ${{ inputs.operation || 'deploy' }}
       ROLLBACK_RELEASE: ${{ inputs.release || 'previous' }}
       REVIEWED_MIGRATIONS: ${{ inputs.reviewed_migrations || '' }}
@@ -93,6 +93,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          if [[ "$DEPLOY_ENV" == dev ]]; then
+            test "$(hostname)" = iZbp1j5n14ce3c01o1539cZ || { echo 'Incorrect dev build host'; exit 1; }
+          fi
           stage='Validate hosted dev gate'
           stage_started=$SECONDS
           release_started=$SECONDS
@@ -147,9 +150,6 @@ jobs:
           if [[ "$OPERATION" == refresh-runtime ]]; then
             enter_stage "Select deployed source for runtime-only refresh"
             test -z "$REVIEWED_MIGRATIONS" || { echo 'Runtime refresh cannot authorize migrations'; exit 1; }
-            if [[ "$DEPLOY_ENV" == dev ]]; then
-              source_sha=$(/usr/local/libexec/sunrise-dev-release/client.py backend current-sha)
-            else
             source_sha=$(python3 - "$base" <<'PYCODE'
           import json, re, sys
           from pathlib import Path
@@ -163,7 +163,6 @@ jobs:
           print(current.split('-')[0])
           PYCODE
             )
-            fi
             mkdir "$source/runtime-source"
             curl --fail --silent --show-error --location --retry 2 --connect-timeout 10 --max-time 120 \
               -H "Authorization: Bearer $GH_TOKEN" \
@@ -174,20 +173,24 @@ jobs:
             cd "$source/runtime-source"
             echo "Runtime refresh preserves application source $source_sha; Dockerfile from $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [[ "$DEPLOY_ENV" == dev ]]; then
-            current=$(python3 "$driver/deploy.py" status | python3 -c 'import json,sys; print(json.load(sys.stdin)["current"] or "")')
-          else
-            current=$(python3 -c 'import json,sys,pathlib; p=pathlib.Path(sys.argv[1])/"backend/state.json"; state=json.loads(p.read_text()) if p.exists() else {}; print(state.get("current",state.get("release","")) or "")' "$base")
-          fi
-          if [[ "$OPERATION" != refresh-runtime && "$current" == "$GITHUB_SHA"-* ]]; then
+          if [[ "$OPERATION" != refresh-runtime ]] && python3 - "$base" "$GITHUB_SHA" <<'PYCODE'
+          import json, sys
+          from pathlib import Path
+          base, sha = Path(sys.argv[1]), sys.argv[2]
+          file = base / 'backend/state.json'
+          state = json.loads(file.read_text()) if file.exists() else {}
+          current = state.get('current', state.get('release', ''))
+          sys.exit(0 if current.startswith(sha + '-') else 1)
+          PYCODE
+          then
             echo "This commit is already deployed; no new release was performed." >> "$GITHUB_STEP_SUMMARY"
             outcome=verified
             echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           enter_stage "Release safety checks"
-          SUNRISE_DEV_REMOTE=0 python3 "$driver/test_deploy.py"
-          SUNRISE_DEV_REMOTE=0 python3 "$driver/test_prepare_release.py"
+          python3 "$driver/test_deploy.py"
+          python3 "$driver/test_prepare_release.py"
           release="${source_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           enter_stage "Candidate preparation and release"
           result=0
