@@ -4,6 +4,7 @@ import type {
 } from './itinerary.types';
 import { divideMoney, multiplyMoney, roundMoney, sumMoney } from './money';
 import { BusinessException } from '../common/exceptions/business.exception';
+import { hotelForDay } from './hotel-days';
 
 type QuotePlan = Pick<
   ItineraryRecord,
@@ -29,7 +30,7 @@ export function missingItineraryPrices(
     for (const hotel of plan.hotels)
       if (!ready(hotel.unitCost))
         missing.push(
-          `hotelPlans[${plan.tier}].hotels[${hotel.destination}].unitCost`,
+          `hotelPlans[${plan.tier}].hotels[${hotel.dayId ?? hotel.destination}].unitCost`,
         );
   for (const guide of itinerary.guidePlans)
     if (!ready(guide.dailyPrice))
@@ -123,18 +124,17 @@ export function calculateItineraryQuote(
       .filter((item) => item.unit === 'table' && item.tableCount != null)
       .map((item) => multiplyMoney(item.unitCost ?? 0, item.tableCount!)),
   );
-  const mealCost = sumMoney([
-    ...mealDetails.flatMap((item) =>
+  // Pax-independent resource cost; other costs are group totals spread per PAX below.
+  const mealCost = sumMoney(
+    mealDetails.flatMap((item) =>
       item.totalCost === null ? [] : [item.totalCost],
     ),
-    itinerary.quote.mealOtherCost ?? 0,
-  ]);
-  const attractionCost = sumMoney([
-    ...attractionDetails.flatMap((item) =>
+  );
+  const attractionCost = sumMoney(
+    attractionDetails.flatMap((item) =>
       item.totalCost === null ? [] : [item.totalCost],
     ),
-    itinerary.quote.attractionOtherCost ?? 0,
-  ]);
+  );
   const dailyResourceCost = sumMoney([mealCost, attractionCost]);
   const tipUnitPrice = roundMoney(
     itinerary.quote.chineseTip ?? itinerary.quote.englishTip ?? 0,
@@ -155,32 +155,30 @@ export function calculateItineraryQuote(
       const hotels =
         itinerary.hotelPlans.find((plan) => plan.tier === option.hotelTier)
           ?.hotels ?? [];
-      const nightsByCity = new Map<string, number>();
-      for (const day of itinerary.dailyPlans) {
-        if (day.overnightDestination)
-          nightsByCity.set(
-            day.overnightDestination,
-            (nightsByCity.get(day.overnightDestination) ?? 0) + 1,
-          );
-      }
       let accumulatedRoomCost = 0;
-      const hotelCityCosts = [...nightsByCity].map(([destination, nights]) => {
-        const unitCost =
-          hotels.find((hotel) => hotel.destination === destination)?.unitCost ??
-          null;
-        const previousTotal = divideMoney(accumulatedRoomCost, 2);
-        if (unitCost !== null)
-          accumulatedRoomCost = sumMoney([
-            accumulatedRoomCost,
-            multiplyMoney(unitCost, nights),
-          ]);
-        // Allocate any half-cent rounding to the current city so the breakdown equals the existing total.
-        const totalCost =
-          unitCost === null
-            ? null
-            : roundMoney(divideMoney(accumulatedRoomCost, 2) - previousTotal);
-        return { destination, nights, unitCost, totalCost };
-      });
+      // Each overnight day carries its own hotel night; days of one city may differ.
+      const hotelCityCosts = itinerary.dailyPlans
+        .filter((day) => day.overnightDestination)
+        .map((day) => {
+          const hotel = hotelForDay(hotels, day);
+          const unitCost = hotel?.unitCost ?? null;
+          const previousTotal = divideMoney(accumulatedRoomCost, 2);
+          if (unitCost !== null)
+            accumulatedRoomCost = sumMoney([accumulatedRoomCost, unitCost]);
+          // Allocate any half-cent rounding to the current night so the breakdown equals the total.
+          const totalCost =
+            unitCost === null
+              ? null
+              : roundMoney(divideMoney(accumulatedRoomCost, 2) - previousTotal);
+          return {
+            dayNumber: day.dayNumber,
+            hotelName: hotel?.hotelName ?? null,
+            destination: day.overnightDestination!,
+            nights: 1,
+            unitCost,
+            totalCost,
+          };
+        });
       const hotelUnitCost = divideMoney(accumulatedRoomCost, 2);
       const vehiclePlan = itinerary.vehiclePlans.find(
         (plan) => plan.tier === option.vehicleTier,
@@ -206,18 +204,28 @@ export function calculateItineraryQuote(
           const vehicleUnitCost = divideMoney(paxVehicleTotal ?? 0, pax);
           const guideServiceUnitCost = sumMoney([
             divideMoney(guideCost, pax),
-            paxOtherCost?.guideOtherCost ?? 0,
+            divideMoney(paxOtherCost?.guideOtherCost ?? 0, pax),
           ]);
           const staffRoomUnitCost = sumMoney([
             divideMoney(staffRoomTotal, pax),
-            paxOtherCost?.staffRoomOtherCost ?? 0,
+            divideMoney(paxOtherCost?.staffRoomOtherCost ?? 0, pax),
           ]);
           const tableMealUnitCost = sumMoney(
             mealDetails.map((item) => divideMoney(item.groupTotal ?? 0, pax)),
           );
+          const paxMealCost = sumMoney([
+            mealCost,
+            tableMealUnitCost,
+            divideMoney(itinerary.quote.mealOtherCost ?? 0, pax),
+          ]);
+          const paxAttractionCost = sumMoney([
+            attractionCost,
+            divideMoney(itinerary.quote.attractionOtherCost ?? 0, pax),
+          ]);
           const baseCostPerPerson = sumMoney([
             hotelUnitCost,
-            sumMoney([dailyResourceCost, tableMealUnitCost]),
+            paxMealCost,
+            paxAttractionCost,
             vehicleUnitCost,
             guideServiceUnitCost,
             staffRoomUnitCost,
@@ -235,7 +243,8 @@ export function calculateItineraryQuote(
             guideServiceUnitCost,
             staffRoomUnitCost,
             baseCostPerPerson,
-            mealCost: sumMoney([mealCost, tableMealUnitCost]),
+            mealCost: paxMealCost,
+            attractionCost: paxAttractionCost,
             adultUnitPrice,
             childWithoutBedUnitPrice: multiplyMoney(
               adultUnitPrice,

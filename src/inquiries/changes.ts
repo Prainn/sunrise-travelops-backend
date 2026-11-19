@@ -8,6 +8,7 @@ function key(value: unknown): string | undefined {
   const id =
     value.id ??
     value.tier ??
+    value.dayId ??
     value.destination ??
     (typeof value.pax === 'number' ? String(value.pax) : undefined);
   return typeof id === 'string' || typeof id === 'number'
@@ -177,7 +178,16 @@ export function contextualChanges(
     const destination = change.path.match(
       /(?:hotels|guidePlans)\[([^\]]+)\]/,
     )?.[1];
-    if (destination) context.destination = destination;
+    // Per-day hotels are keyed by day ID; older paths are keyed by city.
+    const hotelDay = change.path.includes('hotels[')
+      ? dayMap.get(destination)
+      : undefined;
+    if (object(hotelDay)) {
+      if (typeof hotelDay.dayNumber === 'number')
+        context.dayNumber = hotelDay.dayNumber;
+      if (typeof hotelDay.overnightDestination === 'string')
+        context.destination = hotelDay.overnightDestination;
+    } else if (destination) context.destination = destination;
     const hotelTier = change.path.match(/hotelPlans\[([^\]]+)\]/)?.[1];
     if (hotelTier) context.hotelTier = hotelTier;
     const vehicleTier = change.path.match(/vehiclePlans\[([^\]]+)\]/)?.[1];

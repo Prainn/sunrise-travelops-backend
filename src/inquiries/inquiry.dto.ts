@@ -211,6 +211,7 @@ class DayInput {
   items: ItemInput[];
 }
 class HotelInput extends PriceInput {
+  @IsString() @MinLength(1) @MaxLength(100) dayId: string;
   @IsString() @MaxLength(100) destination: string;
   @IsUUID() hotelId: string;
   @IsString() @MaxLength(500) hotelName: string;

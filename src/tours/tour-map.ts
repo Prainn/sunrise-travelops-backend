@@ -2,6 +2,7 @@ import type { EntityManager } from 'typeorm';
 import type { CurrentPdfData } from '../inquiries/inquiry.entity';
 import type { WebsiteConfig, WebsiteDay } from '../website/website.types';
 import { addDays } from './tour-rules';
+import { hotelForDay } from '../inquiries/hotel-days';
 import type {
   MapBusinessUnit,
   MapCity,
@@ -148,11 +149,10 @@ export function buildTourMap(
             .filter(([, included]) => included)
             .map(([slot]) => slot),
           transport: d.transport ? [d.transport] : [],
-          hotelPlans: plan.hotelPlans.flatMap((p) =>
-            p.hotels
-              .filter((h) => h.destination === d.overnightDestination)
-              .map((h) => `${p.tier}: ${h.hotelName}`),
-          ),
+          hotelPlans: plan.hotelPlans.flatMap((p) => {
+            const hotel = hotelForDay(p.hotels, d);
+            return hotel ? [`${p.tier}: ${hotel.hotelName}`] : [];
+          }),
         };
       })
       .sort((a, b) => a.dayNumber - b.dayNumber);

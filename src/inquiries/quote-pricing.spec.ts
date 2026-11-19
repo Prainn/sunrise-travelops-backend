@@ -20,6 +20,7 @@ type QuoteFixture = Pick<
     ItineraryDayRecord,
     'dayNumber' | 'overnightDestination'
   > & {
+    id?: string;
     items: Pick<
       ItineraryResourceItem,
       | 'type'
@@ -32,7 +33,9 @@ type QuoteFixture = Pick<
     >[];
   })[];
   hotelPlans: (Pick<ItineraryHotelPlan, 'tier'> & {
-    hotels: Pick<ItineraryHotelSelection, 'destination' | 'unitCost'>[];
+    hotels: (Pick<ItineraryHotelSelection, 'destination' | 'unitCost'> & {
+      dayId?: string;
+    })[];
   })[];
   vehiclePlans: Pick<
     ItineraryVehiclePlan,
@@ -230,11 +233,17 @@ describe('calculateItineraryQuote', () => {
         hotelPlans: [
           {
             tier: 4,
-            hotels: [{ destination: 'Kunming', unitCost: 100 }],
+            hotels: [
+              { dayId: 'd1', destination: 'Kunming', unitCost: 100 },
+              { dayId: 'd2', destination: 'Kunming', unitCost: 100 },
+            ],
           },
           {
             tier: 5,
-            hotels: [{ destination: 'Kunming', unitCost: 200 }],
+            hotels: [
+              { dayId: 'd1', destination: 'Kunming', unitCost: 200 },
+              { dayId: 'd2', destination: 'Kunming', unitCost: 200 },
+            ],
           },
         ],
         vehiclePlans: [
@@ -250,8 +259,18 @@ describe('calculateItineraryQuote', () => {
           },
         ],
         dailyPlans: [
-          { dayNumber: 1, overnightDestination: 'Kunming', items: [] },
-          { dayNumber: 2, overnightDestination: 'Kunming', items: [] },
+          {
+            id: 'd1',
+            dayNumber: 1,
+            overnightDestination: 'Kunming',
+            items: [],
+          },
+          {
+            id: 'd2',
+            dayNumber: 2,
+            overnightDestination: 'Kunming',
+            items: [],
+          },
         ],
         quote: {
           options: [
@@ -289,7 +308,20 @@ describe('calculateItineraryQuote', () => {
         optionId: 'preferred-standard',
         hotelUnitCost: 100,
         hotelCityCosts: [
-          { destination: 'Kunming', nights: 2, unitCost: 100, totalCost: 100 },
+          {
+            dayNumber: 1,
+            destination: 'Kunming',
+            nights: 1,
+            unitCost: 100,
+            totalCost: 50,
+          },
+          {
+            dayNumber: 2,
+            destination: 'Kunming',
+            nights: 1,
+            unitCost: 100,
+            totalCost: 50,
+          },
         ],
         paxPrices: [{ baseCostPerPerson: 130, singleSupplementUnitCost: 100 }],
       },
@@ -302,7 +334,20 @@ describe('calculateItineraryQuote', () => {
         optionId: 'five-star-standard',
         hotelUnitCost: 200,
         hotelCityCosts: [
-          { destination: 'Kunming', nights: 2, unitCost: 200, totalCost: 200 },
+          {
+            dayNumber: 1,
+            destination: 'Kunming',
+            nights: 1,
+            unitCost: 200,
+            totalCost: 100,
+          },
+          {
+            dayNumber: 2,
+            destination: 'Kunming',
+            nights: 1,
+            unitCost: 200,
+            totalCost: 100,
+          },
         ],
         paxPrices: [{ baseCostPerPerson: 230, singleSupplementUnitCost: 200 }],
       },
@@ -362,38 +407,79 @@ describe('calculateItineraryQuote', () => {
     });
   });
 
-  it('adds shared meal and attraction costs to every PAX and other staff costs only to their PAX', () => {
+  it('divides other-cost group totals by each PAX; per-PAX totals apply only to their PAX', () => {
     const result = calculateItineraryQuote(
       quoteInput({
         paxTiers: [2, 4],
         guidePlans: [{ dailyPrice: 100, serviceDays: 1 }],
         quote: {
-          mealOtherCost: 1.2,
-          attractionOtherCost: 2.3,
+          mealOtherCost: 40,
+          attractionOtherCost: 20,
           staffRoomCosts: [{ destination: 'Kunming', total: 40 }],
-          paxOtherCosts: [{ pax: 2, guideOtherCost: 3, staffRoomOtherCost: 4 }],
+          paxOtherCosts: [{ pax: 2, guideOtherCost: 6, staffRoomOtherCost: 8 }],
         },
       }),
     );
 
     expect(result).toMatchObject({
-      mealCost: 1.2,
-      attractionCost: 2.3,
-      dailyResourceCost: 3.5,
+      mealCost: 0,
+      attractionCost: 0,
+      dailyResourceCost: 0,
     });
     expect(result.options[0].paxPrices).toMatchObject([
       {
         pax: 2,
+        mealCost: 20,
+        attractionCost: 10,
         guideServiceUnitCost: 53,
         staffRoomUnitCost: 24,
-        baseCostPerPerson: 80.5,
+        baseCostPerPerson: 107,
       },
       {
         pax: 4,
+        mealCost: 10,
+        attractionCost: 5,
         guideServiceUnitCost: 25,
         staffRoomUnitCost: 10,
-        baseCostPerPerson: 38.5,
+        baseCostPerPerson: 50,
       },
+    ]);
+  });
+
+  it('prices each overnight day with its own hotel even within one city', () => {
+    const result = calculateItineraryQuote(
+      quoteInput({
+        hotelPlans: [
+          {
+            tier: 4,
+            hotels: [
+              { dayId: 'd1', destination: 'Kunming', unitCost: 100 },
+              { dayId: 'd2', destination: 'Kunming', unitCost: 140 },
+            ],
+          },
+        ],
+        dailyPlans: [
+          {
+            id: 'd1',
+            dayNumber: 1,
+            overnightDestination: 'Kunming',
+            items: [],
+          },
+          {
+            id: 'd2',
+            dayNumber: 2,
+            overnightDestination: 'Kunming',
+            items: [],
+          },
+          { id: 'd3', dayNumber: 3, overnightDestination: '', items: [] },
+        ],
+      }),
+    );
+
+    expect(result.options[0].hotelUnitCost).toBe(120);
+    expect(result.options[0].hotelCityCosts).toMatchObject([
+      { dayNumber: 1, unitCost: 100, totalCost: 50 },
+      { dayNumber: 2, unitCost: 140, totalCost: 70 },
     ]);
   });
 

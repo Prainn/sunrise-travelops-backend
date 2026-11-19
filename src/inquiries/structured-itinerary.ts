@@ -50,6 +50,7 @@ export const ITINERARY_TABLES = {
   itinerary_hotel_plans: { tier: 'integer' },
   itinerary_hotels: {
     tier: 'integer',
+    dayId: 'text',
     destination: 'text',
     hotelId: 'uuid',
     hotelName: 'text',

@@ -52,6 +52,7 @@ export function priceDraft(price: number | null = 100): ItineraryInput {
         tier: 4,
         hotels: [
           {
+            dayId: 'day-1',
             destination: '杭州',
             hotelId: priceResourceIds.hotel,
             hotelName: '酒店',

@@ -16,14 +16,27 @@ ENVIRONMENT = os.environ.get('DEPLOY_ENV', 'dev')
 if ENVIRONMENT not in ('dev', 'prod'):
     raise ValueError('Invalid environment')
 BASE = Path('/opt/sunrise-travelops-' + ENVIRONMENT)
+SCOPE = os.environ.get('SUNRISE_ACTIVATION_SCOPE') if ENVIRONMENT == 'dev' else None
+API_CONTAINER = 'sunrise-travelops-' + ENVIRONMENT + '-api-1'
+INGRESS_PORT = 8089
+if SCOPE == 'rehearsal':
+    BASE = Path('/opt/sunrise-dev-release-rehearsal')
+    API_CONTAINER = 'sunrise-release-check-api-1'
+    INGRESS_PORT = 18089
 STATE = BASE / 'backend'
 COMPOSE = ['docker', 'compose', '--env-file', 'server.env', '-f', 'compose.ecs.yml']
 if ENVIRONMENT == 'dev':
     COMPOSE += ['-f', 'compose.dev.yml']
+if SCOPE == 'rehearsal':
+    COMPOSE = ['docker', 'compose', '-p', 'sunrise-release-check', '--env-file', 'server.env', '-f', 'compose.json']
+elif SCOPE == 'live':
+    COMPOSE += [arg for name in ('rehearsal', 'visits-client', 'preview-relays', 'release')
+                for arg in ('-f', 'compose.' + name + '.yml')]
 ID = re.compile(r'(?:[0-9a-f]{40}-[0-9]+-[0-9]+|bootstrap-[0-9]{14})')
 # This destructive schema was previously misregistered as backward compatible.
 # Never trust that historical flag for rollback or ordinary online migration.
 BREAKING_MIGRATIONS = {
+    'PerDayHotelsAndTotalOtherCosts1796256009000',
     'RemoveExecutiveRole1796256003000',
     'SeriesInquiries1796083202000',
     'ItineraryCustomerPresentation1796083201000',
@@ -176,6 +189,20 @@ def read_state():
     return json.loads(path.read_text())
 
 
+def approved_offline_activation(current):
+    """Root hands this exact dev run the stopped API after a maintenance migration."""
+    marker = Path('/run/sunrise-dev-offline-release')
+    sha = os.environ.get('GITHUB_SHA', '')
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    if (SCOPE != 'live' or ENVIRONMENT != 'dev' or os.environ.get('OPERATION') != 'deploy'
+            or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[0-9]+', run_id)
+            or not marker.is_file() or marker.is_symlink()):
+        return False
+    info = marker.stat()
+    return (info.st_uid == 0 and not info.st_mode & 0o022
+            and marker.read_text().splitlines() == [current, sha, run_id])
+
+
 def preflight():
     """Fail before a costly build if maintenance left private files inaccessible."""
     if os.geteuid() == 0:
@@ -194,6 +221,14 @@ def preflight():
     for key in ('current', 'previous'):
         if state.get(key):
             release(state[key])
+    if SCOPE in ('rehearsal', 'live') and state.get('current'):
+        active = release(state['current'])
+        identity = run(['docker', 'inspect', API_CONTAINER, '--format',
+                        '{{.Image}} {{.State.Status}} {{.State.Health.Status}}']).split()
+        ready = identity == [active['image'], 'running', 'healthy']
+        stopped = identity[:2] == [active['image'], 'exited'] and approved_offline_activation(state['current'])
+        if active['status'] != 'verified' or not (ready or stopped):
+            raise ValueError('Dev release state does not match the healthy running image')
     return {'preflight': 'passed'}
 
 
@@ -263,7 +298,7 @@ def activate(image):
     run(COMPOSE + ['up', '-d', '--no-deps', 'api'])
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
-        info = json.loads(run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1']))[0]
+        info = json.loads(run(['docker', 'inspect', API_CONTAINER]))[0]
         if info['Image'] == image and info['State'].get('Health', {}).get('Status') == 'healthy':
             break
         if info['State']['Status'] in ['exited', 'dead', 'restarting'] or info['State'].get('Health', {}).get('Status') == 'unhealthy':
@@ -273,7 +308,7 @@ def activate(image):
         raise RuntimeError('API did not become healthy within 90 seconds')
     # Validate the shared ingress locally even before new public DNS/TLS is ready.
     host = 'api-dev.sunrisevacation.cn' if ENVIRONMENT == 'dev' else 'api.sunrisevacation.cn'
-    request = urllib.request.Request('http://127.0.0.1:8089/api/health', headers={'Host': host})
+    request = urllib.request.Request(f'http://127.0.0.1:{INGRESS_PORT}/api/health', headers={'Host': host})
     with urllib.request.urlopen(request, timeout=15) as response:
         result = json.load(response)
     if result.get('status') != 'ok' or result.get('details', {}).get('postgres', {}).get('status') != 'up':
@@ -438,7 +473,7 @@ def bootstrap():
     if (STATE / 'state.json').exists():
         raise ValueError('Deployment state is already initialized')
     release_id = 'bootstrap-' + time.strftime('%Y%m%d%H%M%S')
-    image = run(['docker', 'inspect', 'sunrise-travelops-' + ENVIRONMENT + '-api-1', '--format', '{{.Image}}'])
+    image = run(['docker', 'inspect', API_CONTAINER, '--format', '{{.Image}}'])
     target = migrations(image)
     if set(applied()) != set(target):
         raise ValueError('Bootstrap image and database migrations do not match')

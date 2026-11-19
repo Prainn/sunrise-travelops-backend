@@ -17,6 +17,7 @@ import { ItineraryInput } from './inquiry.dto';
 import { divideMoney, multiplyMoney, roundMoney } from './money';
 import { randomUUID } from 'node:crypto';
 import { missingItineraryPrices } from './quote-pricing';
+import { hotelForDay } from './hotel-days';
 export function invalid(message: string): never {
   throw new BusinessException({
     code: 'ITINERARY_INVALID',
@@ -330,14 +331,20 @@ export class ItineraryValidation {
               );
     }
     for (const group of plan.hotelPlans) {
-      unique(group.hotels.map((h) => h.destination));
+      // One hotel per tier and active overnight day; days of one city may differ.
+      unique(group.hotels.map((h) => h.dayId ?? ''));
       for (const selection of group.hotels) {
+        const day = plan.dailyPlans.find((d) => d.id === selection.dayId);
+        if (!day?.overnightDestination) invalid('酒店所属日期没有住宿安排');
+        if (day.overnightDestination !== selection.destination)
+          invalid('酒店城市与当日住宿城市不一致');
         if (!plan.destinations.includes(selection.destination))
           invalid('Hotel city outside itinerary');
         const old = previous?.hotelPlans
           .find((p) => p.tier === group.tier)
           ?.hotels.find(
             (h) =>
+              h.dayId === selection.dayId &&
               h.destination === selection.destination &&
               h.hotelId === selection.hotelId,
           );
@@ -399,6 +406,9 @@ export class ItineraryValidation {
           checkReason,
         );
       }
+      const dayIndex = (h: { dayId?: string }) =>
+        plan.dailyPlans.findIndex((d) => d.id === h.dayId);
+      group.hotels.sort((a, b) => dayIndex(a) - dayIndex(b));
     }
     const itineraryEndDate = dateAt(plan.startDate, plannedDays - 1);
     for (const group of plan.vehiclePlans) {
@@ -513,9 +523,12 @@ export class ItineraryValidation {
     }
     plan.dailyPlans.forEach((day, index) => {
       const overnight = plan.dailyPlans[index - 1]?.overnightDestination;
-      const hotels = plan.hotelPlans
-        .filter((p) => p.hotels.length)
-        .map((p) => p.hotels.find((h) => h.destination === overnight));
+      const previousDay = plan.dailyPlans[index - 1];
+      const hotels = previousDay
+        ? plan.hotelPlans
+            .filter((p) => p.hotels.length)
+            .map((p) => hotelForDay(p.hotels, previousDay))
+        : [];
       day.meals.breakfast = Boolean(
         overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
@@ -689,12 +702,9 @@ export class ItineraryValidation {
         issues.push(`dailyPlans[${day.id}]`);
       if (
         day.overnightDestination &&
-        hotels.some(
-          (p) =>
-            !p.hotels.some((h) => h.destination === day.overnightDestination),
-        )
+        hotels.some((p) => !hotelForDay(p.hotels, day))
       )
-        issues.push(`hotelPlans[${day.overnightDestination}]`);
+        issues.push(`hotelPlans[${day.id}]`);
       for (const slot of ['lunch', 'dinner'] as const)
         if (
           day.meals[slot] &&
