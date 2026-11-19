@@ -1301,10 +1301,11 @@ export class WebsiteService {
   private async preparePlan(
     manager: EntityManager,
     input: WebsiteItineraryInput,
-    businessUnit: WebsiteBusinessUnit,
+    inquiry: WebsiteInquiry,
     old?: WebsiteItinerary,
     validate = false,
   ): Promise<WebsiteItineraryInput> {
+    const { businessUnit, destinations } = inquiry;
     const config = await this.config(
       manager,
       businessUnit,
@@ -1339,6 +1340,7 @@ export class WebsiteService {
       duplicate(input.vehiclePrices.map(quotationPriceKey))
     )
       invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
+    this.assertDestinationScope(destinations, allDays, old?.days ?? [], config);
     const retainedCities = new Set(
       old?.days.flatMap((d) => [
         d.departCityId,
@@ -1482,6 +1484,82 @@ export class WebsiteService {
       duration: days.length || input.duration,
     };
   }
+  private assertDestinationScope(
+    destinations: string[],
+    days: WebsiteDay[],
+    savedDays: WebsiteDay[],
+    config: WebsiteConfig,
+  ) {
+    if (!destinations.length) return;
+    const allowed = new Set(destinations);
+    const savedDaysById = new Map(savedDays.map((day) => [day.id, day]));
+    const savedLegs = new Map(
+      savedDays.flatMap((day) => day.legs.map((leg) => [leg.id, leg] as const)),
+    );
+    const savedHotels = new Map(
+      savedDays.flatMap((day) =>
+        day.hotels.map((hotel) => [hotel.id, hotel] as const),
+      ),
+    );
+    const savedItems = new Map(
+      savedDays.flatMap((day) =>
+        day.items.map((item) => [item.id, item] as const),
+      ),
+    );
+    const attractions = new Map(
+      config.attractions.map((item) => [item.id, item]),
+    );
+    for (const day of days) {
+      const saved = savedDaysById.get(day.id);
+      function check(
+        cityId: string | null,
+        ...retained: (string | null | undefined)[]
+      ) {
+        if (!cityId || allowed.has(cityId) || retained.includes(cityId)) return;
+        const city = config.cities.find((item) => item.id === cityId);
+        invalid(`请先将${city?.nameZh || '该城市'}加入询盘目的地`, {
+          cityId,
+          dayNumber: day.dayNumber,
+        });
+      }
+      check(day.departCityId, saved?.departCityId);
+      check(day.endCityId, saved?.endCityId);
+      check(day.overnightCityId, saved?.overnightCityId, day.endCityId);
+      const endpoints = [day.departCityId, day.endCityId];
+      const savedStops =
+        saved?.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]) ?? [];
+      for (const leg of day.legs) {
+        const retained = savedLegs.get(leg.id);
+        check(
+          leg.fromCityId,
+          retained?.fromCityId,
+          ...endpoints,
+          ...savedStops,
+        );
+        check(leg.toCityId, retained?.toCityId, ...endpoints, ...savedStops);
+      }
+      for (const hotel of day.hotels) {
+        check(
+          hotel.cityId,
+          savedHotels.get(hotel.id)?.cityId,
+          day.overnightCityId,
+          day.endCityId,
+        );
+      }
+      const stops = [
+        ...endpoints,
+        ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
+      ];
+      for (const item of day.items) {
+        if (
+          !item.attractionId ||
+          savedItems.get(item.id)?.attractionId === item.attractionId
+        )
+          continue;
+        check(attractions.get(item.attractionId)?.cityId ?? null, ...stops);
+      }
+    }
+  }
   private async insertItinerary(
     manager: EntityManager,
     inquiryId: string,
@@ -1543,7 +1621,7 @@ export class WebsiteService {
       return this.insertItinerary(
         manager,
         inquiryId,
-        await this.preparePlan(manager, input, inquiry.businessUnit),
+        await this.preparePlan(manager, input, inquiry),
         user,
         'itinerary_created',
       );
@@ -1606,7 +1684,7 @@ export class WebsiteService {
       return this.savePlan(
         manager,
         itinerary,
-        await this.preparePlan(manager, input, inquiry.businessUnit, itinerary),
+        await this.preparePlan(manager, input, inquiry, itinerary),
         user,
       );
     });
@@ -1727,12 +1805,7 @@ export class WebsiteService {
       return this.savePlan(
         manager,
         itinerary,
-        await this.preparePlan(
-          manager,
-          generated,
-          inquiry.businessUnit,
-          itinerary,
-        ),
+        await this.preparePlan(manager, generated, inquiry, itinerary),
         user,
         'itinerary_generated',
       );
@@ -1775,20 +1848,26 @@ export class WebsiteService {
     this.draft(itinerary);
     this.version(itinerary.version, input.version, true);
     const options = websiteQuotationOptions(input.days);
-    return this.previewData(this.db.manager, inquiry, {
-      ...itinerary,
-      ...input,
-      vehiclePrices: input.vehiclePrices.map((price) => ({
-        ...price,
-        includesDriver: options.includesDriver,
-        includesGuide: options.includesGuide,
-      })),
-    });
+    return this.previewData(
+      this.db.manager,
+      inquiry,
+      {
+        ...itinerary,
+        ...input,
+        vehiclePrices: input.vehiclePrices.map((price) => ({
+          ...price,
+          includesDriver: options.includesDriver,
+          includesGuide: options.includesGuide,
+        })),
+      },
+      itinerary,
+    );
   }
   private async previewData(
     manager: EntityManager,
     inquiry: WebsiteInquiry,
     itinerary: WebsiteItinerary,
+    savedItinerary = itinerary,
   ) {
     const config = await this.config(
       manager,
@@ -1798,8 +1877,8 @@ export class WebsiteService {
     const normalized = await this.preparePlan(
       manager,
       { ...itinerary, deletedDays: [] },
-      inquiry.businessUnit,
-      itinerary,
+      inquiry,
+      savedItinerary,
     );
     const options = websiteQuotationOptions(normalized.days);
     itinerary = {
@@ -1830,13 +1909,7 @@ export class WebsiteService {
         message: '请先应用已暂存的顺序调整',
       });
     try {
-      await this.preparePlan(
-        manager,
-        normalized,
-        inquiry.businessUnit,
-        itinerary,
-        true,
-      );
+      await this.preparePlan(manager, normalized, inquiry, itinerary, true);
     } catch (cause) {
       if (
         !(cause instanceof BusinessException) ||

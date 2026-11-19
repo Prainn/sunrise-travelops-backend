@@ -24,7 +24,7 @@ describe('website draft save and explicit validation', () => {
     scope: 'website',
     permissions: ['website:itinerary:update'],
   } as AuthenticatedUser;
-  function setup() {
+  function setup(destinations: string[] = []) {
     const query = jest
       .fn<Promise<unknown[]>, [sql: string, parameters?: unknown[]]>()
       .mockResolvedValue([]);
@@ -106,7 +106,7 @@ describe('website draft save and explicit validation', () => {
         inquiry: {
           canDelete: false,
           businessUnit: 'website',
-          destinations: [],
+          destinations,
           version: 1,
           startDate: null,
           id: 'inquiry',
@@ -199,8 +199,77 @@ describe('website draft save and explicit validation', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('keeps saved route cities and restricts newly chosen day and transport cities', async () => {
+    const { service, plan, save } = setup(['dali', 'lijiang']);
+    plan.days[0].departCityId = 'deqin';
+    const edited = structuredClone(plan);
+    edited.days[0].endCityId = 'lijiang';
+    const saved = await service.saveItinerary(plan.id, edited, user);
+    expect(saved.days[0]).toMatchObject({
+      departCityId: 'deqin',
+      endCityId: 'lijiang',
+    });
+
+    edited.days[0].legs.push({
+      id: 'leg',
+      routeId: null,
+      fromCityId: 'deqin',
+      toCityId: 'nujiang',
+      mode: 'other',
+      nameZh: '交通',
+      nameEn: 'Transport',
+      feeState: 'INCLUDED',
+    });
+    for (const action of ['saveItinerary', 'validateItinerary'] as const) {
+      await expect(
+        service[action](plan.id, edited, user),
+      ).rejects.toMatchObject({
+        code: 'ITINERARY_INVALID',
+        details: { cityId: 'nujiang', dayNumber: 1 },
+      });
+    }
+    edited.days[0].legs = [];
+    edited.days[0].endCityId = 'nujiang';
+    await expect(
+      service.saveItinerary(plan.id, edited, user),
+    ).rejects.toMatchObject({
+      code: 'ITINERARY_INVALID',
+      details: { cityId: 'nujiang', dayNumber: 1 },
+    });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks newly generated skeleton cities against the inquiry scope', async () => {
+    const { service, plan, config, save } = setup(['dali']);
+    config.cities = [
+      {
+        id: 'deqin',
+        nameZh: '德钦',
+        nameEn: 'Deqin',
+        status: 'enabled',
+        resourceId: null,
+      },
+    ];
+    config.skeletons = [
+      {
+        id: 'skeleton',
+        nameZh: '德钦',
+        nameEn: 'Deqin',
+        status: 'enabled',
+        days: [{ cityId: 'deqin', patternId: null }],
+      },
+    ];
+    await expect(
+      service.generate(plan.id, plan.version, 'skeleton', user),
+    ).rejects.toMatchObject({
+      code: 'ITINERARY_INVALID',
+      details: { cityId: 'deqin', dayNumber: 1 },
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('validates and freezes a hotel-free overnight itinerary while preserving other quotation guards', async () => {
-    const { service, plan, config, query } = setup();
+    const { service, plan, config, query } = setup(['other-city']);
     plan.title = 'No hotels';
     plan.pax = 3;
     plan.reorderDraft = null;
@@ -284,7 +353,7 @@ describe('website draft save and explicit validation', () => {
       sql.includes('INSERT INTO website_quotations'),
     );
     expect(JSON.parse(String(insert?.[1]?.[3])) as unknown).toMatchObject({
-      validationVersion: 6,
+      validationVersion: 7,
       english: { hotelOptions: [] },
       chinese: { hotelOptions: [] },
     });

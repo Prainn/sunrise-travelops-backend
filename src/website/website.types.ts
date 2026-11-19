@@ -323,7 +323,7 @@ export interface WebsitePreview {
   inquiryVersion: number;
   configVersion: number;
   schemaVersion: 6;
-  validationVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  validationVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   issues: WebsiteValidation[];
   english: WebsiteOutput;
   chinese: WebsiteOutput;
