@@ -222,7 +222,26 @@ export function calculateItineraryQuote(
             attractionCost,
             divideMoney(itinerary.quote.attractionOtherCost ?? 0, pax),
           ]);
+          const leaderRoomUnitCost = divideMoney(
+            itinerary.quote.leaderRoomTotal ?? 0,
+            pax,
+          );
+          const driverTipUnitCost = divideMoney(
+            itinerary.quote.driverTipTotal ?? 0,
+            pax,
+          );
+          const guideLeaderTransportUnitCost = divideMoney(
+            itinerary.quote.guideLeaderTransportTotal ?? 0,
+            pax,
+          );
+          const groundHandlingUnitCost = roundMoney(
+            itinerary.quote.groundHandlingUnitCost ?? 0,
+          );
           const baseCostPerPerson = sumMoney([
+            leaderRoomUnitCost,
+            driverTipUnitCost,
+            guideLeaderTransportUnitCost,
+            groundHandlingUnitCost,
             hotelUnitCost,
             paxMealCost,
             paxAttractionCost,
@@ -230,9 +249,11 @@ export function calculateItineraryQuote(
             guideServiceUnitCost,
             staffRoomUnitCost,
           ]);
+          const inputPrice = option.paxPrices.find(
+            (price) => price.pax === pax,
+          );
           const adultUnitPrice = roundMoney(
-            option.paxPrices.find((price) => price.pax === pax)
-              ?.adultUnitPrice ?? baseCostPerPerson,
+            inputPrice?.adultUnitPrice ?? baseCostPerPerson,
           );
           const revenue = sumMoney([adultUnitPrice, tipUnitPrice]);
           const profitPerPerson = roundMoney(revenue - baseCostPerPerson);
@@ -257,7 +278,14 @@ export function calculateItineraryQuote(
               100,
             ),
             leaderUnitPrice: hotelUnitCost,
+            leaderRoomUnitCost,
+            driverTipUnitCost,
+            guideLeaderTransportUnitCost,
+            groundHandlingUnitCost,
             singleSupplementUnitCost: hotelUnitCost,
+            singleSupplementQuote: roundMoney(
+              inputPrice?.singleSupplementQuote ?? hotelUnitCost,
+            ),
             tipUnitPrice,
             profitPerPerson,
             actualMarginRate: revenue

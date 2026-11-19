@@ -58,7 +58,7 @@ export class SystemBusinessDictionariesService {
     if (entity.builtIn && entity.code !== input.code) {
       throw new BusinessException({
         code: ErrorCode.BUILT_IN_BUSINESS_DICTIONARY_CODE_IMMUTABLE,
-        message: 'The code of a built-in business dictionary cannot be changed',
+        message: '内置业务分类的编码不能修改。',
         status: HttpStatus.CONFLICT,
       });
     }
@@ -83,7 +83,7 @@ export class SystemBusinessDictionariesService {
     if (entities.some((entity) => entity.builtIn)) {
       throw new BusinessException({
         code: ErrorCode.BUILT_IN_BUSINESS_DICTIONARY_CANNOT_BE_DELETED,
-        message: 'Built-in business dictionary types cannot be deleted',
+        message: '内置业务分类不能删除。',
         status: HttpStatus.CONFLICT,
       });
     }
@@ -216,7 +216,7 @@ export class SystemBusinessDictionariesService {
       if (used[0]?.exists)
         throw new BusinessException({
           code: ErrorCode.CONFLICT,
-          message: 'Transport method is referenced by an itinerary',
+          message: '该交通方式已被行程使用，请停用或先调整引用。',
           status: HttpStatus.CONFLICT,
         });
     }
@@ -292,7 +292,7 @@ export class SystemBusinessDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
-        message: 'Business dictionary type was not found',
+        message: '业务分类不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     }
@@ -306,7 +306,7 @@ export class SystemBusinessDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_TYPE_NOT_FOUND,
-        message: 'Business dictionary type was not found',
+        message: '业务分类不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     }
@@ -321,7 +321,7 @@ export class SystemBusinessDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_ITEM_NOT_FOUND,
-        message: 'Business dictionary item was not found',
+        message: '业务分类项目不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     }
@@ -336,7 +336,7 @@ export class SystemBusinessDictionariesService {
     if (await this.dictionaryTypes.findOne({ where, withDeleted: true })) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_TYPE_CODE_EXISTS,
-        message: 'Business dictionary type code already exists',
+        message: '该业务分类编码已存在，请更换编码。',
         status: HttpStatus.CONFLICT,
       });
     }
@@ -353,7 +353,7 @@ export class SystemBusinessDictionariesService {
     if (await this.dictionaryItems.findOne({ where, withDeleted: true })) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_ITEM_CODE_EXISTS,
-        message: 'Business dictionary item code already exists in this type',
+        message: '该业务分类下已有相同的项目编码。',
         status: HttpStatus.CONFLICT,
       });
     }
@@ -363,7 +363,7 @@ export class SystemBusinessDictionariesService {
     if (bodyId && bodyId !== pathId) {
       throw new BusinessException({
         code: ErrorCode.RESOURCE_ID_MISMATCH,
-        message: 'Body id does not match path id',
+        message: '提交的记录与当前编辑的记录不一致，请刷新后再试。',
         status: HttpStatus.BAD_REQUEST,
       });
     }

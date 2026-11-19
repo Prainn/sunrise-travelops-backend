@@ -57,7 +57,7 @@ export class LedgerSummariesService {
   ) {
     this.access(report, actor);
     if (query.from && query.to && query.from > query.to)
-      invalid('Invalid date range');
+      invalid('开始日期不能晚于结束日期。');
     const params: unknown[] = [];
     const filters: string[] = [];
     if (query.from) filters.push(`date >= $${params.push(query.from)}::date`);

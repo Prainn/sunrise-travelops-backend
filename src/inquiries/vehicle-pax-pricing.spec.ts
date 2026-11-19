@@ -166,7 +166,7 @@ describe('PAX vehicle pricing', () => {
   it('rejects insufficient itinerary seats', async () => {
     const input = fixture('itinerary');
     input.vehiclePlans[0].arrangements[0].vehicles[0].seats = 20;
-    await expect(normalize(input)).rejects.toThrow('insufficient seats');
+    await expect(normalize(input)).rejects.toThrow('座位不足');
   });
   it('requires a per-PAX manual adjustment reason, isolates history and permits automatic restoration', async () => {
     const old = await normalize(fixture('itinerary'));
