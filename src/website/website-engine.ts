@@ -418,7 +418,6 @@ export function buildWebsitePreview(
     }
   }
   const seenAttractions = new Set<string>();
-  const visited: string[] = [];
   for (const day of itinerary.days) {
     for (const cityId of [day.departCityId, day.endCityId]) {
       if (!cityId || cities.get(cityId)?.status !== 'enabled')
@@ -428,7 +427,6 @@ export function buildWebsitePreview(
           '请维护并选择独立站城市',
           day.dayNumber,
         );
-      if (visited.at(-1) !== cityId) visited.push(cityId);
     }
     if (day.overnightCityId) {
       if (day.overnightCityId !== day.endCityId)
@@ -602,19 +600,6 @@ export function buildWebsitePreview(
           );
       }
     }
-  }
-  let destinationPosition = -1;
-  for (const cityId of inquiry.destinations) {
-    const position = visited.indexOf(cityId, destinationPosition + 1);
-    if (position === -1) {
-      issue(
-        'REQUIREMENTS_MISMATCH',
-        'ERROR',
-        '行程须遵循询盘中明确的目的地及顺序',
-      );
-      break;
-    }
-    destinationPosition = position;
   }
   if (inquiry.startDate && inquiry.startDate !== itinerary.startDate)
     issue(
@@ -1039,7 +1024,7 @@ export function buildWebsitePreview(
     inquiryVersion: inquiry.version,
     configVersion: config.version,
     schemaVersion: 6,
-    validationVersion: 6,
+    validationVersion: 7,
     issues,
     english,
     chinese,

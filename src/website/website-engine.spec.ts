@@ -220,7 +220,7 @@ describe('website UAT output', () => {
         },
       ];
       const preview = buildWebsitePreview(inquiry, itinerary, config);
-      expect(preview.validationVersion).toBe(6);
+      expect(preview.validationVersion).toBe(7);
       expect(
         preview.issues.filter((issue) => issue.severity === 'ERROR'),
       ).toEqual([]);
@@ -288,6 +288,34 @@ describe('website UAT output', () => {
       expect(preview.issues).toContainEqual(
         expect.objectContaining({ code, severity: 'ERROR' }),
       );
+  });
+
+  it('previews the saved route in its own city order and checks the agreed start date', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const [kunming, dali] = config.cities;
+    itinerary.days[1].endCityId = dali.id;
+    itinerary.days[1].legs = [
+      {
+        ...itinerary.days[0].legs[0],
+        id: randomUUID(),
+      },
+    ];
+    inquiry.destinations = [dali.id, kunming.id];
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.issues.filter((issue) => issue.severity === 'ERROR'),
+    ).toEqual([]);
+
+    inquiry.startDate = '2026-12-01';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).issues,
+    ).toContainEqual(
+      expect.objectContaining({
+        code: 'REQUIREMENTS_MISMATCH',
+        severity: 'ERROR',
+        message: '行程开始日期与询盘已确认日期不一致',
+      }),
+    );
   });
 
   it('renders economy and two-star hotel alternatives in both language outputs', () => {
@@ -1117,6 +1145,6 @@ describe('compact bilingual customer itinerary', () => {
     expect(preview.english.notes).not.toContain('NO SHOPPING.');
     expect(preview.english.noShopping).toBe('NO SHOPPING.');
     expect(preview.chinese.noShopping).toBe('无购物。');
-    expect(preview.validationVersion).toBe(6);
+    expect(preview.validationVersion).toBe(7);
   });
 });
