@@ -1,4 +1,5 @@
 import { notifyWhatsappChange } from './whatsapp-changes';
+import { WhatsappDocumentArchive } from '../media/media.document-archive';
 import { enqueueWhatsappMessage } from './whatsapp-notifications';
 import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
@@ -135,6 +136,7 @@ export class WhatsappEvents {
     private readonly db: DataSource,
     private readonly config: WhatsappConfig,
     private readonly runtime: WhatsappRuntime,
+    private readonly documentArchive: WhatsappDocumentArchive,
   ) {}
   async account(manager = this.db.manager): Promise<ChatAccount> {
     const a = this.config.account();
@@ -393,6 +395,8 @@ export class WhatsappEvents {
         e.occurredAt,
       ],
     );
+    if (!e.echo && e.messageKind === 'document')
+      await this.documentArchive.enqueue(id, manager);
     await manager.query(
       `UPDATE whatsapp_conversations SET state=CASE WHEN state='closed' AND $2 THEN 'open' ELSE state END,
       version=version+CASE WHEN state='closed' AND $2 THEN 1 ELSE 0 END,updated_at=now() WHERE id=$1`,

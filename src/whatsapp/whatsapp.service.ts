@@ -1304,14 +1304,15 @@ export class WhatsappService {
     user: AuthenticatedUser,
   ) {
     await this.conversation(id, user);
-    const [message] = await this.db.query<ChatMessage[]>(
-      `SELECT ${MESSAGE_COLUMNS} FROM whatsapp_messages m WHERE conversation_id=$1 AND id=$2 AND kind='document' AND direction='outbound' AND source='system'`,
-      [id, messageId],
-    );
-    const documentId = message?.attachment?.documentId;
-    if (typeof documentId !== 'string')
-      chatFail('NOT_FOUND', '文件不存在', 404);
-    return this.documents.signedLink(documentId, id, 'download');
+    return this.documents.download(id, messageId);
+  }
+  async documentPreview(
+    id: string,
+    messageId: string,
+    user: AuthenticatedUser,
+  ) {
+    await this.conversation(id, user);
+    return this.documents.preview(id, messageId);
   }
   async uploadImage(
     id: string,
