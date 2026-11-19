@@ -66,6 +66,39 @@ describe('itinerary request cardinality', () => {
     expect(result.quote.options).toHaveLength(6);
   });
 
+  it.each([undefined, null, ''])(
+    'accepts an undated draft (%s)',
+    async (date) => {
+      const body = request();
+      await expect(
+        pipe.transform(
+          {
+            ...body,
+            startDate: date,
+            dailyPlans: [{ ...body.dailyPlans[0], date }],
+          },
+          metadata,
+        ),
+      ).resolves.toBeInstanceOf(ItineraryInput);
+    },
+  );
+
+  it.each(['2026', '2026-11', '2026-W11', '2026-02-30'])(
+    'rejects an incomplete or impossible calendar date (%s)',
+    async (date) => {
+      const body = request();
+      await expect(
+        pipe.transform({ ...body, startDate: date }, metadata),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        pipe.transform(
+          { ...body, dailyPlans: [{ ...body.dailyPlans[0], date }] },
+          metadata,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    },
+  );
+
   it.each(['hotelPlans', 'options'] as const)(
     'rejects an extra %s entry',
     async (field) => {

@@ -47,6 +47,8 @@ const fieldLabels: Record<string, string> = {
   dayNumber: '行程日',
   phone: '电话',
   username: '用户名',
+  scope: '身份范围',
+  businessUnit: '所属业务',
   password: '密码',
   email: '邮箱',
   page: '页码',

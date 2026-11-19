@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -197,10 +198,11 @@ class DayInput {
   @MaxLength(100)
   id: string;
   @IsInt() @Min(1) @Max(365) dayNumber: number;
+  @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @ValidateIf((_object, value: unknown) => value !== '')
   @IsDateString({ strict: true })
-  @MaxLength(10)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: '请填写 YYYY-MM-DD 格式的日期' })
   date: string;
   @IsString() @MaxLength(300) departure: string;
   @IsString() @MaxLength(300) destination: string;
@@ -504,10 +506,11 @@ export class ItineraryInput {
   @MinLength(1)
   @MaxLength(300)
   title: string;
+  @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()
   @ValidateIf((_object, value: unknown) => value !== '')
   @IsDateString({ strict: true })
-  @MaxLength(10)
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: '请填写 YYYY-MM-DD 格式的日期' })
   startDate: string;
   @IsArray()
   @ArrayMinSize(1)
