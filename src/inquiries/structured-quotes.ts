@@ -84,7 +84,7 @@ export async function saveFrozenDetails(
     ),
     ...plan.hotelPlans.flatMap((p) =>
       p.hotels.map((h) => ({
-        key: `${p.tier}:${h.destination}`,
+        key: `${p.tier}:${h.dayId ?? h.destination}`,
         destination: h.destination,
         referencePrice: h.referencePrice,
         referenceBasis: h.referenceBasis,
@@ -99,7 +99,7 @@ export async function saveFrozenDetails(
         tableCount: null,
         price: h.unitCost,
         total: null,
-        day: null,
+        day: plan.dailyPlans.find((d) => d.id === h.dayId)?.dayNumber ?? null,
         tier: p.tier,
       })),
     ),

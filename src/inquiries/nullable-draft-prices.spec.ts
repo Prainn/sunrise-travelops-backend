@@ -24,7 +24,7 @@ const manager = () =>
     query: jest.fn().mockResolvedValue([]),
   }) as unknown as EntityManager;
 const paths = [
-  'hotelPlans[4].hotels[杭州].unitCost',
+  'hotelPlans[4].hotels[day-1].unitCost',
   'guidePlans[杭州].dailyPrice',
   'dailyPlans[day-1].items[restaurant].unitCost',
   'dailyPlans[day-1].items[attraction].unitCost',
@@ -245,5 +245,22 @@ describe('nullable Draft actual prices', () => {
       expect.stringContaining('itinerary_price_adjustments'),
       expect.arrayContaining([null, 101, 'initial']),
     );
+  });
+});
+
+describe('per-day hotels', () => {
+  it.each([
+    ['an unknown day', { dayId: 'missing' }, '酒店所属日期没有住宿安排'],
+    [
+      'a city other than that night',
+      { destination: '昆明' },
+      '酒店城市与当日住宿城市不一致',
+    ],
+  ])('rejects a hotel bound to %s', async (_case, change, message) => {
+    const plan = await parse(priceDraft());
+    Object.assign(plan.hotelPlans[0].hotels[0], change);
+    await expect(
+      validation.normalize(manager(), plan, priceDraft()),
+    ).rejects.toThrow(message);
   });
 });

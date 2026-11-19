@@ -8,6 +8,9 @@ export type ItineraryHotelTier = 3 | 4 | 5;
 export type ItineraryVehicleTier = VehicleServiceLevel;
 
 export interface ItineraryHotelSelection extends ReferencePrice {
+  /** Active day this hotel night belongs to; absent only in older frozen snapshots. */
+  dayId?: string;
+  /** Overnight city of that day. */
   destination: string;
   hotelId: string;
   hotelName: string;
@@ -66,6 +69,7 @@ export interface ItineraryStaffRoomCost {
   total: number | null;
 }
 
+/** Other costs are group totals; per-person cost is total / PAX of the tier. */
 export interface ItineraryPaxOtherCost {
   pax: number;
   guideOtherCost: number | null;
@@ -129,6 +133,8 @@ export interface ItineraryPaxCalculation {
   staffRoomUnitCost: number;
   baseCostPerPerson: number;
   mealCost?: number;
+  /** Per-person attraction cost incl. other costs of this PAX; older snapshots omit it. */
+  attractionCost?: number;
   adultUnitPrice: number;
   childUnitPrice: number;
   childWithoutBedUnitPrice?: number;
@@ -143,7 +149,10 @@ export interface ItineraryQuoteOptionCalculation {
   optionId: string;
   hotelTier: ItineraryHotelTier | null;
   vehicleTier: ItineraryVehicleTier;
+  /** One row per overnight day since per-day hotels; older snapshots group by city. */
   hotelCityCosts?: {
+    dayNumber?: number;
+    hotelName?: string | null;
     destination: string;
     nights: number;
     unitCost: number | null;

@@ -312,6 +312,7 @@ async function main() {
       },
       legacyActor,
     );
+    const legacyDayId = randomUUID();
     const legacyPlan: ItineraryInput = {
       title: '霖熹既有冻结报价',
       startDate: '2026-10-07',
@@ -321,7 +322,7 @@ async function main() {
       destinations: ['昆明'],
       dailyPlans: [
         {
-          id: randomUUID(),
+          id: legacyDayId,
           dayNumber: 1,
           date: '2026-10-07',
           departure: '昆明',
@@ -338,6 +339,7 @@ async function main() {
           tier: 5,
           hotels: [
             {
+              dayId: legacyDayId,
               destination: '昆明',
               hotelId,
               hotelName: '既有霖熹酒店',

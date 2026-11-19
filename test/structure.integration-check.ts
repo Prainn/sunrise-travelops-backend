@@ -646,9 +646,9 @@ async function main() {
     pricingPlan.quote.paxOtherCosts = [
       {
         pax: 10,
-        guideOtherCost: 200,
+        guideOtherCost: 2000,
         guideOtherReason: '导游其它费用',
-        staffRoomOtherCost: 100,
+        staffRoomOtherCost: 1000,
         staffRoomOtherReason: '司陪房其它费用',
       },
       {

@@ -55,9 +55,9 @@ function prices(data: ItineraryInput) {
     ),
     ...data.hotelPlans.flatMap((p) =>
       p.hotels.map((h) => ({
-        key: `hotel:${p.tier}:${h.destination}`,
+        key: `hotel:${p.tier}:${h.dayId ?? h.destination}`,
         type: 'hotel',
-        name: h.hotelName,
+        name: `D${data.dailyPlans.find((d) => d.id === h.dayId)?.dayNumber ?? '-'} · ${h.hotelName}`,
         source: `${h.hotelId}:${h.referenceBasis ?? 'unknown'}`,
         price: h.unitCost,
         ...h,
