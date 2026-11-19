@@ -14,8 +14,15 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { imageFile, imageUploadOptions } from '../media/media.controller';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { MAX_DOCUMENT_BYTES } from '../media/media.document-format';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiTags,
+  ApiOkResponse,
+  ApiProduces,
+} from '@nestjs/swagger';
+import { DOC_MIME, MAX_DOCUMENT_BYTES } from '../media/media.document-format';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -82,6 +89,20 @@ export class WhatsappController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.documentDownload(id, messageId, user);
+  }
+  @Get('conversations/:id/messages/:messageId/document-preview')
+  @Permissions('whatsapp:conversation:list')
+  @ApiProduces(DOC_MIME.pdf, DOC_MIME.docx)
+  @ApiOkResponse({ schema: { type: 'string', format: 'binary' } })
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @Header('Content-Security-Policy', 'sandbox')
+  documentPreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.service.documentPreview(id, messageId, user);
   }
   @Post('conversations/:id/images')
   @Permissions('whatsapp:message:send')
