@@ -119,6 +119,26 @@ describe('API error messages', () => {
     }
   });
 
+  it.each([
+    ['UQ_resource_cities_name', 'CITY_NAME_EXISTS'],
+    ['UQ_resource_flights_airport_schedule', 'FLIGHT_SCHEDULE_EXISTS'],
+    [
+      'whatsapp_quick_replies_stage_scenario_key',
+      'WHATSAPP_QUICK_REPLY_EXISTS',
+    ],
+    ['direct_ledger_website_inquiry_unique', 'DIRECT_LEDGER_INQUIRY_EXISTS'],
+    ['UQ_identity_login', 'USERNAME_ALREADY_EXISTS'],
+    ['UQ_system_dictionary_items_type_value', 'DICTIONARY_ITEM_VALUE_EXISTS'],
+  ])('gives the caller a business reason for %s', (constraint, code) => {
+    const result = normalizeDatabaseError({
+      code: '23505',
+      constraint,
+      detail: 'private driver data',
+    });
+    expect(result).toMatchObject({ status: 409, code });
+    expect(result.message).toMatch(/[\u3400-\u9fff]/u);
+    expect(result.message).not.toContain('private');
+  });
   it('uses an empty generic database conflict while preserving known reasons', () => {
     expect(normalizeDatabaseError({ code: '23514' })).toMatchObject({
       status: 409,

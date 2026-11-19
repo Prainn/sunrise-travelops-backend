@@ -46,7 +46,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const request = http.getRequest<RequestContext>();
     const response = http.getResponse<Response>();
-    const normalized = this.normalize(exception);
+    const normalized = this.normalize(exception, request);
     const requestId = this.requestId(request);
     const userId =
       typeof request.user?.id === 'string' ? request.user.id : undefined;
@@ -94,9 +94,21 @@ export class ApiExceptionFilter implements ExceptionFilter {
     response.status(normalized.status).json(body);
   }
 
-  private normalize(exception: unknown): NormalizedError {
+  private normalize(exception: unknown, request: Request): NormalizedError {
     if (exception instanceof QueryFailedError) {
-      return normalizeDatabaseError(exception.driverError as unknown);
+      const result = normalizeDatabaseError(exception.driverError as unknown);
+      if (result.code === ErrorCode.CITY_NAME_EXISTS) {
+        const { name } = (request.body ?? {}) as { name?: unknown };
+        if (
+          typeof name === 'string' &&
+          name.trim().length <= 100 &&
+          name.trim()
+        ) {
+          result.message = `城市「${name.trim()}」已存在，请在城市库中搜索并编辑已有记录。`;
+          result.details = { field: 'name', name: name.trim() };
+        }
+      }
+      return result;
     }
 
     if (exception instanceof HttpException) {
@@ -133,6 +145,47 @@ export class ApiExceptionFilter implements ExceptionFilter {
           code: body.code,
           message: typeof body.message === 'string' ? body.message : '',
           details: this.isRecord(body.details) ? body.details : {},
+        };
+      }
+      if (status === 413) {
+        const maxMiB = /\/whatsapp\/conversations\/[^/]+\/documents\/?$/.test(
+          request.path,
+        )
+          ? 20
+          : /(?:\/system\/oss\/resources|\/whatsapp\/conversations\/[^/]+\/images)\/?$/.test(
+                request.path,
+              )
+            ? 5
+            : undefined;
+        return {
+          status,
+          code: ErrorCode.PAYLOAD_TOO_LARGE,
+          message: maxMiB
+            ? `上传文件不能超过 ${maxMiB} MiB，请缩小文件后重试。`
+            : '提交内容过大，请减小文件或请求大小后重试。',
+          details: maxMiB ? { maxBytes: maxMiB * 1024 * 1024 } : {},
+        };
+      }
+      if (
+        status === 400 &&
+        typeof body.message === 'string' &&
+        /^Validation failed \(uuid(?: v [^)]*)? is expected\)$/.test(
+          body.message,
+        )
+      ) {
+        return {
+          status,
+          code: ErrorCode.BAD_REQUEST,
+          message: '记录标识格式不正确，请重新选择记录。',
+          details: { reason: 'INVALID_RECORD_ID' },
+        };
+      }
+      if (status === 405) {
+        return {
+          status,
+          code: ErrorCode.METHOD_NOT_ALLOWED,
+          message: '该接口不支持此请求方式。',
+          details: {},
         };
       }
       return {
@@ -212,6 +265,85 @@ export class ApiExceptionFilter implements ExceptionFilter {
   }
 }
 
+const uniqueConflicts: ReadonlyMap<string, readonly [ErrorCodeValue, string]> =
+  new Map([
+    [
+      'UQ_resource_cities_name',
+      [
+        ErrorCode.CITY_NAME_EXISTS,
+        '该城市名称已存在，请在城市库中搜索并编辑已有记录。',
+      ],
+    ],
+    [
+      'UQ_resource_flights_schedule',
+      [
+        ErrorCode.FLIGHT_SCHEDULE_EXISTS,
+        '相同起降地点、航班号和起降时间的航班已存在。',
+      ],
+    ],
+    [
+      'UQ_resource_flights_airport_schedule',
+      [
+        ErrorCode.FLIGHT_SCHEDULE_EXISTS,
+        '相同起降机场、航班号和起降时间的航班已存在。',
+      ],
+    ],
+    [
+      'whatsapp_quick_replies_stage_scenario_key',
+      [
+        ErrorCode.WHATSAPP_QUICK_REPLY_EXISTS,
+        '该业务阶段下已有同名场景，请编辑已有快捷回复。',
+      ],
+    ],
+    [
+      'direct_ledger_website_inquiry_unique',
+      [
+        ErrorCode.DIRECT_LEDGER_INQUIRY_EXISTS,
+        '该询盘已有关联台账，请查看已有台账。',
+      ],
+    ],
+    [
+      'UQ_identity_login',
+      [
+        ErrorCode.USERNAME_ALREADY_EXISTS,
+        '该登录范围内已存在此用户名，请更换用户名。',
+      ],
+    ],
+    [
+      'UQ_system_dictionary_types_dict_code',
+      [ErrorCode.DICTIONARY_CODE_EXISTS, '该系统分类编码已存在，请更换编码。'],
+    ],
+    [
+      'UQ_system_dictionary_items_type_value',
+      [
+        ErrorCode.DICTIONARY_ITEM_VALUE_EXISTS,
+        '该系统分类下已有相同的项目值。',
+      ],
+    ],
+    [
+      'UQ_system_business_dictionary_types_code',
+      [
+        ErrorCode.BUSINESS_DICTIONARY_TYPE_CODE_EXISTS,
+        '该业务分类编码已存在，请更换编码。',
+      ],
+    ],
+    [
+      'UQ_system_business_dictionary_items_type_code',
+      [
+        ErrorCode.BUSINESS_DICTIONARY_ITEM_CODE_EXISTS,
+        '该业务分类下已有相同的项目编码。',
+      ],
+    ],
+    [
+      'UQ_resource_guides_service',
+      [ErrorCode.GUIDE_SERVICE_EXISTS, '该第二语种与进店组合的导游价格已存在'],
+    ],
+    [
+      'UQ_resource_agency_contacts_agency_name_key',
+      [ErrorCode.AGENCY_CONTACT_NAME_EXISTS, '该旅行社下已存在同名联系人'],
+    ],
+  ]);
+
 export function normalizeDatabaseError(
   driverErrorValue: unknown,
 ): NormalizedError {
@@ -223,11 +355,12 @@ export function normalizeDatabaseError(
     driverError.code === '23505' &&
     typeof driverError.constraint === 'string'
   ) {
-    if (driverError.constraint === 'UQ_resource_guides_service')
+    const known = uniqueConflicts.get(driverError.constraint);
+    if (known)
       return {
         status: HttpStatus.CONFLICT,
-        code: 'GUIDE_SERVICE_EXISTS',
-        message: '该第二语种与进店组合的导游价格已存在',
+        code: known[0],
+        message: known[1],
         details: {},
       };
     if (/^UQ_resource_.+_code$/.test(driverError.constraint)) {
@@ -235,16 +368,6 @@ export function normalizeDatabaseError(
         status: HttpStatus.CONFLICT,
         code: ErrorCode.RESOURCE_CODE_EXISTS,
         message: '资源编码已存在',
-        details: {},
-      };
-    }
-    if (
-      driverError.constraint === 'UQ_resource_agency_contacts_agency_name_key'
-    ) {
-      return {
-        status: HttpStatus.CONFLICT,
-        code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
-        message: '该旅行社下已存在同名联系人',
         details: {},
       };
     }

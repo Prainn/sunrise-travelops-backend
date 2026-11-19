@@ -44,6 +44,10 @@ type QuoteFixture = Pick<
   quote: Pick<
     ItineraryQuoteSettings,
     | 'options'
+    | 'leaderRoomTotal'
+    | 'driverTipTotal'
+    | 'guideLeaderTransportTotal'
+    | 'groundHandlingUnitCost'
     | 'staffRoomCosts'
     | 'mealOtherCost'
     | 'attractionOtherCost'
@@ -94,6 +98,45 @@ function quoteInput(
 }
 
 describe('calculateItineraryQuote', () => {
+  it('splits each shared charge at the cent per tier and keeps report supplements out of profit', () => {
+    const plan = quoteInput({
+      paxTiers: [3, 6],
+      quote: {
+        leaderRoomTotal: 10,
+        driverTipTotal: 10,
+        guideLeaderTransportTotal: 10,
+        groundHandlingUnitCost: 4.25,
+      },
+    });
+    plan.quote.options[0].paxPrices = [
+      { pax: 3, adultUnitPrice: 20, singleSupplementQuote: 0 },
+      { pax: 6, adultUnitPrice: null, singleSupplementQuote: 105 },
+    ];
+    const prices = calculateItineraryQuote(plan).options[0].paxPrices;
+    expect(prices[0]).toMatchObject({
+      leaderRoomUnitCost: 3.33,
+      driverTipUnitCost: 3.33,
+      guideLeaderTransportUnitCost: 3.33,
+      groundHandlingUnitCost: 4.25,
+      baseCostPerPerson: 14.24,
+      adultUnitPrice: 20,
+      singleSupplementQuote: 0,
+      profitPerPerson: 5.76,
+    });
+    expect(prices[1]).toMatchObject({
+      baseCostPerPerson: 9.26,
+      adultUnitPrice: 9.26,
+      singleSupplementQuote: 105,
+      singleSupplementUnitCost: 0,
+      profitPerPerson: 0,
+    });
+    plan.quote.options[0].paxPrices[0].singleSupplementQuote = 200;
+    expect(calculateItineraryQuote(plan).options[0].paxPrices[0]).toEqual({
+      ...prices[0],
+      singleSupplementQuote: 200,
+    });
+  });
+
   it('rounds each table meal before summing per-person costs', () => {
     const result = calculateItineraryQuote(
       quoteInput({

@@ -66,12 +66,30 @@ interface Actor extends AuthenticatedUser {
   requestId: string;
 }
 
+const inquiryFailureReasons = {
+  AUTH_FORBIDDEN: '当前账号无权执行此操作。',
+  INQUIRY_NOT_FOUND: '询盘不存在或不在可查看范围内。',
+  ITINERARY_NOT_FOUND: '行程不存在或不在可查看范围内。',
+  INQUIRY_READ_ONLY: '流失或归档询盘仅可查看。',
+  ITINERARY_READ_ONLY: '该行程已锁定，请复制为新草稿后修改。',
+  INQUIRY_VERSION_CONFLICT: '询盘已被更新，请刷新后重试。',
+  ITINERARY_VERSION_CONFLICT: '行程已被更新，请刷新后重试。',
+  INQUIRY_OWNER_INVALID: '请选择此业务范围内可分配的收客计调。',
+  INQUIRY_CONTACT_INVALID: '请选择当前组团社的有效联系人。',
+  PDF_NOT_READY: '请先确认报价，再下载客户文件。',
+} satisfies Partial<Record<ErrorCodeValue, string>>;
+
 function fail(
-  code: ErrorCodeValue,
+  code: keyof typeof inquiryFailureReasons,
   status: HttpStatus,
   details?: Record<string, unknown>,
 ): never {
-  throw new BusinessException({ code, message: code, status, details });
+  throw new BusinessException({
+    code,
+    message: inquiryFailureReasons[code],
+    status,
+    details,
+  });
 }
 @Injectable()
 export class InquiriesService {
@@ -446,14 +464,14 @@ export class InquiriesService {
     this.permission(actor, 'inquiry:create');
     return this.db.transaction(async (manager) => {
       if (input.status && input.status !== 'new')
-        invalid('New inquiry must be new');
+        invalid('新增询盘请选择新询盘状态');
       const businessUnit =
         actor.scope === 'headquarters' ? input.businessUnit : actor.scope;
       if (
         !businessUnit ||
         (input.businessUnit && input.businessUnit !== businessUnit)
       )
-        invalid('Business unit required');
+        invalid('请选择询盘所属业务');
       let owner: UserEntity;
       if (input.isSeries) {
         if (businessUnit !== 'shengxu') invalid('系列询盘仅用于盛旭');
@@ -531,9 +549,9 @@ export class InquiriesService {
         input.status !== row.status &&
         input.status !== 'lost'
       )
-        invalid('Invalid inquiry status transition');
+        invalid('当前询盘状态不能执行这次变更，请刷新核对');
       if (input.status === 'lost' && !input.lostReason.trim())
-        invalid('Lost reason required');
+        invalid('请填写询盘流失原因');
       if ((input.isSeries ?? false) !== row.isSeries)
         invalid('询盘类型创建后不可切换');
       const nextData = await this.data(input, manager, row);
@@ -758,6 +776,7 @@ export class InquiriesService {
       itinerary.data,
       inquiry.data.plannedDays ?? input.dailyPlans.length,
       false,
+      inquiry.isSeries,
     );
     return this.calculateQuote(data);
   }
@@ -782,6 +801,8 @@ export class InquiriesService {
         input,
         undefined,
         inquiry.data.plannedDays ?? input.dailyPlans.length,
+        true,
+        inquiry.isSeries,
       );
       const row = await manager.save(
         ItineraryEntity,
@@ -830,6 +851,8 @@ export class InquiriesService {
         body,
         itinerary.data,
         inquiry.data.plannedDays ?? input.dailyPlans.length,
+        true,
+        inquiry.isSeries,
       );
       const changes = contextualChanges(itinerary.data, data);
       if (!changes.length) return this.itineraryResponse(itinerary);
@@ -876,6 +899,10 @@ export class InquiriesService {
           i.id = randomUUID();
         });
       });
+      for (const plan of data.hotelPlans) {
+        for (const hotel of plan.hotels)
+          hotel.dayId = ids.get(hotel.dayId) ?? hotel.dayId;
+      }
       data.vehiclePlans.forEach((p) =>
         p.arrangements.forEach((a) => {
           a.id = randomUUID();
@@ -1060,7 +1087,7 @@ export class InquiriesService {
       await assertNoActiveTour(manager, 'standard', row.id, true);
       this.checkVersion(row.version, input.version);
       if (row.ownerId === owner.id || !input.reason.trim())
-        invalid('Choose a new owner and enter transfer reason');
+        invalid('请选择新的负责人并填写转交原因');
       const beforeId = row.ownerId;
       const beforeName = row.owner;
       row.ownerId = owner.id;
@@ -1230,7 +1257,7 @@ export class InquiriesService {
   }
   private logQuery(query: LogQuery, actor: Actor) {
     if (query.from && query.to && query.from > query.to)
-      invalid('Invalid report date range');
+      invalid('报表开始日期不能晚于结束日期');
     const qb = this.db.manager
       .createQueryBuilder(InquiryLogEntity, 'l')
       .innerJoin(InquiryEntity, 'i', 'i.id = l.inquiryId');

@@ -139,7 +139,7 @@ export class SelectionService {
           kind === 'restaurant'
             ? ErrorCode.RESTAURANT_NOT_FOUND
             : ErrorCode.ATTRACTION_NOT_FOUND,
-        message: 'Resource not found',
+        message: '资源不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     return { ...row, deletedAt: undefined, ...auditResponse(row) };

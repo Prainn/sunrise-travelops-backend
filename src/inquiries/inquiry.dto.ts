@@ -197,7 +197,11 @@ class DayInput {
   @MaxLength(100)
   id: string;
   @IsInt() @Min(1) @Max(365) dayNumber: number;
-  @IsDateString() date: string;
+  @IsOptional()
+  @ValidateIf((_object, value: unknown) => value !== '')
+  @IsDateString({ strict: true })
+  @MaxLength(10)
+  date: string;
   @IsString() @MaxLength(300) departure: string;
   @IsString() @MaxLength(300) destination: string;
   @IsOptional() @IsString() @MaxLength(100) overnightDestination: string | null;
@@ -317,6 +321,13 @@ class GuideInput extends PriceInput {
   @IsInt() @Min(1) @Max(365) serviceDays: number;
 }
 class PaxPriceInput {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  singleSupplementQuote?: number | null;
+
   @IsInt() @Min(1) @Max(10000) pax: number;
   @IsOptional()
   @Type(() => Number)
@@ -392,6 +403,31 @@ class PaxOtherCostInput {
   staffRoomOtherReason: string = '';
 }
 class QuoteInput {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  leaderRoomTotal?: number | null;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  driverTipTotal?: number | null;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  guideLeaderTransportTotal?: number | null;
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1e9)
+  groundHandlingUnitCost?: number | null;
+
   @IsOptional() @IsString() @MaxLength(20000) customerNotesEn?: string;
   @IsOptional() @IsString() @MaxLength(10000) holidayRestrictionsEn?: string;
   @IsOptional() @IsString() @MaxLength(10000) hotelReplacementTermsEn?: string;
@@ -468,7 +504,11 @@ export class ItineraryInput {
   @MinLength(1)
   @MaxLength(300)
   title: string;
-  @IsDateString({ strict: true }) @MaxLength(10) startDate: string;
+  @IsOptional()
+  @ValidateIf((_object, value: unknown) => value !== '')
+  @IsDateString({ strict: true })
+  @MaxLength(10)
+  startDate: string;
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(20)

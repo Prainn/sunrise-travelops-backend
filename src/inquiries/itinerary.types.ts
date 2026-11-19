@@ -60,6 +60,7 @@ export interface ItineraryVehiclePlan {
 }
 
 export interface ItineraryPaxPrice {
+  singleSupplementQuote?: number | null;
   pax: number;
   adultUnitPrice: number | null;
 }
@@ -86,6 +87,10 @@ export interface ItineraryQuoteOption {
 }
 
 export interface ItineraryQuoteSettings {
+  leaderRoomTotal?: number | null;
+  driverTipTotal?: number | null;
+  guideLeaderTransportTotal?: number | null;
+  groundHandlingUnitCost?: number | null;
   customerNotesEn?: string;
   holidayRestrictionsEn?: string;
   hotelReplacementTermsEn?: string;
@@ -125,6 +130,11 @@ export interface ItineraryMeals {
 }
 
 export interface ItineraryPaxCalculation {
+  leaderRoomUnitCost?: number;
+  driverTipUnitCost?: number;
+  guideLeaderTransportUnitCost?: number;
+  groundHandlingUnitCost?: number;
+  singleSupplementQuote?: number;
   pax: number;
   /** Exact group vehicle price for this PAX; absent in historical freezes. */
   vehicleTotal?: number | null;
