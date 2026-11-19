@@ -124,7 +124,7 @@ export class SystemDictionariesService {
       uniqueIds,
       existing.map((entity) => entity.id),
       ErrorCode.DICTIONARY_TYPES_NOT_FOUND,
-      'One or more dictionary types were not found',
+      '部分系统分类已不存在，请刷新后重新选择。',
     );
 
     await this.dataSource.transaction(async (manager) => {
@@ -293,7 +293,7 @@ export class SystemDictionariesService {
       uniqueIds,
       existing.map((entity) => entity.id),
       ErrorCode.DICTIONARY_ITEMS_NOT_FOUND,
-      'One or more dictionary items were not found in this dictionary type',
+      '部分项目不属于该系统分类或已不存在，请刷新后重新选择。',
     );
 
     await this.dataSource.transaction(async (manager) => {
@@ -320,7 +320,7 @@ export class SystemDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_TYPE_NOT_FOUND,
-        message: 'Dictionary type not found',
+        message: '系统分类不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
         details: { id },
       });
@@ -335,7 +335,7 @@ export class SystemDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_TYPE_NOT_FOUND,
-        message: 'Dictionary type not found',
+        message: '系统分类不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
         details: { dictCode },
       });
@@ -351,7 +351,7 @@ export class SystemDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_ITEM_NOT_FOUND,
-        message: 'Dictionary item not found',
+        message: '系统分类项目不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
         details: { id },
       });
@@ -373,7 +373,7 @@ export class SystemDictionariesService {
     if (await builder.getExists()) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_CODE_EXISTS,
-        message: 'Dictionary code already exists',
+        message: '该系统分类编码已存在，请更换编码。',
         status: HttpStatus.CONFLICT,
         details: { dictCode },
       });
@@ -396,7 +396,7 @@ export class SystemDictionariesService {
     if (await builder.getExists()) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_ITEM_VALUE_EXISTS,
-        message: 'Dictionary item value already exists in this dictionary type',
+        message: '该系统分类下已有相同的项目值。',
         status: HttpStatus.CONFLICT,
         details: { value },
       });

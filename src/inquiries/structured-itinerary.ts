@@ -112,6 +112,10 @@ export const ITINERARY_TABLES = {
     adjustmentReason: 'text?',
   },
   itinerary_quote_settings: {
+    leaderRoomTotal: 'numeric?',
+    driverTipTotal: 'numeric?',
+    guideLeaderTransportTotal: 'numeric?',
+    groundHandlingUnitCost: 'numeric?',
     mealOtherCost: 'numeric?',
     mealOtherReason: 'text',
     attractionOtherCost: 'numeric?',
@@ -145,6 +149,7 @@ export const ITINERARY_TABLES = {
     optionId: 'text',
     pax: 'integer',
     adultUnitPrice: 'numeric?',
+    singleSupplementQuote: 'numeric?',
   },
   itinerary_transport_fees: {
     id: 'text',

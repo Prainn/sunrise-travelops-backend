@@ -85,7 +85,10 @@ export class WhatsappRegistryService {
         whatsappReference: payload.whatsappReference,
       });
       if (existing && fingerprintOf(existing) === fingerprint) return false;
-      throw new ConflictException('whatsapp_reference already registered');
+      throw new ConflictException({
+        code: 'CONFLICT',
+        message: '该登记编号已用于其他登记内容。',
+      });
     }
   }
 
@@ -138,7 +141,10 @@ export class WhatsappRegistryService {
     const text = (value: string | null | undefined): string => {
       if (value == null) return '';
       if (EMAIL.test(value))
-        throw new BadRequestException('PII is not accepted');
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: '登记内容含不允许提交的个人信息，请移除后重试。',
+        });
       return value;
     };
     const url = (value: string | null | undefined): string => {
@@ -147,10 +153,16 @@ export class WhatsappRegistryService {
       try {
         parsed = new URL(value);
       } catch {
-        throw new BadRequestException('Invalid URL');
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: '登记网址无效，请检查网址格式。',
+        });
       }
       if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new BadRequestException('Invalid URL');
+        throw new BadRequestException({
+          code: 'VALIDATION_ERROR',
+          message: '登记网址无效，请检查网址格式。',
+        });
       }
       return text(value);
     };
@@ -158,7 +170,10 @@ export class WhatsappRegistryService {
       EMAIL.test(body.whatsapp_reference) ||
       EMAIL.test(body.website_inquiry_id)
     ) {
-      throw new BadRequestException('PII is not accepted');
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: '登记内容含不允许提交的个人信息，请移除后重试。',
+      });
     }
     return {
       whatsappReference: body.whatsapp_reference,

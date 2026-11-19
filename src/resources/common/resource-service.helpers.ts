@@ -24,7 +24,7 @@ export async function ensureCodeAvailable<
   if (await repository.findOne({ where, withDeleted: true })) {
     throw new BusinessException({
       code: ErrorCode.RESOURCE_CODE_EXISTS,
-      message: 'Resource code already exists',
+      message: '资源编码已存在，请更换编码。',
       status: HttpStatus.CONFLICT,
       details: { code },
     });
@@ -40,7 +40,7 @@ export async function requireResource<T extends ObjectLiteral & { id: string }>(
   if (!entity) {
     throw new BusinessException({
       code: errorCode,
-      message: 'Resource was not found',
+      message: '资源不存在，请刷新后重新选择。',
       status: HttpStatus.NOT_FOUND,
     });
   }
@@ -61,7 +61,7 @@ export async function requireResourceForUpdate<
   if (!entity) {
     throw new BusinessException({
       code: errorCode,
-      message: 'Resource was not found',
+      message: '资源不存在，请刷新后重新选择。',
       status: HttpStatus.NOT_FOUND,
     });
   }

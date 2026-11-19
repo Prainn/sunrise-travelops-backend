@@ -27,7 +27,7 @@ export function invalid(message: string): never {
 }
 function unique(values: string[]) {
   if (new Set(values).size !== values.length)
-    invalid('Duplicate itinerary record');
+    invalid('行程中存在重复项目，请检查所选项目或档位');
 }
 function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -37,6 +37,7 @@ function isCalendarDate(value: string): boolean {
   );
 }
 export function dateAt(start: string, index: number) {
+  if (!start) return '';
   const date = new Date(`${start}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + index);
   return date.toISOString().slice(0, 10);
@@ -144,8 +145,16 @@ export class ItineraryValidation {
     previous?: ItineraryInput,
     plannedDays = input.dailyPlans.length,
     checkReason = true,
+    isSeries = false,
   ): Promise<ItineraryInput> {
     const plan = structuredClone(input);
+    plan.startDate =
+      plan.startDate === undefined
+        ? (previous?.startDate ?? '')
+        : (plan.startDate ?? '');
+    if (isSeries && !plan.startDate)
+      plan.startDate = previous?.startDate || '2000-01-01';
+    for (const entry of plan.deletedDays ?? []) entry.day.date ??= '';
     plan.titleEn ??= '';
     plan.customerDisplayMode ??= 'same';
     plan.returnArrivalText ??= '返回温馨的家';
@@ -205,7 +214,7 @@ export class ItineraryValidation {
         cities.filter((city) => city.status === ResourceStatus.Enabled)
           .length !== newCities.length
       )
-        invalid('Invalid destination');
+        invalid('请选择已启用的行程目的地');
     }
     plan.paxTiers.sort((a, b) => a - b);
     const guestCount = Math.max(...plan.paxTiers);
@@ -248,13 +257,13 @@ export class ItineraryValidation {
         day.overnightDestination &&
         !plan.destinations.includes(day.overnightDestination)
       )
-        invalid('Invalid overnight destination');
+        invalid('住宿城市须属于本行程目的地');
       for (const slot of ['lunch', 'dinner'] as const) {
         const items = day.items.filter(
           (item) => item.type === 'restaurant' && item.mealSlot === slot,
         );
         if (items.length > 1 || (!day.meals[slot] && items.length))
-          invalid('Invalid meal assignment');
+          invalid('餐食安排与行程餐次不符，请重新选择');
       }
     });
     for (const item of [
@@ -263,9 +272,9 @@ export class ItineraryValidation {
     ].flatMap((day) => day.items)) {
       if (item.unitCost !== null) item.unitCost = roundMoney(item.unitCost);
       if (item.type === 'restaurant' && !item.mealSlot)
-        invalid('Meal slot required');
+        invalid('请选择餐食对应的餐次');
       if (item.type === 'attraction' && item.mealSlot)
-        invalid('Attraction cannot be a meal');
+        invalid('景点不能作为餐食项目');
       const old = previous?.dailyPlans
         .flatMap((day) => day.items)
         .find(
@@ -286,7 +295,7 @@ export class ItineraryValidation {
           (item.unitCost !== null &&
             (!Number.isFinite(item.unitCost) || item.unitCost < 0))
         )
-          invalid('Invalid custom restaurant');
+          invalid('请检查自定义餐食名称和计价单位');
         item.priceName = '';
         item.referencePrice = null;
         item.referenceBasis = 'unknown';
@@ -339,7 +348,7 @@ export class ItineraryValidation {
         if (day.overnightDestination !== selection.destination)
           invalid('酒店城市与当日住宿城市不一致');
         if (!plan.destinations.includes(selection.destination))
-          invalid('Hotel city outside itinerary');
+          invalid('酒店城市须属于本行程目的地');
         const old = previous?.hotelPlans
           .find((p) => p.tier === group.tier)
           ?.hotels.find(
@@ -371,10 +380,10 @@ export class ItineraryValidation {
             hotel.city !== selection.destination ||
             hotel.rating !== group.tier
           )
-            invalid('Hotel does not match city or tier');
+            invalid('请选择与住宿城市及档次一致的酒店');
           const groupRate = selection.referenceBasis === 'hotel_group';
           if (groupRate && hotel.groupPrice == null)
-            invalid('Hotel group price unavailable');
+            invalid('该酒店没有可用的成团参考价');
           if (
             !['hotel_group', 'hotel_individual'].includes(
               selection.referenceBasis ?? '',
@@ -428,8 +437,10 @@ export class ItineraryValidation {
         const hasStartDate = Boolean(arrangement.startDate);
         const hasEndDate = Boolean(arrangement.endDate);
         if (hasStartDate !== hasEndDate)
-          invalid('Incomplete vehicle date range');
+          invalid('请同时填写用车开始和结束日期');
         if (hasStartDate) {
+          if (!plan.startDate)
+            invalid('请先填写行程开始日期，再选择具体用车日期');
           if (
             !isCalendarDate(arrangement.startDate) ||
             !isCalendarDate(arrangement.endDate) ||
@@ -437,7 +448,7 @@ export class ItineraryValidation {
             arrangement.endDate > itineraryEndDate ||
             arrangement.startDate > arrangement.endDate
           )
-            invalid('Invalid vehicle date range');
+            invalid('用车起止日期须在行程日期内且先后顺序正确');
           if (
             assignedRanges.some(
               (range) =>
@@ -445,7 +456,7 @@ export class ItineraryValidation {
                 arrangement.endDate >= range.startDate,
             )
           )
-            invalid('Vehicle date ranges overlap');
+            invalid('同一档车型的用车日期重叠，请调整日期');
           assignedRanges.push(arrangement);
         }
         for (const vehicle of arrangement.vehicles) {
@@ -466,7 +477,7 @@ export class ItineraryValidation {
             resource.status !== ResourceStatus.Enabled ||
             resource.serviceLevel !== group.tier
           )
-            invalid('Invalid vehicle');
+            invalid('所选车型不可用，请重新选择');
           Object.assign(vehicle, {
             vehicleName: resource.name,
             seats: resource.seats,
@@ -481,12 +492,12 @@ export class ItineraryValidation {
           group.quotationMode === 'itinerary' &&
           seats < guestCount
         )
-          invalid('Vehicle has insufficient seats');
+          invalid('所选车辆总座位不足，请增加车辆或选择更大的车型');
       }
     }
     for (const guide of plan.guidePlans) {
       if (!plan.destinations.includes(guide.destination))
-        invalid('Invalid guide destination');
+        invalid('导游服务城市须属于本行程目的地');
       const old = previous?.guidePlans.find((g) => g.guideId === guide.guideId);
       if (old)
         Object.assign(guide, {
@@ -501,7 +512,7 @@ export class ItineraryValidation {
           id: guide.guideId,
         });
         if (!resource || resource.status !== ResourceStatus.Enabled)
-          invalid('Invalid guide');
+          invalid('所选导游服务不可用，请重新选择');
         Object.assign(guide, {
           guideName: resource.name,
           secondLanguage: resource.secondLanguage,
@@ -533,6 +544,18 @@ export class ItineraryValidation {
         overnight && hotels.length && hotels.every((h) => Boolean(h)),
       );
     });
+    for (const field of [
+      'leaderRoomTotal',
+      'driverTipTotal',
+      'guideLeaderTransportTotal',
+      'groundHandlingUnitCost',
+    ] as const) {
+      const amount =
+        plan.quote[field] === undefined
+          ? previous?.quote[field]
+          : plan.quote[field];
+      plan.quote[field] = amount == null ? null : roundMoney(amount);
+    }
     const otherCostKinds = [
       { kind: 'meal', label: '餐食' },
       { kind: 'attraction', label: '景点' },
@@ -618,17 +641,28 @@ export class ItineraryValidation {
           const option = options.find(
             (o) => o.hotelTier === hotelTier && o.vehicleTier === v.tier,
           );
+          const previousOption = previous?.quote.options.find(
+            (o) => o.hotelTier === hotelTier && o.vehicleTier === v.tier,
+          );
           return {
             id: option?.id ?? randomUUID(),
             hotelTier,
             vehicleTier: v.tier,
             paxPrices: plan.paxTiers.map((pax) => {
-              const price = option?.paxPrices.find(
-                (price) => price.pax === pax,
-              )?.adultUnitPrice;
+              const price = option?.paxPrices.find((row) => row.pax === pax);
+              const supplement =
+                price?.singleSupplementQuote === undefined
+                  ? previousOption?.paxPrices.find((row) => row.pax === pax)
+                      ?.singleSupplementQuote
+                  : price.singleSupplementQuote;
               return {
                 pax,
-                adultUnitPrice: price == null ? null : roundMoney(price),
+                adultUnitPrice:
+                  price?.adultUnitPrice == null
+                    ? null
+                    : roundMoney(price.adultUnitPrice),
+                singleSupplementQuote:
+                  supplement == null ? null : roundMoney(supplement),
               };
             }),
           };
@@ -640,7 +674,7 @@ export class ItineraryValidation {
           fee.type === 'flight' ? ['economy', 'business'] : ['first', 'second']
         ).includes(fee.cabin)
       )
-        invalid('Invalid transport cabin');
+        invalid('请选择与交通方式对应的舱位或席别');
       fee.unitPrice = fee.unitPrice == null ? null : roundMoney(fee.unitPrice);
     }
     plan.quote.chineseTip =
@@ -654,6 +688,7 @@ export class ItineraryValidation {
   assertPdfReady(plan: ItineraryInput, plannedDays = plan.dailyPlans.length) {
     plannedDays = plan.dailyPlans.length;
     const issues: string[] = missingItineraryPrices(plan);
+    if (!plan.startDate) issues.unshift('startDate');
     const hotels = plan.hotelPlans.filter((p) => p.hotels.length);
     if (
       (!hotels.length &&
@@ -725,7 +760,7 @@ export class ItineraryValidation {
     if (issues.length)
       throw new BusinessException({
         code: 'PDF_NOT_READY',
-        message: 'Complete the itinerary before generating PDF',
+        message: '行程资料未填完整，请补齐报价所需项目后再导出。',
         status: HttpStatus.BAD_REQUEST,
         details: { issues },
       });

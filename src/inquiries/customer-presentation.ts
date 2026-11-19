@@ -18,6 +18,7 @@ interface CustomerDay {
   transport: string;
   description: string;
   overnightDestination: string;
+  hotels?: { tier: number; name: string }[];
   meals: { breakfast: boolean; lunch: boolean; dinner: boolean };
   items: {
     id: string;
@@ -185,6 +186,19 @@ export async function buildCustomerPresentation(
                 .filter(Boolean)
                 .join('\n')
             : (d.description ?? ''),
+          hotels: plan.hotelPlans.flatMap(({ tier, hotels }) =>
+            hotels
+              .filter((hotel) => hotel.dayId === d.id)
+              .map((hotel) => ({
+                tier,
+                name: en
+                  ? english(
+                      resourceMap.get(`hotel:${hotel.hotelId}`)?.englishName,
+                      `hotels[${hotel.hotelId}].englishName`,
+                    )
+                  : hotel.hotelName,
+              })),
+          ),
           overnightDestination: en
             ? city(
                 d.overnightDestination ?? '',

@@ -56,7 +56,7 @@ export class AgenciesService {
     if (!['shengxu', 'linxi', 'website'].includes(businessUnit))
       throw new BusinessException({
         code: ErrorCode.VALIDATION_ERROR,
-        message: 'Invalid business unit',
+        message: '请选择有效的业务范围。',
         status: HttpStatus.BAD_REQUEST,
       });
     const users = await this.dataSource.manager
@@ -94,7 +94,7 @@ export class AgenciesService {
     if (!coordinator)
       throw new BusinessException({
         code: ErrorCode.INQUIRY_OWNER_INVALID,
-        message: 'Coordinator is not available for this business unit',
+        message: '请选择当前业务范围内有效的计调。',
         status: HttpStatus.BAD_REQUEST,
       });
     return coordinator;
@@ -231,7 +231,7 @@ export class AgenciesService {
     if (!entity)
       throw new BusinessException({
         code: ErrorCode.AGENCY_NOT_FOUND,
-        message: 'Agency was not found',
+        message: '组团社不存在，请重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     const coordinatorNames = await this.coordinatorNames([
@@ -453,7 +453,7 @@ export class AgenciesService {
       )
         throw new BusinessException({
           code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
-          message: 'Contact name already exists for this agency',
+          message: '该组团社下已存在同名联系人。',
           status: HttpStatus.CONFLICT,
         });
       return this.toContactResponse(
@@ -495,7 +495,7 @@ export class AgenciesService {
       if (!entity)
         throw new BusinessException({
           code: ErrorCode.AGENCY_CONTACT_NOT_FOUND,
-          message: 'Contact was not found for this agency',
+          message: '该组团社下找不到所选联系人，请重新选择。',
           status: HttpStatus.NOT_FOUND,
         });
       assertVersion(entity.version, input.version);
@@ -507,7 +507,7 @@ export class AgenciesService {
       )
         throw new BusinessException({
           code: ErrorCode.AGENCY_CONTACT_NAME_EXISTS,
-          message: 'Contact name already exists for this agency',
+          message: '该组团社下已存在同名联系人。',
           status: HttpStatus.CONFLICT,
         });
       Object.assign(entity, input, {
