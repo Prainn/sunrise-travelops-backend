@@ -12,6 +12,7 @@ import { chatFail } from '../whatsapp/whatsapp.policy';
 import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
 import { MediaConfig } from './media.config';
 import { MediaStorage } from './media.storage';
+import { WhatsappDocumentArchive } from './media.document-archive';
 import { downloadProviderMedia, prepareImage } from './media.images';
 import { MediaQuery, UpdateMediaDto } from './media.dto';
 
@@ -57,6 +58,7 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     private readonly db: DataSource,
     readonly config: MediaConfig,
     private readonly storage: MediaStorage,
+    private readonly documentArchive: WhatsappDocumentArchive,
   ) {}
   onModuleInit() {
     if (!this.config.enabled) return;
@@ -66,6 +68,10 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
         .catch(() => {
           this.logger.warn('Media worker failed (details suppressed)');
         })
+        .then(() => this.documentArchive.processOne())
+        .catch(() =>
+          this.logger.warn('WhatsApp document archive worker failed'),
+        )
         .then(async () => {
           if (this.stopped || Date.now() < this.nextDraftCleanupAt) return;
           this.nextDraftCleanupAt = Date.now() + 60000;
@@ -410,6 +416,8 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     return this.present(updated);
   }
   async attach(messages: ChatMessage[]) {
+    await this.documentArchive.attach(messages);
+    messages = messages.filter((m) => m.kind !== 'document');
     if (!this.config.enabled || !messages.length) return;
     const ids = messages.map((m) => m.id),
       assets = messages

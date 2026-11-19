@@ -126,7 +126,7 @@ async function main() {
       code === 400
         ? 'VALIDATION_ERROR'
         : code === 413
-          ? 'INTERNAL_SERVER_ERROR'
+          ? 'PAYLOAD_TOO_LARGE'
           : 'SUCCESS',
     );
   };
@@ -313,6 +313,30 @@ async function main() {
   try {
     assert.equal(await h.get(WhatsappService).dispatchOne(), true);
     assert.equal(await h.get(WhatsappService).dispatchOne(), true);
+    const previewPath =
+      path + '/messages/' + messages[0].id + '/document-preview';
+    const preview = await fetch(h.url + previewPath, {
+      headers: { authorization: 'Bearer ' + manager.token },
+    });
+    assert.equal(preview.status, 200);
+    assert.equal(preview.headers.get('content-type'), 'application/pdf');
+    assert.deepEqual(Buffer.from(await preview.arrayBuffer()), pdf);
+    await h.call(
+      manager,
+      'GET',
+      previewPath.replace(id, otherId),
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
+    await h.call(
+      manager,
+      'GET',
+      previewPath.replace(messages[0].id, messages[1].id),
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

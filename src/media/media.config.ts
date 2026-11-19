@@ -14,10 +14,13 @@ export class MediaConfig {
       this.config.get<string>('OSS_WHATSAPP_DOCUMENTS_ENABLED') === 'true'
     );
   }
-  get environment(): 'dev' | 'prod' {
+  get configuredEnvironment() {
     const value = this.config.get<string>('OSS_MEDIA_ENVIRONMENT');
-    if (value !== 'dev' && value !== 'prod')
-      throw new Error('OSS_ENVIRONMENT_REQUIRED');
+    return value === 'dev' || value === 'prod' ? value : undefined;
+  }
+  get environment(): 'dev' | 'prod' {
+    const value = this.configuredEnvironment;
+    if (!value) throw new Error('OSS_ENVIRONMENT_REQUIRED');
     return value;
   }
   get socket() {

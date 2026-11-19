@@ -12,7 +12,11 @@ import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { chatFail } from '../whatsapp/whatsapp.policy';
 import { MediaConfig } from './media.config';
-import { validateDocument } from './media.document-format';
+import {
+  DOC_MIME,
+  documentKey,
+  validateDocument,
+} from './media.document-format';
 import { MediaStorage } from './media.storage';
 
 const DRAFT_MS = 24 * 60 * 60 * 1000;
@@ -31,6 +35,10 @@ type DocumentRow = {
   uploaded_at: Date;
   claimed_at: Date | null;
 };
+type StoredDocument = Pick<
+  DocumentRow,
+  'id' | 'conversation_id' | 'file_name' | 'extension' | 'size_bytes'
+>;
 @Injectable()
 export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
@@ -80,7 +88,12 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
   }
 
   private key(row: Pick<DocumentRow, 'conversation_id' | 'id' | 'extension'>) {
-    return `private/${this.config.environment}/whatsapp/${row.conversation_id}/${row.id}.${row.extension}`;
+    return documentKey(
+      this.config.environment,
+      row.conversation_id,
+      row.id,
+      row.extension,
+    );
   }
 
   private present(row: DocumentRow) {
@@ -170,26 +183,81 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
     return this.present(row);
   }
 
-  async signedLink(
-    id: string,
-    conversationId: string,
-    purpose: 'download' | 'send',
-  ) {
-    this.assertEnabled();
-    const [row] = await this.db.query<DocumentRow[]>(
-      "SELECT * FROM whatsapp_documents WHERE id=$1 AND conversation_id=$2 AND state='ready' AND claimed_at IS NOT NULL",
-      [id, conversationId],
+  private async messageDocument(conversationId: string, messageId: string) {
+    const [row] = await this.db.query<StoredDocument[]>(
+      `SELECT d.id,d.conversation_id,d.file_name,d.extension,d.size_bytes
+       FROM whatsapp_messages m JOIN whatsapp_documents d
+         ON d.conversation_id=m.conversation_id AND d.id::text=m.attachment->>'documentId'
+       WHERE m.conversation_id=$1 AND m.id=$2 AND m.kind='document' AND m.direction='outbound' AND m.source='system'
+         AND d.state='ready' AND d.claimed_at IS NOT NULL
+       UNION ALL
+       SELECT m.id,m.conversation_id,a.file_name,a.extension,a.size_bytes
+       FROM whatsapp_messages m JOIN whatsapp_document_archives a ON a.message_id=m.id
+       WHERE m.conversation_id=$1 AND m.id=$2 AND m.kind='document' AND m.direction='inbound' AND m.source='customer'
+         AND a.environment=$3 AND a.state='available'`,
+      [conversationId, messageId, this.config.configuredEnvironment ?? null],
     );
     if (!row) chatFail('NOT_FOUND', '文件不存在', 404);
+    this.assertEnabled();
+    return row;
+  }
+
+  private sign(row: StoredDocument, purpose: 'download' | 'send') {
+    // The relay requires the suggested download filename to end in the verified format.
+    const suffix = '.' + row.extension;
+    const name = row.file_name.toLowerCase().endsWith(suffix)
+      ? row.file_name
+      : row.file_name + suffix;
+    return this.storage.signDocument(this.key(row), purpose, name);
+  }
+
+  async download(conversationId: string, messageId: string) {
+    const row = await this.messageDocument(conversationId, messageId);
     try {
-      return await this.storage.signDocument(
-        this.key(row),
-        purpose,
-        row.file_name,
-      );
+      return await this.sign(row, 'download');
     } catch {
       chatFail('CONFLICT', '文件暂不可下载，请稍后重试', 409);
     }
+  }
+
+  async preview(conversationId: string, messageId: string) {
+    const row = await this.messageDocument(conversationId, messageId);
+    if (row.extension === 'doc')
+      chatFail(
+        'WHATSAPP_DOCUMENT_PREVIEW_UNSUPPORTED',
+        '该文件格式不支持预览，请下载后查看',
+        415,
+      );
+    const name = encodeURIComponent(row.file_name).replace(
+      /['()*]/g,
+      (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase(),
+    );
+    // Once HTTP headers are sent an OSS interruption can no longer become a JSON 409.
+    // Verify the bounded object before handing its chunks to Nest's binary response.
+    const body = await this.openObject(row);
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > row.size_bytes)
+          throw new Error('DOCUMENT_OSS_READ_INVALID');
+        chunks.push(value);
+      }
+      if (length !== row.size_bytes)
+        throw new Error('DOCUMENT_OSS_READ_INVALID');
+    } catch {
+      await reader.cancel().catch(() => undefined);
+      chatFail('CONFLICT', '文档暂时无法读取', 409);
+    }
+    return new StreamableFile(Readable.from(chunks, { objectMode: false }), {
+      type: DOC_MIME[row.extension],
+      length: row.size_bytes,
+      disposition: "inline; filename*=UTF-8''" + name,
+    });
   }
 
   private transferMac(messageId: string, file: string, expiry: string) {
@@ -255,14 +323,18 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
     if (!row || file !== 'file.' + row.extension) return notFound();
     const headers = { type: row.mime_type, length: row.size_bytes };
     if (headOnly) return new StreamableFile(Buffer.alloc(0), headers);
+    const body = await this.openObject(row);
+    // Node fetch provides a native web stream; DOM and node:stream/web declare different overloads.
+    return new StreamableFile(
+      Readable.fromWeb(body as unknown as NodeReadableStream<Uint8Array>),
+      headers,
+    );
+  }
 
+  private async openObject(row: StoredDocument) {
     try {
       const key = this.key(row);
-      const { url } = await this.storage.signDocument(
-        key,
-        'send',
-        row.file_name,
-      );
+      const { url } = await this.sign(row, 'send');
       const signed = new URL(url);
       if (
         signed.origin !== OSS_DOCUMENT_ORIGIN ||
@@ -287,13 +359,7 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
         await response.body?.cancel();
         throw new Error('DOCUMENT_OSS_READ_INVALID');
       }
-      // Node fetch provides a native web stream; DOM and node:stream/web declare different overloads.
-      return new StreamableFile(
-        Readable.fromWeb(
-          response.body as unknown as NodeReadableStream<Uint8Array>,
-        ),
-        headers,
-      );
+      return response.body;
     } catch {
       chatFail('CONFLICT', '文档暂时无法读取', 409);
     }
