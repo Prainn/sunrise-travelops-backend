@@ -1,6 +1,7 @@
 import type { EntityManager } from 'typeorm';
 import type { CurrentPdfData } from '../inquiries/inquiry.entity';
 import type { WebsiteConfig, WebsiteDay } from '../website/website.types';
+import { websiteDayDate } from '../website/website-service-dates';
 import { addDays } from './tour-rules';
 import { hotelForDay } from '../inquiries/hotel-days';
 import type {
@@ -42,6 +43,7 @@ export interface MapPlan {
   tourId: string;
   standard?: CurrentPdfData['itinerary'];
   startDate?: string;
+  serviceDates?: string[] | null;
   days?: WebsiteDay[];
   config?: Pick<WebsiteConfig, 'cities' | 'attractions'>;
   currentConfig?: Pick<WebsiteConfig, 'cities'>;
@@ -63,7 +65,7 @@ export async function loadMapPlans(
     [tourIds],
   );
   const website = await manager.query<MapPlan[]>(
-    `SELECT t.id AS "tourId", it.start_date::text AS "startDate",
+    `SELECT t.id AS "tourId", it.start_date::text AS "startDate",it.service_dates::text[] AS "serviceDates",
       jsonb_build_object('cities',v.config->'cities','attractions',v.config->'attractions') AS config,
       jsonb_build_object('cities',cv.config->'cities') AS "currentConfig",
       COALESCE((SELECT jsonb_agg(jsonb_build_object(
@@ -159,6 +161,10 @@ export function buildTourMap(
   }
   function websiteDays(plan: MapPlan): MapDay[] {
     if (!plan.startDate || !plan.config) return [];
+    const calendar = {
+      startDate: plan.startDate,
+      serviceDates: plan.serviceDates,
+    };
     const old = new Map(plan.config.cities.map((c) => [c.id, c]));
     const current = new Map(
       (plan.currentConfig?.cities ?? []).map((c) => [c.id, c]),
@@ -209,7 +215,7 @@ export function buildTourMap(
         return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi);
       });
       return {
-        date: addDays(plan.startDate!, d.dayNumber - 1),
+        date: websiteDayDate(calendar, d.dayNumber)!,
         dayNumber: d.dayNumber,
         stops: [
           located(d.departCityId, 'departure'),
@@ -235,34 +241,39 @@ export function buildTourMap(
       };
     });
   }
-  const tours: MapTour[] = rows.map((row) => {
-    const plan = planByTour.get(row.id);
-    const route = plan?.standard
-      ? standardDays(plan.standard)
-      : plan
-        ? websiteDays(plan)
-        : [];
-    const today = route.find((d) => d.date === date) ?? null;
-    const issues: MapIssue[] =
-      row.sourceModule === 'manual'
-        ? ['manual_tour']
-        : !plan
-          ? ['source_missing']
-          : !today
-            ? ['date_not_covered']
-            : today.stops.flatMap((s) => (s.issue ? [s.issue] : []));
-    const located = today?.stops.some((s) => s.issue === null) ?? false;
-    if (!located && !issues.length) issues.push('no_location');
-    return {
-      ...row,
-      dayNumber: today?.dayNumber ?? null,
-      located,
-      issues: [...new Set(issues)],
-      today,
-      nextDay: route.find((d) => d.date === addDays(date, 1)) ?? null,
-      route,
-    };
-  });
+  const tours: MapTour[] = rows
+    .filter((row) => {
+      const dates = planByTour.get(row.id)?.serviceDates;
+      return !dates || dates.includes(date);
+    })
+    .map((row) => {
+      const plan = planByTour.get(row.id);
+      const route = plan?.standard
+        ? standardDays(plan.standard)
+        : plan
+          ? websiteDays(plan)
+          : [];
+      const today = route.find((d) => d.date === date) ?? null;
+      const issues: MapIssue[] =
+        row.sourceModule === 'manual'
+          ? ['manual_tour']
+          : !plan
+            ? ['source_missing']
+            : !today
+              ? ['date_not_covered']
+              : today.stops.flatMap((s) => (s.issue ? [s.issue] : []));
+      const located = today?.stops.some((s) => s.issue === null) ?? false;
+      if (!located && !issues.length) issues.push('no_location');
+      return {
+        ...row,
+        dayNumber: today?.dayNumber ?? null,
+        located,
+        issues: [...new Set(issues)],
+        today,
+        nextDay: route.find((d) => d.date === addDays(date, 1)) ?? null,
+        route,
+      };
+    });
   const mapCities = cities
     .filter((c) => inYunnan(c.province))
     .map((c) => {

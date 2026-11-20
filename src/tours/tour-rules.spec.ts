@@ -8,6 +8,11 @@ import {
 } from './tour-rules';
 
 describe('tourSchedule', () => {
+  it('uses the last selected service day for the departure flight across a gap', () => {
+    expect(
+      tourSchedule('2026-11-21', 4, '08:00', '02:30', '2026-11-26').dropAt,
+    ).toBe('2026-11-26 23:30');
+  });
   it('uses S+N and subtracts three hours', () => {
     expect(tourSchedule('2026-08-01', 10, '12:20', '15:20')).toMatchObject({
       pickupAt: '2026-08-01 12:20',

@@ -188,6 +188,100 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it('starts a new city and hotel/meal segment after each unserved date', () => {
+    const { config, itinerary } = fixture();
+    const [a, b] = config.cities;
+    const skeleton = {
+      id: randomUUID(),
+      nameZh: '路线',
+      nameEn: 'Route',
+      status: 'enabled' as const,
+      days: [a, b, a].map((city) => ({ cityId: city.id, patternId: null })),
+    };
+    config.skeletons.push(skeleton);
+    const generated = generateWebsiteDraft(
+      {
+        ...itinerary,
+        duration: 3,
+        serviceDates: ['2026-11-21', '2026-11-23', '2026-11-24'],
+      },
+      config,
+      skeleton.id,
+    );
+    expect(generated.days.map((day) => day.departCityId)).toEqual([
+      a.id,
+      b.id,
+      b.id,
+    ]);
+    expect(generated.days.map((day) => day.hotels.length)).toEqual([0, 1, 0]);
+    expect(generated.days.map((day) => day.meals[0].feeState)).toEqual([
+      'SELF_PAY',
+      'SELF_PAY',
+      'INCLUDED',
+    ]);
+  });
+  it('uses calendar gaps for routes, hotel nights and seasonal checks in both languages', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const dates = ['2026-11-21', '2026-12-23', '2026-12-24', '2027-01-01'];
+    inquiry.serviceDates = itinerary.serviceDates = dates;
+    inquiry.startDate = itinerary.startDate = dates[0];
+    itinerary.duration = 4;
+    const template = itinerary.days[0];
+    itinerary.days = dates.map((_, i) => ({
+      ...structuredClone(template),
+      id: randomUUID(),
+      dayNumber: i + 1,
+      legs: [],
+    }));
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    for (const output of [preview.english, preview.chinese]) {
+      expect(output.itinerary.map((row) => row.day)).toEqual(dates);
+      expect(
+        output.hotelOptions.map((stay) => [
+          stay.startDate,
+          stay.endDate,
+          stay.nights,
+        ]),
+      ).toEqual([
+        [dates[0], dates[0], 1],
+        [dates[1], dates[2], 2],
+        [dates[3], dates[3], 1],
+      ]);
+    }
+    const city = config.cities[1];
+    const attraction = {
+      id: randomUUID(),
+      status: 'enabled' as const,
+      cityId: city.id,
+      parentId: null,
+      resourceId: null,
+      kind: 'attraction' as const,
+      nameZh: '冬景',
+      nameEn: 'Winter',
+      descriptionZh: '赏景',
+      descriptionEn: 'Sightseeing',
+      chargeable: false,
+      price: '0.00',
+      recommendedMonths: [12],
+    };
+    config.attractions.push(attraction);
+    itinerary.days[1].items = [
+      {
+        ...attraction,
+        attractionId: attraction.id,
+        appears: true,
+        feeState: 'INCLUDED',
+      },
+    ];
+    itinerary.days[1].departCityId = itinerary.days[1].endCityId = city.id;
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues.filter((issue) => issue.code === 'VAL-W02')).toEqual([]);
+    expect(
+      issues
+        .filter((issue) => issue.code === 'VAL-E03')
+        .map((issue) => issue.dayNumber),
+    ).toEqual([3]);
+  });
   it.each([null, '7_seat'])(
     'quotes a hotel-free itinerary with overnight cities and vehicle %s',
     (vehicleType) => {

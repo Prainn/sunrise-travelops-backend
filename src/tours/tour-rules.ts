@@ -7,8 +7,8 @@ const TIME = /^([01]\d|2[0-3]):([0-5]\d)$/;
 function parseDate(value: string): number {
   const m = DATE.exec(value);
   if (!m) throw new Error(`Invalid date: ${value}`);
-  const ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
-  if (new Date(ms).toISOString().slice(0, 10) !== value)
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== value)
     throw new Error(`Invalid date: ${value}`);
   return ms;
 }
@@ -44,13 +44,13 @@ export function tourSchedule(
   days: number,
   arrivalTime: string,
   departureTime: string,
+  lastServiceDate?: string,
 ): TourSchedule {
   const pickup = parseDate(startDate) + parseTime(arrivalTime);
-  const drop =
-    parseDate(startDate) +
-    days * DAY_MS +
-    parseTime(departureTime) -
-    3 * 3_600_000;
+  const departureDay = lastServiceDate
+    ? parseDate(lastServiceDate) + DAY_MS
+    : parseDate(startDate) + days * DAY_MS;
+  const drop = departureDay + parseTime(departureTime) - 3 * 3_600_000;
   return {
     pickupAt: stamp(pickup),
     dropAt: stamp(drop),

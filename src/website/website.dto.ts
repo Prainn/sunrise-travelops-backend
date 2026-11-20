@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -65,14 +66,39 @@ const trim = ({ value }: { value: unknown }) =>
 export class WebsiteVersionDto {
   @IsInt() @Min(1) version: number;
 }
-export class WebsiteInquiryDto implements WebsiteInquiryInput {
+class WebsiteServiceDatesDto {
+  @ApiPropertyOptional({
+    type: [String],
+    nullable: true,
+    description: '独立站自选服务日。null 表示连续日期，已选日期以升序返回。',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(365)
+  @ArrayUnique()
+  @IsDateString({ strict: true }, { each: true })
+  @Matches(/^(?!0000)\d{4}-\d{2}-\d{2}$/, { each: true })
+  serviceDates?: string[] | null;
+}
+export class WebsiteInquiryDto
+  extends WebsiteServiceDatesDto
+  implements WebsiteInquiryInput
+{
   @IsUUID() countryItemId: string;
   @Transform(trim)
   @IsString()
   @MinLength(1)
   @MaxLength(100)
   customerName: string;
-  @IsInt() @Min(1) @Max(365) plannedDays: number;
+  @ValidateIf(
+    (o: WebsiteServiceDatesDto, value) =>
+      !Array.isArray(o.serviceDates) || value !== undefined,
+  )
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  plannedDays: number;
   @Transform(trim)
   @IsString()
   @MinLength(1)
@@ -523,13 +549,23 @@ class WebsiteReorderDraftDto implements WebsiteReorderDraft {
   @Type(() => WebsiteBoardOvernightDto)
   overnight: WebsiteBoardOvernightDto[];
 }
-export class WebsiteItineraryDto implements WebsiteItineraryInput {
+export class WebsiteItineraryDto
+  extends WebsiteServiceDatesDto
+  implements WebsiteItineraryInput
+{
   @IsOptional()
   @ValidateNested()
   @Type(() => WebsiteReorderDraftDto)
   reorderDraft: WebsiteReorderDraftDto | null = null;
   @Transform(trim) @IsString() @MaxLength(150) title: string;
-  @IsInt() @Min(1) @Max(365) duration: number;
+  @ValidateIf(
+    (o: WebsiteServiceDatesDto, value) =>
+      !Array.isArray(o.serviceDates) || value !== undefined,
+  )
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  duration: number;
   @IsDefined()
   @ValidateIf((o: WebsiteItineraryDto) => o.startDate !== null)
   @IsDateString({ strict: true })
