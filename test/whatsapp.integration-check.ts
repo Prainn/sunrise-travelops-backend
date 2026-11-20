@@ -2,6 +2,7 @@ import { AddFeishuNotificationManagement1796256000000 } from '../src/migrations/
 import { AddWhatsappDocuments1796256007000 } from '../src/migrations/1796256007000-AddWhatsappDocuments';
 import { AddOssMedia1796256004000 } from '../src/migrations/1796256004000-AddOssMedia';
 import { AddWhatsappDocumentArchives1796256011000 } from '../src/migrations/1796256011000-AddWhatsappDocumentArchives';
+import { AddWhatsappReleaseBackfill1796256012000 } from '../src/migrations/1796256012000-AddWhatsappReleaseBackfill';
 /** Isolated local PostgreSQL only; mock sends, no cloud credentials or real customer data. */
 import assert from 'node:assert/strict';
 import { ConfigService } from '@nestjs/config';
@@ -32,6 +33,7 @@ const config = {
 };
 const h = new IsolationHarness(config);
 const workbenchMigrations = [
+  AddWhatsappReleaseBackfill1796256012000,
   AddWhatsappDocumentArchives1796256011000,
   AddWhatsappDocuments1796256007000,
   AddOssMedia1796256004000,

@@ -20,13 +20,15 @@ FROM dependencies AS build
 COPY nest-cli.json tsconfig.json tsconfig.build.json eslint.config.mjs .prettierrc ./
 COPY src ./src
 COPY test ./test
+COPY ops ./ops
 COPY scripts/check-migration-names.mjs ./scripts/check-migration-names.mjs
 ARG SUNRISE_BUILD_CHECKS=full
 RUN case "$SUNRISE_BUILD_CHECKS" in \
       full) pnpm verify:release ;; \
       hosted-dev) pnpm check:migrations && pnpm build ;; \
       *) echo 'Unknown Sunrise build checks' >&2; exit 1 ;; \
-    esac
+    esac && \
+    if [ -f ops/whatsapp-backfill/main.cjs ]; then node ops/whatsapp-backfill/build.cjs; fi
 
 FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 ENV NODE_ENV=production

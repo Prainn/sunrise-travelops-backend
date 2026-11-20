@@ -324,7 +324,32 @@ export class WhatsappEvents {
       'SELECT id FROM whatsapp_messages WHERE account_id=$1 AND provider_id=$2',
       [account.id, e.providerId],
     );
-    if (existing) return existing.id;
+    if (existing) {
+      // The supplier list may omit a quote that the later original callback supplies.
+      if (
+        !e.echo &&
+        e.messageKind === 'text' &&
+        e.attachment?.contextMessageId
+      ) {
+        const [updated] = await manager.query<{ conversationId: string }[]>(
+          `WITH changed AS (
+            UPDATE whatsapp_messages m SET attachment=(
+              CASE WHEN jsonb_typeof(m.attachment)='object' THEN m.attachment ELSE '{}'::jsonb END
+            ) || jsonb_build_object('contextMessageId',$2::text), updated_at=now()
+            WHERE m.id=$1 AND m.kind='text' AND m.attachment->>'contextMessageId' IS NULL
+              AND EXISTS (SELECT 1 FROM whatsapp_events b WHERE b.message_id=m.id AND b.kind='inbound'
+                AND b.account_id=m.account_id AND b.event_key='release-backfill:'||m.provider_id)
+            RETURNING conversation_id) SELECT conversation_id AS "conversationId" FROM changed`,
+          [existing.id, e.attachment.contextMessageId],
+        );
+        if (updated)
+          await notifyWhatsappChange(manager, {
+            conversationId: updated.conversationId,
+            reason: 'message',
+          });
+      }
+      return existing.id;
+    }
     // A system identity-change event cannot safely be treated as a new customer.
     if (e.messageKind === 'system')
       throw new Error('UNSUPPORTED_IDENTITY_CHANGE');
