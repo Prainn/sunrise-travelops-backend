@@ -301,6 +301,12 @@ export class WebsiteItemDto implements WebsiteItem {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteLegDto implements WebsiteLeg {
+  @ApiPropertyOptional({ default: false })
+  @IsBoolean()
+  isAirportPickup?: boolean = false;
+  @ApiPropertyOptional({ default: false })
+  @IsBoolean()
+  isAirportDropoff?: boolean = false;
   @ApiPropertyOptional({ nullable: true, maxLength: 100 })
   @Transform(trim)
   @ValidateIf((o: WebsiteLegDto) => o.vehicleType !== null)

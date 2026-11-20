@@ -24,7 +24,10 @@ describe('website draft save and explicit validation', () => {
     scope: 'website',
     permissions: ['website:itinerary:update'],
   } as AuthenticatedUser;
-  function setup(destinations: string[] = []) {
+  function setup(
+    destinations: string[] = [],
+    businessUnit: WebsiteInquiry['businessUnit'] = 'website',
+  ) {
     const query = jest
       .fn<Promise<unknown[]>, [sql: string, parameters?: unknown[]]>()
       .mockResolvedValue([]);
@@ -105,7 +108,7 @@ describe('website draft save and explicit validation', () => {
       Promise.resolve({
         inquiry: {
           canDelete: false,
-          businessUnit: 'website',
+          businessUnit,
           destinations,
           version: 1,
           startDate: null,
@@ -165,6 +168,51 @@ describe('website draft save and explicit validation', () => {
       );
     return { service, plan, save, config, query };
   }
+  it.each(['isAirportPickup', 'isAirportDropoff'] as const)(
+    'validates uniqueness, service-day boundary and business scope for %s',
+    async (role) => {
+      const { service, plan, save } = setup();
+      const leg = {
+        id: 'leg',
+        routeId: null,
+        fromCityId: '',
+        toCityId: '',
+        mode: 'other' as const,
+        nameZh: '',
+        nameEn: '',
+        feeState: 'SELF_PAY' as const,
+        [role]: true,
+        distanceKm: null,
+        vehicleType: null,
+        durationMinutes: null,
+        showInMileage: false,
+      };
+      plan.days[0].legs = [leg, { ...leg, id: 'other' }];
+      await expect(service.saveItinerary(plan.id, plan, user)).rejects.toThrow(
+        '最多可选一个',
+      );
+      plan.days[0].legs = [leg];
+      plan.days.push({
+        ...plan.days[0],
+        id: 'another-day',
+        dayNumber: 2,
+        legs: [],
+      });
+      if (role === 'isAirportPickup') {
+        plan.days[1].legs = [leg];
+        plan.days[0].legs = [];
+      }
+      await expect(service.saveItinerary(plan.id, plan, user)).rejects.toThrow(
+        role === 'isAirportPickup' ? '首日' : '末日',
+      );
+      expect(save).not.toHaveBeenCalled();
+      const linxi = setup([], 'linxi');
+      linxi.plan.days[0].legs = [leg];
+      await expect(
+        linxi.service.saveItinerary(linxi.plan.id, linxi.plan, user),
+      ).rejects.toThrow('仅适用于独立站');
+    },
+  );
   it('saves an unfinished board and blank title/cities, but validates them on demand without writing', async () => {
     const { service, plan, save } = setup();
     const saved = await service.saveItinerary(plan.id, plan, user);

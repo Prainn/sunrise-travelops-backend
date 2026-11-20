@@ -136,6 +136,8 @@ export interface WebsiteItem {
   feeState: FeeState;
 }
 export interface WebsiteLeg {
+  isAirportPickup?: boolean;
+  isAirportDropoff?: boolean;
   vehicleType?: string | null;
   distanceKm?: string | null;
   durationMinutes?: number | null;

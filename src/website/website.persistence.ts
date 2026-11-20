@@ -44,7 +44,7 @@ export async function loadWebsiteDetails(
   const legs = await manager.query<DetailRow<WebsiteLeg>[]>(
     `SELECT day_id AS "dayId",json_build_object(
       'id',id,'routeId',route_id,'fromCityId',from_city_id,'toCityId',to_city_id,'mode',mode,
-      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state,
+      'nameZh',name_zh,'nameEn',name_en,'feeState',fee_state,'isAirportPickup',is_airport_pickup,'isAirportDropoff',is_airport_dropoff,
       'vehicleType',vehicle_type,'distanceKm',distance_km::text,'durationMinutes',duration_minutes,'showInMileage',show_in_mileage
       ) AS value FROM website_legs WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
@@ -246,6 +246,8 @@ export async function saveWebsiteDetails(
       'distance_km',
       'duration_minutes',
       'show_in_mileage',
+      'is_airport_pickup',
+      'is_airport_dropoff',
     ],
     days.flatMap((d) =>
       d.legs.map((i, n) => [
@@ -263,6 +265,8 @@ export async function saveWebsiteDetails(
         i.distanceKm ?? null,
         i.durationMinutes ?? null,
         i.showInMileage ?? false,
+        i.isAirportPickup ?? false,
+        i.isAirportDropoff ?? false,
       ]),
     ),
   );

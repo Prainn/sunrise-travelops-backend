@@ -1338,6 +1338,13 @@ export class WebsiteService {
       invalid('新行程须采用询盘的服务日期');
     if (dates && input.days.some((day) => day.dayNumber > dates.length))
       invalid('逐日行程超出已选服务日期');
+    const lastDayNumber = dates?.length ?? input.days.length;
+    if (
+      input.reorderDraft?.transportCopies?.some(
+        (leg) => leg.isAirportPickup || leg.isAirportDropoff,
+      )
+    )
+      invalid('请在安置交通段后标记接机或送机');
     if (dates && old && !sameServiceDates(old.serviceDates, dates)) {
       const byDate = new Map(
         input.days.map((day) => [dates[day.dayNumber - 1], day.id]),
@@ -1415,6 +1422,22 @@ export class WebsiteService {
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
     const normalized = allDays.map((day, index) => {
+      const pickupCount = day.legs.filter((leg) => leg.isAirportPickup).length;
+      const dropoffCount = day.legs.filter(
+        (leg) => leg.isAirportDropoff,
+      ).length;
+      if (pickupCount || dropoffCount) {
+        if (businessUnit !== 'website')
+          invalid('接机和送机标记仅适用于独立站询盘');
+        if (pickupCount > 1 || dropoffCount > 1)
+          invalid('同一天最多可选一个接机交通段、一个送机交通段');
+        if (index < input.days.length) {
+          if (pickupCount && day.dayNumber !== 1)
+            invalid('只有行程首日可以标记接机');
+          if (dropoffCount && day.dayNumber !== lastDayNumber)
+            invalid('只有行程末日可以标记送机');
+        }
+      }
       if (index < input.days.length || day.departCityId) city(day.departCityId);
       if (index < input.days.length || day.endCityId) city(day.endCityId);
       if (day.overnightCityId) city(day.overnightCityId);

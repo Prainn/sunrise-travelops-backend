@@ -877,13 +877,40 @@ export function buildWebsitePreview(
         attractionsById.delete(id);
         return description ? [description] : [];
       });
+      const sightseeing = [
+        ...orderedDescriptions,
+        ...attractionsById.values(),
+      ].filter(Boolean);
+      if (inquiry.businessUnit === 'website') {
+        const pickup =
+          day.dayNumber === 1 && day.legs.find((leg) => leg.isAirportPickup);
+        const dropoff =
+          day.dayNumber === itinerary.duration &&
+          day.legs.find((leg) => leg.isAirportDropoff);
+        const pickupText =
+          pickup &&
+          (language === 'en'
+            ? pickup.nameEn.trim() || 'Airport pickup'
+            : pickup.nameZh.trim() || '接机');
+        const dropoffText =
+          dropoff &&
+          (language === 'en'
+            ? dropoff.nameEn.trim() || 'Airport drop-off'
+            : dropoff.nameZh.trim() || '送机');
+        const sameOnlyLine =
+          !sightseeing.length &&
+          pickup &&
+          dropoff &&
+          pickup.id === dropoff.id &&
+          pickupText === dropoffText;
+        if (pickupText) sightseeing.unshift(pickupText);
+        if (dropoffText && !sameOnlyLine) sightseeing.push(dropoffText);
+      }
       itineraryRows.push({
         day: date ?? `D${day.dayNumber}`,
         depart: city(day.departCityId),
         transportation: [...new Set(transportation)].join('\n'),
-        sightseeing: [...orderedDescriptions, ...attractionsById.values()]
-          .filter(Boolean)
-          .join('\n'),
+        sightseeing: sightseeing.join('\n'),
         hotel: day.overnightCityId ? city(day.overnightCityId) : '',
         meal: meals.join(' / '),
       });
