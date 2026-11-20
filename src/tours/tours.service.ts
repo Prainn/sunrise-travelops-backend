@@ -1022,7 +1022,11 @@ export class ToursService {
         invalid('手工成团必须填写资料且不能关联询盘或报价');
       src = await this.manualSource(manager, input.manualSource!, user);
     } else {
-      if (input.manualSource !== undefined) invalid('关联来源不能提交手工资料');
+      if (
+        input.manualSource !== undefined ||
+        (input.sourceModule !== 'website' && input.scheduleMode === 'manual')
+      )
+        invalid('关联来源不能提交手工资料或手填时间');
       src = await this.resolve(
         manager,
         input.sourceModule,
