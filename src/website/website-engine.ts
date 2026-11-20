@@ -344,6 +344,7 @@ export function buildWebsitePreview(
     })),
   };
   const issues: WebsiteValidation[] = [];
+  const seenIssues = new Set<string>();
   function issue(
     code: string,
     severity: WebsiteValidation['severity'],
@@ -351,21 +352,16 @@ export function buildWebsitePreview(
     dayNumber?: number,
     target?: WebsiteValidation['target'],
   ) {
-    if (
-      !issues.some(
-        (item) =>
-          item.code === code &&
-          item.dayNumber === dayNumber &&
-          item.message === message,
-      )
-    )
-      issues.push({
-        code,
-        severity,
-        message,
-        ...(dayNumber ? { dayNumber } : {}),
-        ...(target ? { target } : {}),
-      });
+    const key = JSON.stringify([code, severity, dayNumber, message, target]);
+    if (seenIssues.has(key)) return;
+    seenIssues.add(key);
+    issues.push({
+      code,
+      severity,
+      message,
+      ...(dayNumber ? { dayNumber } : {}),
+      ...(target ? { target } : {}),
+    });
   }
   if (
     itinerary.days.length !== itinerary.duration ||

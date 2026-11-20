@@ -434,6 +434,28 @@ describe('website UAT output', () => {
     ]);
   });
 
+  it('returns one vehicle issue per offending leg, including after one is corrected', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    const [first, second] = day.legs;
+    first.mode = second.mode = 'private_vehicle';
+    const complete = { ...second, id: randomUUID(), vehicleType: '7_seat' };
+    day.legs.splice(1, 0, complete);
+    const vehicleTargets = () =>
+      buildWebsitePreview(inquiry, itinerary, config)
+        .issues.filter(
+          (issue) =>
+            issue.code === 'ITINERARY_INVALID' && issue.dayNumber === 1,
+        )
+        .map((issue) => issue.target);
+    expect(vehicleTargets()).toEqual([
+      { kind: 'event', id: first.id },
+      { kind: 'event', id: second.id },
+    ]);
+    second.vehicleType = '5_seat';
+    expect(vehicleTargets()).toEqual([{ kind: 'event', id: first.id }]);
+  });
+
   it('still requires bilingual hotel names and complete stays when hotels are arranged', () => {
     const { config, inquiry, itinerary } = fixture();
     itinerary.days[1].overnightCityId = config.cities[0].id;
