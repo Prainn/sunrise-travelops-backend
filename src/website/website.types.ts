@@ -89,6 +89,7 @@ export interface WebsiteConfigOption {
 }
 
 export interface WebsiteInquiryInput {
+  serviceDates?: string[] | null;
   businessUnit?: WebsiteBusinessUnit;
   countryItemId: string;
   customerName: string;
@@ -215,6 +216,7 @@ export interface WebsiteQuotationOptions {
   guideServices: { dayNumber: number; language: string }[];
 }
 export interface WebsiteItineraryInput {
+  serviceDates?: string[] | null;
   reorderDraft?: WebsiteReorderDraft | null;
   title: string;
   duration: number;
@@ -279,6 +281,8 @@ export interface WebsiteOutput {
     tierLabel?: string;
     startDay?: number;
     endDay?: number;
+    startDate?: string;
+    endDate?: string;
     nights?: number;
     breakfastIncluded?: boolean;
   }>;
@@ -318,12 +322,13 @@ export interface WebsiteOutput {
   noShopping?: string;
 }
 export interface WebsitePreview {
+  serviceDates?: string[];
   itineraryId: string;
   sourceVersion: number;
   inquiryVersion: number;
   configVersion: number;
   schemaVersion: 6;
-  validationVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  validationVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   issues: WebsiteValidation[];
   english: WebsiteOutput;
   chinese: WebsiteOutput;

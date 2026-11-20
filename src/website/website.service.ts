@@ -68,6 +68,7 @@ import {
   validateWebsiteConfig,
 } from './website-engine';
 import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
+import { sameServiceDates, websiteDayDate } from './website-service-dates';
 import { WEBSITE_LOG_ACTIONS } from './website.types';
 import { websiteLogChanges } from './website-log-changes';
 
@@ -129,12 +130,12 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   to_char(i.received_at,'YYYY-MM-DD HH24:MI') AS "receivedAt",i.contact_channel AS "contactChannel",
   i.whatsapp_source_id AS "whatsappSourceId",i.website_inquiry_no AS "websiteInquiryNo",
   i.landing_page AS "landingPage",i.acquisition_source AS "acquisitionSource",
-  i.start_date::text AS "startDate",i.pax,i.destinations,
+  i.start_date::text AS "startDate",i.service_dates::text[] AS "serviceDates",i.pax,i.destinations,
   i.internal_remark AS "internalRemark",i.lost_reason AS "lostReason",i.status,i.version,
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
-  config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
+  service_dates::text[] AS "serviceDates",config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 function fail(
@@ -147,6 +148,19 @@ function fail(
 }
 function invalid(message: string, details?: Record<string, unknown>): never {
   return fail('ITINERARY_INVALID', message, HttpStatus.BAD_REQUEST, details);
+}
+function selectedDates(
+  unit: WebsiteBusinessUnit,
+  dates?: string[] | null,
+): string[] | null {
+  if (!dates) return null;
+  if (unit !== 'website')
+    fail(
+      'VALIDATION_ERROR',
+      '自选服务日仅适用于独立站业务',
+      HttpStatus.BAD_REQUEST,
+    );
+  return [...dates].sort();
 }
 function duplicate(values: string[]): boolean {
   return new Set(values).size !== values.length;
@@ -860,6 +874,7 @@ export class WebsiteService {
   ) {
     this.permission(user, 'website:inquiry:create');
     const businessUnit = this.businessUnit(user, input.businessUnit);
+    const dates = selectedDates(businessUnit, input.serviceDates);
     if (input.status && input.status !== 'new') invalid('新询盘状态必须为new');
     const create = async (manager: EntityManager) => {
       let ownerId = input.ownerId;
@@ -894,18 +909,18 @@ export class WebsiteService {
         `INSERT INTO website_inquiries(id,code,customer_name,planned_days,requirements,owner_id,owner,
         contact_info,start_date,pax,destinations,internal_remark,lost_reason,status,
         country_item_id,country_code,country_or_region,business_unit,
-        received_at,contact_channel,whatsapp_source_id,website_inquiry_no,landing_page,acquisition_source)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'','new',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+        received_at,contact_channel,whatsapp_source_id,website_inquiry_no,landing_page,acquisition_source,service_dates)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'','new',$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
         [
           id,
           code,
           input.customerName,
-          input.plannedDays,
+          dates?.length ?? input.plannedDays,
           input.requirements,
           owner.id,
           owner.name,
           input.contactInfo,
-          input.startDate,
+          dates?.[0] ?? input.startDate,
           input.pax,
           input.destinations,
           input.internalRemark,
@@ -919,6 +934,7 @@ export class WebsiteService {
           input.websiteInquiryNo,
           input.landingPage,
           input.acquisitionSource,
+          dates,
         ],
       );
       const created = await this.inquiry(id, user, manager);
@@ -946,6 +962,12 @@ export class WebsiteService {
       const old = await this.inquiry(id, user, manager, true);
       await this.mutable(old, manager);
       this.version(old.version, input.version);
+      const dates = selectedDates(
+        old.businessUnit,
+        input.serviceDates === undefined
+          ? old.serviceDates
+          : input.serviceDates,
+      );
       if (input.ownerId && input.ownerId !== old.ownerId)
         invalid('负责人变更请使用转交操作');
       const status = input.status ?? old.status;
@@ -970,14 +992,14 @@ export class WebsiteService {
         `UPDATE website_inquiries SET country_item_id=$12,country_code=$13,country_or_region=$14,customer_name=$2,planned_days=$3,requirements=$4,contact_info=$5,
         start_date=$6,pax=$7,destinations=$8,internal_remark=$9,lost_reason=$10,status=$11,
         received_at=$15,contact_channel=$16,whatsapp_source_id=$17,website_inquiry_no=$18,
-        landing_page=$19,acquisition_source=$20,version=version+1,updated_at=now() WHERE id=$1`,
+        landing_page=$19,acquisition_source=$20,service_dates=$21,version=version+1,updated_at=now() WHERE id=$1`,
         [
           id,
           input.customerName,
-          input.plannedDays,
+          dates?.length ?? input.plannedDays,
           input.requirements,
           input.contactInfo,
-          input.startDate,
+          dates?.[0] ?? input.startDate,
           input.pax,
           input.destinations,
           input.internalRemark,
@@ -992,6 +1014,7 @@ export class WebsiteService {
           input.websiteInquiryNo,
           input.landingPage,
           input.acquisitionSource,
+          dates,
         ],
       );
       const updated = await this.inquiry(id, user, manager);
@@ -1306,6 +1329,28 @@ export class WebsiteService {
     validate = false,
   ): Promise<WebsiteItineraryInput> {
     const { businessUnit, destinations } = inquiry;
+    const inherited = old ? old.serviceDates : inquiry.serviceDates;
+    const dates = selectedDates(
+      businessUnit,
+      input.serviceDates === undefined ? inherited : input.serviceDates,
+    );
+    if (!old && !sameServiceDates(dates, inquiry.serviceDates))
+      invalid('新行程须采用询盘的服务日期');
+    if (dates && input.days.some((day) => day.dayNumber > dates.length))
+      invalid('逐日行程超出已选服务日期');
+    if (dates && old && !sameServiceDates(old.serviceDates, dates)) {
+      const byDate = new Map(
+        input.days.map((day) => [dates[day.dayNumber - 1], day.id]),
+      );
+      for (const day of old.days) {
+        const date = websiteDayDate(old, day.dayNumber);
+        if (date && dates.includes(date) && byDate.get(date) !== day.id)
+          invalid('调整服务日期时须保留相同日期的原行程日', {
+            date,
+            dayId: day.id,
+          });
+      }
+    }
     const config = await this.config(
       manager,
       businessUnit,
@@ -1318,6 +1363,13 @@ export class WebsiteService {
       ...input.days,
       ...(input.deletedDays ?? []).map((entry) => entry.day),
     ];
+    const originalDates = new Map<string, string | null>();
+    if (old?.serviceDates) {
+      for (const day of old.days)
+        originalDates.set(day.id, websiteDayDate(old, day.dayNumber));
+      for (const entry of old.deletedDays ?? [])
+        originalDates.set(entry.day.id, entry.originalDate);
+    }
     if (old)
       old = {
         ...old,
@@ -1475,13 +1527,18 @@ export class WebsiteService {
     }
     return {
       ...input,
+      serviceDates: dates,
+      startDate: dates?.[0] ?? input.startDate,
       vehiclePrices,
       days,
       deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
         ...entry,
+        originalDate: originalDates.has(entry.day.id)
+          ? originalDates.get(entry.day.id)!
+          : entry.originalDate,
         day: normalized[input.days.length + index],
       })),
-      duration: days.length || input.duration,
+      duration: dates?.length ?? (days.length || input.duration),
     };
   }
   private assertDestinationScope(
@@ -1571,8 +1628,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2))`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit,service_dates)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2),$10)`,
       [
         id,
         inquiryId,
@@ -1583,6 +1640,7 @@ export class WebsiteService {
         input.pax,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
+        input.serviceDates ?? null,
       ],
     );
     await saveWebsiteDetails(
@@ -1636,7 +1694,7 @@ export class WebsiteService {
   ) {
     await manager.query(
       `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,
-      config_version=$6,reorder_draft=$7,version=version+1,updated_at=now() WHERE id=$1`,
+      config_version=$6,reorder_draft=$7,service_dates=$8,version=version+1,updated_at=now() WHERE id=$1`,
       [
         itinerary.id,
         input.title,
@@ -1645,6 +1703,7 @@ export class WebsiteService {
         input.pax,
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
+        input.serviceDates ?? null,
       ],
     );
     await saveWebsiteDetails(
@@ -1681,12 +1740,21 @@ export class WebsiteService {
       await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, input.version, true);
-      return this.savePlan(
-        manager,
-        itinerary,
-        await this.preparePlan(manager, input, inquiry, itinerary),
-        user,
-      );
+      const plan = await this.preparePlan(manager, input, inquiry, itinerary);
+      if (
+        itinerary.serviceDates &&
+        !sameServiceDates(itinerary.serviceDates, plan.serviceDates)
+      ) {
+        const retained = new Set(
+          [
+            ...plan.days,
+            ...(plan.deletedDays ?? []).map((entry) => entry.day),
+          ].map((day) => day.id),
+        );
+        if (itinerary.days.some((day) => !retained.has(day.id)))
+          invalid('改期移除的行程日须重新分配或放入回收站');
+      }
+      return this.savePlan(manager, itinerary, plan, user);
     });
   }
   async copyItinerary(id: string, version: number, user: AuthenticatedUser) {

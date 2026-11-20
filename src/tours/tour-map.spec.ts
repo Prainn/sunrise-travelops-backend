@@ -110,6 +110,15 @@ function plan(): MapPlan {
     ],
   };
 }
+test('自选行程按真实服务日定位，空档日不计入在途或待定位团', () => {
+  const p = plan();
+  p.serviceDates = ['2026-10-26', '2026-10-29'];
+  p.days!.push({ ...p.days![0], id: 'next', dayNumber: 2 });
+  const map = (date: string) =>
+    buildTourMap(date, 'website', false, [row], cities, [p]);
+  expect(map('2026-10-27').tours).toHaveLength(0);
+  expect(map('2026-10-29').tours[0].dayNumber).toBe(2);
+});
 test('同团跨城去重、历史明确关联补足、手工团计入待定位及接送', () => {
   const result = buildTourMap(
     '2026-10-26',
