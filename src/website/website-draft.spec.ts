@@ -380,6 +380,22 @@ describe('website draft save and explicit validation', () => {
       inquiryVersion: 1,
       acknowledgedWarnings: [],
     };
+    plan.vehiclePrices[0].vehicleType = '23_seat';
+    const invalidPrice = await service.validateItinerary(plan.id, plan, user);
+    expect(invalidPrice.issues).toEqual([
+      expect.objectContaining({
+        code: 'VAL-E09',
+        severity: 'ERROR',
+        target: { kind: 'prices' },
+      }),
+    ]);
+    await expect(
+      service.confirm(plan.id, input, confirmUser),
+    ).rejects.toMatchObject({
+      code: 'PDF_NOT_READY',
+      details: { issues: invalidPrice.issues },
+    });
+    plan.vehiclePrices[0].vehicleType = null;
     plan.pax = null;
     await expect(
       service.confirm(plan.id, input, confirmUser),

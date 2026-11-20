@@ -1526,16 +1526,6 @@ export class WebsiteService {
     if (validate && issues.length)
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
-    const options = websiteQuotationOptions(days);
-    if (
-      validate &&
-      input.vehiclePrices.some(
-        (price) =>
-          !options.vehicleTypes.includes(price.vehicleType) ||
-          !options.hotelTiers.includes(price.hotelTier),
-      )
-    )
-      invalid('报价车型与酒店档次必须来自当前活动行程，请调整已失效的报价组合');
     let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
     try {
       vehiclePrices = input.vehiclePrices.map((price) => {
@@ -1998,6 +1988,7 @@ export class WebsiteService {
         code: 'REORDER_PENDING',
         severity: 'ERROR',
         message: '请先应用已暂存的顺序调整',
+        target: { kind: 'reorder' },
       });
     try {
       await this.preparePlan(manager, normalized, inquiry, itinerary, true);
@@ -2103,6 +2094,7 @@ export class WebsiteService {
               severity: 'ERROR',
               dayNumber: day.dayNumber,
               message: `餐厅不在当天行程城市：${meal.restaurantZh || meal.restaurantEn}`,
+              target: { kind: 'event', id: meal.id },
             });
           else if (
             restaurant?.city &&

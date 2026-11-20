@@ -349,6 +349,7 @@ export function buildWebsitePreview(
     severity: WebsiteValidation['severity'],
     message: string,
     dayNumber?: number,
+    target?: WebsiteValidation['target'],
   ) {
     if (
       !issues.some(
@@ -363,17 +364,30 @@ export function buildWebsitePreview(
         severity,
         message,
         ...(dayNumber ? { dayNumber } : {}),
+        ...(target ? { target } : {}),
       });
   }
   if (
     itinerary.days.length !== itinerary.duration ||
     itinerary.days.some((day, index) => day.dayNumber !== index + 1)
   )
-    issue('VAL-E01', 'ERROR', '行程日数及顺序必须与计划天数一致');
+    issue('VAL-E01', 'ERROR', '行程日数及顺序必须与计划天数一致', undefined, {
+      kind: 'reorder',
+    });
   if (!itinerary.vehiclePrices.some((price) => price.unitPrice !== null))
-    issue('VAL-E07', 'ERROR', '至少填写一个车型与酒店档次组合的人民币人均售价');
+    issue(
+      'VAL-E07',
+      'ERROR',
+      '至少填写一个车型与酒店档次组合的人民币人均售价',
+      undefined,
+      {
+        kind: 'prices',
+      },
+    );
   if (itinerary.pax === null)
-    issue('VAL-E08', 'ERROR', '正式确认前请填写报价人数');
+    issue('VAL-E08', 'ERROR', '正式确认前请填写报价人数', undefined, {
+      kind: 'basics',
+    });
   if (itinerary.configVersion !== config.version)
     issue('CONFIG_NOT_READY', 'ERROR', '行程引用的配置版本不一致');
 
@@ -383,7 +397,9 @@ export function buildWebsitePreview(
   );
   const hotels = new Map(config.hotels.map((item) => [item.id, item]));
   if (!itinerary.title.trim())
-    issue('ITINERARY_INVALID', 'ERROR', '请填写行程名称');
+    issue('ITINERARY_INVALID', 'ERROR', '请填写行程名称', undefined, {
+      kind: 'basics',
+    });
   const selectedMileages = itinerary.days.flatMap((day) => {
     const order = [
       ...new Set([...(day.eventOrder ?? []), ...day.legs.map((leg) => leg.id)]),
@@ -405,8 +421,11 @@ export function buildWebsitePreview(
         'VAL-E09',
         'ERROR',
         '报价组合已不在当前行程中，请调整车型或酒店档次',
+        undefined,
+        { kind: 'prices' },
       );
-    if (price.unitPrice === null || price.hotelTier === null) continue;
+    if (!hasHotels || price.unitPrice === null || price.hotelTier === null)
+      continue;
     for (const day of itinerary.days) {
       if (
         day.overnightCityId &&
@@ -420,8 +439,9 @@ export function buildWebsitePreview(
         issue(
           'VAL-E09',
           'ERROR',
-          '已报价酒店档次须覆盖每个住宿日并填写双语酒店名，不能推测其他档次酒店',
+          `请为已报价的 ${price.hotelTier} 档酒店填写当天的中英文酒店名`,
           day.dayNumber,
+          { kind: 'hotel', tier: price.hotelTier },
         );
     }
   }
@@ -454,6 +474,7 @@ export function buildWebsitePreview(
           'ERROR',
           '需要住宿的日程必须填写双语酒店名',
           day.dayNumber,
+          { kind: 'hotel', tier: day.hotels[0]?.tier },
         );
       for (const hotel of day.hotels) {
         if (hotel.configHotelId) {
@@ -464,6 +485,7 @@ export function buildWebsitePreview(
               'ERROR',
               '所选独立站酒店不存在或与住宿城市不一致',
               day.dayNumber,
+              { kind: 'hotel', tier: hotel.tier },
             );
         }
         if (hotel.cityId !== day.overnightCityId)
@@ -472,6 +494,7 @@ export function buildWebsitePreview(
             'ERROR',
             '酒店城市与当日住宿城市不一致',
             day.dayNumber,
+            { kind: 'hotel', tier: hotel.tier },
           );
       }
     } else if (day.hotels.length) {
@@ -505,6 +528,7 @@ export function buildWebsitePreview(
           'ERROR',
           '请明确专车交通段车型（例如5座或7座）',
           day.dayNumber,
+          { kind: 'event', id: leg.id },
         );
       if (leg.mode !== 'private_vehicle' && leg.vehicleType != null)
         issue(
@@ -512,6 +536,7 @@ export function buildWebsitePreview(
           'ERROR',
           '非专车交通段不能填写车型',
           day.dayNumber,
+          { kind: 'event', id: leg.id },
         );
       if (leg.fromCityId !== legCity)
         issue(
@@ -519,11 +544,18 @@ export function buildWebsitePreview(
           'ERROR',
           '交通段必须连续连接当日起终点',
           day.dayNumber,
+          { kind: 'event', id: leg.id },
         );
       legCity = leg.toCityId;
     }
     if (legCity !== day.endCityId)
-      issue('VAL-E03', 'ERROR', '跨城移动必须有对应交通段', day.dayNumber);
+      issue(
+        'VAL-E03',
+        'ERROR',
+        '跨城移动必须有对应交通段',
+        day.dayNumber,
+        day.legs.length ? undefined : { kind: 'addTransport' },
+      );
     if (
       day.dayNumber > 1 &&
       consecutiveServiceDays(itinerary.serviceDates, day.dayNumber)
@@ -549,6 +581,7 @@ export function buildWebsitePreview(
           'ERROR',
           '正式输出前必须确认服务费用状态',
           day.dayNumber,
+          { kind: 'event', id: entry.id },
         );
     }
     for (const item of day.items) {
@@ -592,6 +625,7 @@ export function buildWebsitePreview(
           'ERROR',
           `请补齐 ${item.nameZh} 的双语文案`,
           day.dayNumber,
+          { kind: 'event', id: item.id },
         );
       if (attraction && date && attraction.recommendedMonths.length) {
         const actualMonth = Number(date.slice(5, 7));
@@ -610,12 +644,16 @@ export function buildWebsitePreview(
       'REQUIREMENTS_MISMATCH',
       'ERROR',
       '行程服务日期与询盘不一致，请核对改期后的逐日安排',
+      undefined,
+      { kind: 'reschedule' },
     );
   else if (inquiry.startDate && inquiry.startDate !== itinerary.startDate)
     issue(
       'REQUIREMENTS_MISMATCH',
       'ERROR',
       '行程开始日期与询盘已确认日期不一致',
+      undefined,
+      itinerary.serviceDates ? undefined : { kind: 'basics' },
     );
 
   function output(language: 'en' | 'zh'): WebsiteOutput {

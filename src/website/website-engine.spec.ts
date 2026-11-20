@@ -397,11 +397,41 @@ describe('website UAT output', () => {
   it('keeps stale hotel tier prices invalid after every hotel is removed', () => {
     const { config, inquiry, itinerary } = fixture();
     itinerary.days.forEach((day) => (day.hotels = []));
-    expect(
-      buildWebsitePreview(inquiry, itinerary, config).issues,
-    ).toContainEqual(
-      expect.objectContaining({ code: 'VAL-E09', severity: 'ERROR' }),
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues.filter((issue) => issue.code === 'VAL-E09')).toEqual([
+      expect.objectContaining({
+        severity: 'ERROR',
+        target: { kind: 'prices' },
+      }),
+    ]);
+  });
+
+  it('locates the offending leg and distinguishes each quoted hotel tier on the same day', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.legs[1].mode = 'private_vehicle';
+    day.hotels[0].nameEn = '';
+    day.hotels.unshift({ ...day.hotels[0], id: randomUUID(), tier: 'B' });
+    itinerary.vehiclePrices.push({
+      ...itinerary.vehiclePrices[0],
+      hotelTier: 'B',
+    });
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        code: 'ITINERARY_INVALID',
+        dayNumber: 1,
+        target: { kind: 'event', id: day.legs[1].id },
+      }),
     );
+    expect(
+      issues
+        .filter((issue) => issue.code === 'VAL-E09' && issue.dayNumber === 1)
+        .map((issue) => issue.target),
+    ).toEqual([
+      { kind: 'hotel', tier: 'A' },
+      { kind: 'hotel', tier: 'B' },
+    ]);
   });
 
   it('still requires bilingual hotel names and complete stays when hotels are arranged', () => {
