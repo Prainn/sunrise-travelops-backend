@@ -3,6 +3,11 @@ import {
   websiteQuotationOptions,
 } from './website-price';
 import { toCents } from '../inquiries/money';
+import {
+  consecutiveServiceDays,
+  sameServiceDates,
+  websiteDayDate,
+} from './website-service-dates';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -209,8 +214,11 @@ export function generateWebsiteDraft(
   for (const [index, definition] of skeleton.days.entries()) {
     if (cities.get(definition.cityId)?.status !== 'enabled')
       invalid('城市骨架引用的城市已停用');
-    const first = index === 0;
-    const last = index === skeleton.days.length - 1;
+    const first =
+      index === 0 || !consecutiveServiceDays(input.serviceDates, index + 1);
+    const last =
+      index === skeleton.days.length - 1 ||
+      !consecutiveServiceDays(input.serviceDates, index + 2);
     const pattern = definition.patternId
       ? config.patterns.find(
           (item) =>
@@ -419,6 +427,7 @@ export function buildWebsitePreview(
   }
   const seenAttractions = new Set<string>();
   for (const day of itinerary.days) {
+    const date = websiteDayDate(itinerary, day.dayNumber);
     for (const cityId of [day.departCityId, day.endCityId]) {
       if (!cityId || cities.get(cityId)?.status !== 'enabled')
         issue(
@@ -515,7 +524,10 @@ export function buildWebsitePreview(
     }
     if (legCity !== day.endCityId)
       issue('VAL-E03', 'ERROR', '跨城移动必须有对应交通段', day.dayNumber);
-    if (day.dayNumber > 1) {
+    if (
+      day.dayNumber > 1 &&
+      consecutiveServiceDays(itinerary.serviceDates, day.dayNumber)
+    ) {
       const previous = itinerary.days[day.dayNumber - 2];
       if (previous && previous.endCityId !== day.departCityId)
         issue(
@@ -581,16 +593,8 @@ export function buildWebsitePreview(
           `请补齐 ${item.nameZh} 的双语文案`,
           day.dayNumber,
         );
-      if (
-        attraction &&
-        itinerary.startDate &&
-        attraction.recommendedMonths.length
-      ) {
-        const actualMonth =
-          new Date(
-            Date.parse(`${itinerary.startDate}T00:00:00Z`) +
-              (day.dayNumber - 1) * 86_400_000,
-          ).getUTCMonth() + 1;
+      if (attraction && date && attraction.recommendedMonths.length) {
+        const actualMonth = Number(date.slice(5, 7));
         if (!attraction.recommendedMonths.includes(actualMonth))
           issue(
             'VAL-W02',
@@ -601,7 +605,13 @@ export function buildWebsitePreview(
       }
     }
   }
-  if (inquiry.startDate && inquiry.startDate !== itinerary.startDate)
+  if (!sameServiceDates(inquiry.serviceDates, itinerary.serviceDates))
+    issue(
+      'REQUIREMENTS_MISMATCH',
+      'ERROR',
+      '行程服务日期与询盘不一致，请核对改期后的逐日安排',
+    );
+  else if (inquiry.startDate && inquiry.startDate !== itinerary.startDate)
     issue(
       'REQUIREMENTS_MISMATCH',
       'ERROR',
@@ -717,6 +727,8 @@ export function buildWebsitePreview(
     const hotelStays = new Map<string, WebsiteOutput['hotelOptions'][number]>();
     const itineraryRows: WebsiteOutput['itinerary'] = [];
     for (const day of itinerary.days) {
+      const date = websiteDayDate(itinerary, day.dayNumber);
+      const selectedDate = itinerary.serviceDates ? date : null;
       const attractionsById = new Map<string, string>();
       for (const item of day.items) {
         const name = language === 'en' ? item.nameEn : item.nameZh;
@@ -752,8 +764,8 @@ export function buildWebsitePreview(
       if (day.guideLanguage.trim()) {
         const line =
           language === 'en'
-            ? `D${day.dayNumber}: Tour guide (${dictionaryLabel(day.guideLanguage, 'languages')}) included.`
-            : `第${day.dayNumber}天：包含${dictionaryLabel(day.guideLanguage, 'languages')}导游服务。`;
+            ? `${selectedDate ?? `D${day.dayNumber}`}: Tour guide (${dictionaryLabel(day.guideLanguage, 'languages')}) included.`
+            : `${selectedDate ?? `第${day.dayNumber}天`}：包含${dictionaryLabel(day.guideLanguage, 'languages')}导游服务。`;
         include(line, 'service');
       }
       const orderedLegs = [...day.legs].sort((a, b) => {
@@ -793,6 +805,9 @@ export function buildWebsitePreview(
           tierLabel: hotelLabel(hotel.tier),
           startDay: day.dayNumber,
           endDay: day.dayNumber,
+          ...(selectedDate
+            ? { startDate: selectedDate, endDate: selectedDate }
+            : {}),
           nights: 1,
           breakfastIncluded: hotel.breakfastIncluded,
         };
@@ -807,8 +822,12 @@ export function buildWebsitePreview(
             hotel.breakfastIncluded,
           ]);
           const previous = hotelStays.get(stayKey);
-          if (previous?.endDay === day.dayNumber - 1) {
+          if (
+            previous?.endDay === day.dayNumber - 1 &&
+            consecutiveServiceDays(itinerary.serviceDates, day.dayNumber)
+          ) {
             previous.endDay = day.dayNumber;
+            if (selectedDate) previous.endDate = selectedDate;
             previous.nights = (previous.nights ?? 1) + 1;
           } else {
             hotelOptions.push(hotelOption);
@@ -853,21 +872,13 @@ export function buildWebsitePreview(
             ? { breakfast: 'B', lunch: 'L', dinner: 'D' }[slot]
             : mealLabels[slot],
         );
-      const date = itinerary.startDate
-        ? new Date(
-            Date.parse(`${itinerary.startDate}T00:00:00Z`) +
-              (day.dayNumber - 1) * 86_400_000,
-          )
-            .toISOString()
-            .substring(0, 10)
-        : `D${day.dayNumber}`;
       const orderedDescriptions = (day.eventOrder ?? []).flatMap((id) => {
         const description = attractionsById.get(id);
         attractionsById.delete(id);
         return description ? [description] : [];
       });
       itineraryRows.push({
-        day: date,
+        day: date ?? `D${day.dayNumber}`,
         depart: city(day.departCityId),
         transportation: [...new Set(transportation)].join('\n'),
         sightseeing: [...orderedDescriptions, ...attractionsById.values()]
@@ -878,13 +889,17 @@ export function buildWebsitePreview(
       });
     }
     if (quotationOptions.includesDriver) {
+      const dates = itinerary.serviceDates;
       const days = quotationOptions.driverDays
-        .map((day) => `D${day}`)
+        .map((day) => dates?.[day - 1] ?? `D${day}`)
         .join(', ');
+      const zhDays = dates
+        ? quotationOptions.driverDays.map((day) => dates[day - 1]).join('、')
+        : `第${quotationOptions.driverDays.join('、')}天`;
       include(
         language === 'en'
           ? `Private driver included on ${days}. The driver provides transportation and ticketing assistance only; guiding and commentary inside scenic areas are not included in the driver's service.`
-          : `第${quotationOptions.driverDays.join('、')}天包含专车司机。司机仅提供交通与票务协助，不提供景区内导览或讲解服务。`,
+          : `${zhDays}包含专车司机。司机仅提供交通与票务协助，不提供景区内导览或讲解服务。`,
         'driver',
       );
       include(
@@ -1024,7 +1039,8 @@ export function buildWebsitePreview(
     inquiryVersion: inquiry.version,
     configVersion: config.version,
     schemaVersion: 6,
-    validationVersion: 7,
+    validationVersion: itinerary.serviceDates ? 8 : 7,
+    ...(itinerary.serviceDates ? { serviceDates: itinerary.serviceDates } : {}),
     issues,
     english,
     chinese,

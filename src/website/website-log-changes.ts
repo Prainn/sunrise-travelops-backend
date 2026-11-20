@@ -15,6 +15,7 @@ function inquiryContent(value: WebsiteInquiry) {
     countryCode: value.countryCode,
     countryOrRegion: value.countryOrRegion,
     plannedDays: value.plannedDays,
+    serviceDates: value.serviceDates ?? null,
     requirements: value.requirements,
     ownerId: value.ownerId,
     owner: value.owner,
@@ -38,6 +39,7 @@ function itineraryContent(value: WebsiteItinerary) {
   return {
     title: value.title,
     duration: value.duration,
+    serviceDates: value.serviceDates ?? null,
     startDate: value.startDate,
     pax: value.pax,
     configVersion: value.configVersion,

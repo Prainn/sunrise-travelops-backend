@@ -103,6 +103,7 @@ const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModu
   t.inquiry_id AS "inquiryId", t.quote_id AS "quoteId", t.itinerary_id AS "itineraryId",
   t.inquiry_code AS "inquiryCode", t.itinerary_code AS "itineraryCode", t.quote_code AS "quoteCode",
   t.agency_id AS "agencyId", t.agency_name AS "agencyName", t.contact_name AS "contactName", t.days, t.start_date::text AS "startDate",
+  t.service_dates::text[] AS "serviceDates",
   to_char(t.pickup_at,'YYYY-MM-DD HH24:MI') AS "pickupAt", to_char(t.drop_at,'YYYY-MM-DD HH24:MI') AS "dropAt",
   t.occupy_from::text AS "occupyFrom", t.occupy_to::text AS "occupyTo",
   t.country_item_id AS "countryItemId", t.country_code AS "countryCode", t.country_name AS "countryName",
@@ -119,6 +120,7 @@ const TOUR_SELECT = `t.id, t.tour_no AS "tourNo", t.source_module AS "sourceModu
 const TOUR_FROM = `tours t`;
 
 interface Resolved {
+  serviceDates?: string[] | null;
   isSeries?: boolean;
   module: Source | 'manual';
   inquiryId: string | null;
@@ -439,7 +441,7 @@ export class ToursService {
         `SELECT i.id AS "inquiryId", i.code AS "inquiryCode", i.customer_name AS "agencyName", '' AS "contactName",
           i.owner AS "ownerName", i.business_unit AS "businessUnit", i.country_code AS "countryCode",
           i.country_or_region AS "countryName", q.id AS "quoteId", q.code AS "quoteCode",
-          it.code AS "itineraryCode", it.start_date::text AS "startDate", it.duration AS days,
+          it.code AS "itineraryCode", it.start_date::text AS "startDate", it.duration AS days, it.service_dates::text[] AS "serviceDates",
           (q.first_downloaded_at IS NOT NULL) AS downloaded
          FROM website_inquiries i
          JOIN LATERAL (SELECT wq.* FROM website_quotations wq JOIN website_itineraries wi ON wi.id = wq.itinerary_id
@@ -611,9 +613,10 @@ export class ToursService {
     days: number,
     arrival: string,
     departure: string,
+    lastServiceDate?: string,
   ) {
     try {
-      return tourSchedule(start, days, arrival, departure);
+      return tourSchedule(start, days, arrival, departure, lastServiceDate);
     } catch {
       return invalid('行程日期或航班时刻无效');
     }
@@ -624,6 +627,7 @@ export class ToursService {
     input: TourScheduleDto,
     startDate: string,
     days: number,
+    serviceDates?: string[] | null,
     existing: Row | null = null,
   ) {
     if (input.scheduleMode === 'manual') {
@@ -667,6 +671,7 @@ export class ToursService {
         days,
         pickup.arrivalTime,
         drop.departureTime,
+        serviceDates?.at(-1),
       ),
     };
   }
@@ -833,7 +838,7 @@ export class ToursService {
         fail(ErrorCode.INQUIRY_NOT_FOUND, '询盘不存在', HttpStatus.NOT_FOUND);
       const q = await manager.query<Row[]>(
         `SELECT wq.id, wq.code, wq.first_downloaded_at, it.id AS itinerary_id, it.code AS itinerary_code,
-           it.start_date::text AS start_date, it.duration
+           it.start_date::text AS start_date, it.duration, it.service_dates::text[] AS service_dates
          FROM website_quotations wq JOIN website_itineraries it ON it.id = wq.itinerary_id
          WHERE it.inquiry_id = $1 ORDER BY wq.confirmed_at DESC, wq.id DESC LIMIT 1`,
         [inquiryId],
@@ -841,6 +846,7 @@ export class ToursService {
       return this.assemble(module, i, i.business_unit as Unit, q[0], {
         startDate: q[0]?.start_date as string | null,
         days: Number(q[0]?.duration),
+        serviceDates: q[0]?.service_dates as string[] | null,
         agency: i.customer_name as string,
         contact: '',
         itineraryCode: q[0]?.itinerary_code as string,
@@ -886,6 +892,7 @@ export class ToursService {
     q: Row | undefined,
     extra: {
       startDate: string | null;
+      serviceDates?: string[] | null;
       days: number;
       agency: string;
       contact: string;
@@ -917,6 +924,7 @@ export class ToursService {
       itineraryId: (q as Row).itinerary_id as string,
       itineraryCode: extra.itineraryCode,
       startDate: extra.startDate,
+      serviceDates: extra.serviceDates,
       days: extra.days,
       downloaded: (q as Row).first_downloaded_at != null,
     };
@@ -1014,14 +1022,15 @@ export class ToursService {
         invalid('手工成团必须填写资料且不能关联询盘或报价');
       src = await this.manualSource(manager, input.manualSource!, user);
     } else {
-      if (input.manualSource !== undefined || input.scheduleMode === 'manual')
-        invalid('关联来源不能提交手工资料或手填时间');
+      if (input.manualSource !== undefined) invalid('关联来源不能提交手工资料');
       src = await this.resolve(
         manager,
         input.sourceModule,
         input.inquiryId!,
         user,
       );
+      if (input.scheduleMode === 'manual' && !src.serviceDates)
+        invalid('此关联来源须选择接送航班');
       if (['lost', 'archived'].includes(src.status))
         fail(
           ErrorCode.INQUIRY_READ_ONLY,
@@ -1058,7 +1067,13 @@ export class ToursService {
       pickup,
       drop,
       schedule: s,
-    } = await this.booking(manager, input, src.startDate!, src.days);
+    } = await this.booking(
+      manager,
+      input,
+      src.startDate!,
+      src.days,
+      src.serviceDates,
+    );
     const operator =
       ledger?.operator ??
       (await this.operator(manager, input.operatorId, src.businessUnit));
@@ -1106,9 +1121,9 @@ export class ToursService {
           occupy_from, occupy_to, country_item_id, country_code, country_name, creator_id, creator_tour_code,
           creator_sequence, collect_coordinator_id, collect_coordinator_name, operator_id, operator_name,
           adults, children, leaders, language, shopping, pickup_flight_id, drop_flight_id, pickup_flight, drop_flight,
-          remark, created_by, updated_by, schedule_mode, itinerary_summary, agency_id, direct_ledger_id)
+          remark, created_by, updated_by, schedule_mode, itinerary_summary, agency_id, direct_ledger_id, service_dates)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,
-          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$21,$21,$38,$39,$40,$41) RETURNING id`,
+          $28,$29,$30,$31,$32,$33,$34,$35::jsonb,$36::jsonb,$37,$21,$21,$38,$39,$40,$41,$42) RETURNING id`,
       [
         tourNo,
         src.module,
@@ -1151,6 +1166,7 @@ export class ToursService {
         src.itinerarySummary ?? '',
         src.agencyId ?? null,
         ledger?.id ?? null,
+        src.serviceDates ?? null,
       ],
     );
     await saveGuideServices(manager, inserted[0].id, services, user.id);
@@ -1181,7 +1197,7 @@ export class ToursService {
     user: AuthenticatedUser,
   ): Promise<Row> {
     const rows = await manager.query<Row[]>(
-      `SELECT *, start_date::text AS start_date, to_char(pickup_at,'YYYY-MM-DD HH24:MI') AS pickup_at, to_char(drop_at,'YYYY-MM-DD HH24:MI') AS drop_at FROM tours WHERE id = $1 FOR UPDATE`,
+      `SELECT *, start_date::text AS start_date, service_dates::text[] AS service_dates, to_char(pickup_at,'YYYY-MM-DD HH24:MI') AS pickup_at, to_char(drop_at,'YYYY-MM-DD HH24:MI') AS drop_at FROM tours WHERE id = $1 FOR UPDATE`,
       [id],
     );
     const tour = rows[0];
@@ -1212,7 +1228,8 @@ export class ToursService {
       const unit = tour.business_unit as Unit;
       if (
         tour.source_module !== 'manual' &&
-        (input.manualSource !== undefined || input.scheduleMode === 'manual')
+        (input.manualSource !== undefined ||
+          (input.scheduleMode === 'manual' && !tour.service_dates))
       )
         invalid('关联来源不能提交手工资料或手填时间');
       const src = input.manualSource
@@ -1231,6 +1248,7 @@ export class ToursService {
         input,
         input.seriesStartDate ?? src?.startDate ?? (tour.start_date as string),
         src?.days ?? (tour.days as number),
+        tour.service_dates as string[] | null,
         {
           pickupFlightId: tour.pickup_flight_id,
           dropFlightId: tour.drop_flight_id,
