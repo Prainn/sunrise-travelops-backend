@@ -1,4 +1,7 @@
 import { AddFeishuNotificationManagement1796256000000 } from '../src/migrations/1796256000000-AddFeishuNotificationManagement';
+import { AddWhatsappDocuments1796256007000 } from '../src/migrations/1796256007000-AddWhatsappDocuments';
+import { AddOssMedia1796256004000 } from '../src/migrations/1796256004000-AddOssMedia';
+import { AddWhatsappDocumentArchives1796256011000 } from '../src/migrations/1796256011000-AddWhatsappDocumentArchives';
 /** Isolated local PostgreSQL only; mock sends, no cloud credentials or real customer data. */
 import assert from 'node:assert/strict';
 import { ConfigService } from '@nestjs/config';
@@ -28,30 +31,26 @@ const config = {
     'test-only-source-link-token-not-a-production-key',
 };
 const h = new IsolationHarness(config);
+const workbenchMigrations = [
+  AddWhatsappDocumentArchives1796256011000,
+  AddWhatsappDocuments1796256007000,
+  AddOssMedia1796256004000,
+  AddFeishuNotificationManagement1796256000000,
+  AddWhatsappEventMessageIndex1795996800000,
+  AddWhatsappCustomerNotes1795910400000,
+  AddWhatsappQuickReplies1795824000000,
+  CreateWhatsappWorkbench1795651200000,
+];
 async function undoWhatsappMigration() {
   // Dev may contain newer migrations; only undo this feature in the disposable DB.
   assert.match(String(h.db.options.database), /^travelops_isolation_/);
   await h.db.transaction(async (manager) => {
     assert(manager.queryRunner);
-    await new AddFeishuNotificationManagement1796256000000().down(
-      manager.queryRunner,
-    );
-    await new AddWhatsappEventMessageIndex1795996800000().down(
-      manager.queryRunner,
-    );
-    await new AddWhatsappCustomerNotes1795910400000().down(manager.queryRunner);
-    await new AddWhatsappQuickReplies1795824000000().down(manager.queryRunner);
-    await new CreateWhatsappWorkbench1795651200000().down(manager.queryRunner);
-    await manager.query(
-      'DELETE FROM migrations WHERE name IN ($1,$2,$3,$4,$5)',
-      [
-        'CreateWhatsappWorkbench1795651200000',
-        'AddWhatsappQuickReplies1795824000000',
-        'AddWhatsappCustomerNotes1795910400000',
-        'AddWhatsappEventMessageIndex1795996800000',
-        'AddFeishuNotificationManagement1796256000000',
-      ],
-    );
+    for (const Migration of workbenchMigrations)
+      await new Migration().down(manager.queryRunner);
+    await manager.query('DELETE FROM migrations WHERE name=ANY($1::text[])', [
+      workbenchMigrations.map((Migration) => Migration.name),
+    ]);
   });
 }
 async function call<T = Record<string, unknown>>(
@@ -135,7 +134,10 @@ async function main() {
         plannedDays: 1,
         requirements: 'Synthetic baseline',
       });
-      assert.equal((await h.db.runMigrations()).length, 5);
+      assert.equal(
+        (await h.db.runMigrations()).length,
+        workbenchMigrations.length,
+      );
       assert.equal((await h.db.runMigrations()).length, 0);
       assert.equal(
         (await call<{ id: string }>(a, 'GET', `/website/inquiries/${old.id}`))
@@ -661,7 +663,7 @@ async function main() {
         path,
         input,
         409,
-        'DATABASE_CONSTRAINT_VIOLATION',
+        'WHATSAPP_QUICK_REPLY_EXISTS',
       );
       assert.equal(
         (await call<Page>(a, 'GET', `${path}?stage=Synthetic%20stage`)).total,
