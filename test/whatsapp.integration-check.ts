@@ -121,6 +121,14 @@ async function main() {
     );
     return c;
   };
+  const detailUnreadCount = async (actor: Actor) =>
+    (
+      await call<{ unreadCount: number }>(
+        actor,
+        'GET',
+        `/whatsapp/conversations/${c.id}`,
+      )
+    ).unreadCount;
   await check(
     'migration rollback on empty WhatsApp data, representative old inquiry survives upgrade and repeat run',
     async () => {
@@ -219,6 +227,7 @@ async function main() {
         );
       const initial = await summary(manager);
       assert(initial.unreadCount > 0);
+      assert.equal(await detailUnreadCount(manager), initial.unreadCount);
       assert.equal(initial.unassignedCount, 1);
       assert.deepEqual(await summary(a), {
         unreadCount: 0,
@@ -273,6 +282,7 @@ async function main() {
         (await summary(manager)).unreadCount,
         initial.unreadCount - 1,
       );
+      assert.equal(await detailUnreadCount(manager), initial.unreadCount - 1);
       await h.db.query('DELETE FROM whatsapp_events WHERE id=$1', [eventId]);
       await h.db.query(
         "UPDATE whatsapp_conversations SET state='archived',archived_at=now() WHERE id=$1",
@@ -362,6 +372,7 @@ async function main() {
           .unreadCount;
       for (const actor of [manager, a, root]) {
         assert.equal(await unreadCount(actor), 0);
+        assert.equal(await detailUnreadCount(actor), 0);
         const unread = await call<Page<Conversation>>(
           actor,
           'GET',
@@ -384,8 +395,10 @@ async function main() {
       );
       await events.receive(payload('shared-read-new-message'), 'inbound');
       await events.processOne();
-      for (const actor of [manager, a, root])
+      for (const actor of [manager, a, root]) {
         assert.equal(await unreadCount(actor), 1);
+        assert.equal(await detailUnreadCount(actor), 1);
+      }
       await call(
         b,
         'POST',
