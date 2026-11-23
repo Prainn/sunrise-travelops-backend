@@ -76,6 +76,7 @@ jobs:
           stage='Validate dev build host'
           stage_started=$SECONDS
           release_started=$SECONDS
+          start_ms=$(date +%s%3N)
           outcome=failed
           enter_stage() {
             printf '\n- %s: %ss\n' "$stage" "$((SECONDS - stage_started))" >> "$GITHUB_STEP_SUMMARY"
@@ -181,6 +182,24 @@ jobs:
           python3 "$driver/deploy.py" status >> "$GITHUB_STEP_SUMMARY"
           outcome=verified
           echo 'deployment_status=verified' >> "$GITHUB_OUTPUT"
+          echo "backfill_start=$start_ms" >> "$GITHUB_OUTPUT"
+          echo "backfill_end=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+      - name: Reconcile WhatsApp inbound after activation
+        if: steps.release.outputs.backfill_start != ''
+        shell: bash
+        env:
+          START_MS: ${{ steps.release.outputs.backfill_start }}
+          END_MS: ${{ steps.release.outputs.backfill_end }}
+        run: |
+          set -euo pipefail
+          key="backend-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          # The verified API image supplies the utility. Only the host has the dev ECS role.
+          if receipt=$(docker exec sunrise-travelops-dev-api-1 cat /app/dist/whatsapp-backfill.cjs |
+              timeout 120 /opt/sunrise-ci/node/bin/node - --dev "$key" "$START_MS" "$END_MS"); then
+            echo "WhatsApp backfill receipt $receipt" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::WhatsApp backfill incomplete; retry $key $START_MS $END_MS" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
   result:
     name: ${{ (needs.deploy.outputs.deployment_status || needs.production.outputs.deployment_status) == 'waiting_migration' && 'Waiting for migration (NOT deployed)' || (inputs.operation == 'stage' && 'Artifact staged' || 'Deployment verified') }}
     needs: [deploy, production]

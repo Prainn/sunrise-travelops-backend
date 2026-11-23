@@ -8,6 +8,7 @@ import type {
   WebsiteDay,
   WebsiteInquiry,
   WebsiteItinerary,
+  WebsiteLeg,
   WebsitePreview,
   WebsiteQuotation,
 } from '../src/website/website.types';
@@ -88,6 +89,20 @@ async function main() {
         showInPdf: false,
       })),
     };
+    const transfer = (
+      city: string,
+      nameZh: string,
+      nameEn: string,
+    ): WebsiteLeg => ({
+      id: randomUUID(),
+      routeId: null,
+      fromCityId: city,
+      toCityId: city,
+      mode: 'other',
+      nameZh,
+      nameEn,
+      feeState: 'SELF_PAY',
+    });
     const planInput = {
       title: 'Calendar',
       duration: 1,
@@ -125,20 +140,33 @@ async function main() {
       legacyInput,
       201,
     );
-    const oldPlan = await newPlan(old, [day(cities[0].id, 1)]);
+    const oldDay = day(cities[0].id, 1);
+    oldDay.legs.push(transfer(cities[0].id, '原有用车', 'Existing transfer'));
+    const oldPlan = await newPlan(old, [oldDay]);
     const oldQuote = await confirm(oldPlan);
     // Retain a real predecessor inquiry, its structured day and frozen quote through upgrade.
+    await h.db.undoLastMigration();
     await h.db.undoLastMigration();
     await h.db.query(
       'UPDATE website_inquiries SET planned_days=$2 WHERE id=$1',
       [old.id, 1],
     );
-    assert.equal(
-      (await h.db.runMigrations())[0].name,
-      'AddWebsiteServiceDates1796256013000',
+    assert.deepEqual(
+      (await h.db.runMigrations()).map((migration) => migration.name),
+      [
+        'AddWebsiteServiceDates1796256013000',
+        'AddWebsiteAirportTransfers1796256014000',
+      ],
     );
     assert.deepEqual(await h.db.runMigrations(), []);
     assert.equal((await detail(old.id)).serviceDates, null);
+    const upgraded = await h.call<WebsiteItinerary>(
+      owner,
+      'GET',
+      planPath(oldPlan),
+    );
+    assert.equal(upgraded.days[0].legs[0].isAirportPickup, false);
+    assert.equal(upgraded.days[0].legs[0].isAirportDropoff, false);
     assert.deepEqual(
       await h.call(owner, 'GET', planPath(oldPlan) + '/quotation'),
       oldQuote,
@@ -193,10 +221,28 @@ async function main() {
     assert.equal(inquiry.startDate, dates[0]);
     assert.equal(inquiry.plannedDays, 4);
     const days = dates.map((_, i) => day(cities[i === 0 ? 0 : 1].id, i + 1));
+    days[0].legs.push({
+      ...transfer(cities[0].id, '机场接客到酒店', 'Meet at arrivals'),
+      isAirportPickup: true,
+    });
+    days[3].legs.push({
+      ...transfer(cities[1].id, '酒店出发送机', 'Transfer to departures'),
+      isAirportDropoff: true,
+    });
     const plan = await newPlan(inquiry, days);
     assert.deepEqual(plan.serviceDates, dates);
     assert.equal(plan.duration, 4);
     const firstQuote = await confirm(plan);
+    assert.equal(firstQuote.chinese.itinerary[0].sightseeing, '机场接客到酒店');
+    assert.equal(
+      firstQuote.english.itinerary[0].sightseeing,
+      'Meet at arrivals',
+    );
+    assert.equal(firstQuote.chinese.itinerary[3].sightseeing, '酒店出发送机');
+    assert.equal(
+      firstQuote.english.itinerary[3].sightseeing,
+      'Transfer to departures',
+    );
     for (const out of [firstQuote.english, firstQuote.chinese])
       assert.deepEqual(
         out.itinerary.map((row) => row.day),
@@ -215,6 +261,8 @@ async function main() {
     );
     assert.deepEqual(copy.serviceDates, dates);
     assert.notEqual(copy.days[0].id, plan.days[0].id);
+    assert.equal(copy.days[0].legs[0].isAirportPickup, true);
+    assert.equal(copy.days[3].legs[0].isAirportDropoff, true);
     const originalDays = copy.days;
     const shortened = {
       ...planInput,
