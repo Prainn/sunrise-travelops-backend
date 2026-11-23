@@ -77,6 +77,14 @@ type EnqueueOptions = {
   resolved?: ReactionLookup & { messageId: string | null };
   batchFingerprint?: string;
 };
+
+function unreadCountSql(conversationId: 'c.id' | '$1') {
+  return `(SELECT count(*)::int FROM whatsapp_messages m
+    WHERE m.conversation_id=${conversationId} AND m.direction='inbound'
+      AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=${conversationId}),0)
+      AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done'))`;
+}
+
 @Injectable()
 export class WhatsappService {
   private workerStopped = false;
@@ -223,14 +231,22 @@ export class WhatsappService {
     };
   }
   async detail(id: string, user: AuthenticatedUser) {
-    const c = await this.conversation(id, user),
-      related = await this.related(this.db.manager, c);
+    const c = await this.conversation(id, user);
+    const [related, [{ unreadCount }], { outboundEnabled }] = await Promise.all(
+      [
+        this.related(this.db.manager, c),
+        this.db.query<{ unreadCount: number }[]>(
+          `SELECT ${unreadCountSql('$1')} AS "unreadCount"`,
+          [c.id],
+        ),
+        this.runtime.state(),
+      ],
+    );
     const ownOrManager = chatManager(user) || c.ownerId === user.id;
     const formed = related.tours.some((t) => t.conversationId === c.id);
     const configuredSendBlock = this.config.sendBlockedReason(
       c.bsuid || c.phone || '',
     );
-    const { outboundEnabled } = await this.runtime.state();
     const sendBlockedReason =
       configuredSendBlock ?? (outboundEnabled ? null : 'send_disabled');
     const canReply =
@@ -244,6 +260,7 @@ export class WhatsappService {
     return {
       ...c,
       ...related,
+      unreadCount,
       hasFormedTours: related.tours.length > 0,
       sendBlockedReason,
       replyWindowExpiresAt: c.lastInboundAt
@@ -325,7 +342,7 @@ export class WhatsappService {
         `(coalesce(p.manual_name,p.name) ILIKE $${p} OR p.phone ILIKE $${p} OR p.bsuid ILIKE $${p})`,
       );
     }
-    const unread = `(SELECT count(*)::int FROM whatsapp_messages m WHERE m.conversation_id=c.id AND m.direction='inbound' AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done') AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=c.id),0))`;
+    const unread = unreadCountSql('c.id');
     if (query.unread)
       where.push(`${unread}${query.unread === 'true' ? '>0' : '=0'}`);
     const sql = where.join(' AND ');
