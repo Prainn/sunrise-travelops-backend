@@ -78,7 +78,11 @@ export function websiteQuotationOptions(
   const selectedTiers = new Set(
     days
       .filter((day) => day.overnightCityId)
-      .flatMap((day) => day.hotels.map((hotel) => hotel.tier)),
+      .flatMap((day) =>
+        day.hotels
+          .filter((hotel) => !hotel.nightlyOnly)
+          .map((hotel) => hotel.tier),
+      ),
   );
   const hotelTiers = (
     Object.keys(WEBSITE_HOTEL_TIERS) as WebsiteHotelTier[]

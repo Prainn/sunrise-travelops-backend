@@ -151,7 +151,12 @@ export interface WebsiteLeg {
   nameEn: string;
   feeState: FeeState;
 }
+export type WebsiteHotelPricingMode = 'tiered' | 'nightly';
 export interface WebsiteHotelStay {
+  nightlyOnly?: boolean;
+  nightlySelected?: boolean;
+  nightlyRooms?: number | null;
+  nightlyRate?: string | null;
   id: string;
   tier: 'A' | 'B' | 'C' | 'D';
   cityId: string;
@@ -218,6 +223,9 @@ export interface WebsiteQuotationOptions {
   guideServices: { dayNumber: number; language: string }[];
 }
 export interface WebsiteItineraryInput {
+  hotelPricingMode?: WebsiteHotelPricingMode;
+  nightlyShowHotelPrice?: boolean;
+  nightlyVehiclePrices?: WebsiteVehiclePriceInput[];
   serviceDates?: string[] | null;
   reorderDraft?: WebsiteReorderDraft | null;
   title: string;
@@ -264,7 +272,7 @@ export interface WebsiteValidation {
   target?:
     | { kind: 'basics' | 'prices' | 'reorder' | 'reschedule' | 'addTransport' }
     | { kind: 'event'; id: string }
-    | { kind: 'hotel'; tier?: WebsiteHotelTier };
+    | { kind: 'hotel'; tier?: WebsiteHotelTier; id?: string };
 }
 export interface WebsiteOutputDay {
   day: string;
@@ -275,6 +283,8 @@ export interface WebsiteOutputDay {
   meal: string;
 }
 export interface WebsiteOutput {
+  hotelPricingMode?: WebsiteHotelPricingMode;
+  nightlyHotelTotal?: string;
   title: string;
   itinerary: WebsiteOutputDay[];
   inclusions: string[];
@@ -284,6 +294,10 @@ export interface WebsiteOutput {
     city: string;
     hotel: string;
     roomType: string;
+    roomCount?: number;
+    nightlyRate?: string;
+    subtotal?: string;
+    checkoutDate?: string;
     tierLabel?: string;
     startDay?: number;
     endDay?: number;
@@ -334,7 +348,7 @@ export interface WebsitePreview {
   inquiryVersion: number;
   configVersion: number;
   schemaVersion: 6;
-  validationVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  validationVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   issues: WebsiteValidation[];
   english: WebsiteOutput;
   chinese: WebsiteOutput;
