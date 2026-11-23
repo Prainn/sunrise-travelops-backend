@@ -228,6 +228,42 @@ export class WebsiteService {
         { currentVersion: current },
       );
   }
+  private requireNightlyPricingFields(
+    itinerary: WebsiteItinerary,
+    input: WebsiteUpdateItineraryDto,
+  ) {
+    if (
+      input.hotelPricingMode !== undefined &&
+      input.nightlyShowHotelPrice !== undefined &&
+      input.nightlyVehiclePrices !== undefined
+    )
+      return;
+
+    const days = [
+      ...itinerary.days,
+      ...(itinerary.deletedDays ?? []).map(({ day }) => day),
+    ];
+    if (
+      itinerary.hotelPricingMode === 'nightly' ||
+      itinerary.nightlyShowHotelPrice ||
+      itinerary.nightlyVehiclePrices?.length ||
+      days.some((day) =>
+        day.hotels.some(
+          (hotel) =>
+            hotel.nightlyOnly ||
+            hotel.nightlySelected != null ||
+            hotel.nightlyRooms != null ||
+            hotel.nightlyRate != null,
+        ),
+      )
+    )
+      fail(
+        'ITINERARY_VERSION_CONFLICT',
+        '页面版本已更新，请刷新浏览器后再编辑逐晚住宿报价',
+        HttpStatus.CONFLICT,
+        { currentVersion: itinerary.version },
+      );
+  }
   private async inquiry(
     id: string,
     user: AuthenticatedUser,
@@ -1814,6 +1850,7 @@ export class WebsiteService {
       await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, input.version, true);
+      this.requireNightlyPricingFields(itinerary, input);
       const plan = await this.preparePlan(manager, input, inquiry, itinerary);
       if (
         itinerary.serviceDates &&
@@ -1989,6 +2026,7 @@ export class WebsiteService {
     await this.mutable(inquiry, this.db.manager);
     this.draft(itinerary);
     this.version(itinerary.version, input.version, true);
+    this.requireNightlyPricingFields(itinerary, input);
     const options = websiteQuotationOptions(input.days);
     return this.previewData(
       this.db.manager,

@@ -610,14 +610,18 @@ export class WebsiteItineraryDto
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
   vehiclePrices: WebsiteVehiclePriceDto[] = [];
-  @IsIn(['tiered', 'nightly']) hotelPricingMode: 'tiered' | 'nightly' =
-    'tiered';
-  @IsBoolean() nightlyShowHotelPrice = false;
+  @ValidateIf((o: WebsiteItineraryDto) => o.hotelPricingMode !== undefined)
+  @IsIn(['tiered', 'nightly'])
+  hotelPricingMode?: 'tiered' | 'nightly';
+  @ValidateIf((o: WebsiteItineraryDto) => o.nightlyShowHotelPrice !== undefined)
+  @IsBoolean()
+  nightlyShowHotelPrice?: boolean;
+  @ValidateIf((o: WebsiteItineraryDto) => o.nightlyVehiclePrices !== undefined)
   @IsArray()
   @ArrayMaxSize(2000)
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
-  nightlyVehiclePrices: WebsiteVehiclePriceDto[] = [];
+  nightlyVehiclePrices?: WebsiteVehiclePriceDto[];
 }
 export class WebsiteUpdateItineraryDto extends WebsiteItineraryDto {
   @IsInt() @Min(1) version: number;
