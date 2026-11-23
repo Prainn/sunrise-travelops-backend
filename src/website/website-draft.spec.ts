@@ -68,6 +68,9 @@ describe('website draft save and explicit validation', () => {
       configVersion: 1,
 
       vehiclePrices: [],
+      hotelPricingMode: 'tiered',
+      nightlyShowHotelPrice: false,
+      nightlyVehiclePrices: [],
       days: [
         {
           id: 'day',
