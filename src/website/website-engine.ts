@@ -2,6 +2,14 @@ import {
   normalizeVehiclePrice,
   websiteQuotationOptions,
 } from './website-price';
+import {
+  nightlyAccommodation,
+  nightlyMoney,
+  nightlyQuotationPrices,
+  nightlyRoomTotal,
+  quotedHotelDays,
+} from './website-nightly-pricing';
+import { addDays } from '../tours/tour-rules';
 import { toCents } from '../inquiries/money';
 import {
   consecutiveServiceDays,
@@ -334,14 +342,28 @@ export function buildWebsitePreview(
   config: WebsiteConfig,
   dictionaries: WebsiteReportDictionaries = { languages: [], vehicles: [] },
 ): WebsitePreview {
+  const nightly = itinerary.hotelPricingMode === 'nightly';
+  const accommodation = nightly
+    ? nightlyAccommodation(itinerary.days)
+    : undefined;
   const quotationOptions = websiteQuotationOptions(itinerary.days);
+  const nightlyPrices = accommodation
+    ? nightlyQuotationPrices(itinerary, quotationOptions, accommodation)
+    : undefined;
+  const groupTotals = new Map(
+    nightlyPrices?.map((price) => [price.vehicleType, price.totalPrice]),
+  );
+  if (nightly) quotationOptions.hotelTiers = [null];
   itinerary = {
     ...itinerary,
-    vehiclePrices: itinerary.vehiclePrices.map((price) => ({
-      ...normalizeVehiclePrice(price),
-      includesDriver: quotationOptions.includesDriver,
-      includesGuide: quotationOptions.includesGuide,
-    })),
+    days: quotedHotelDays(itinerary.days, itinerary.hotelPricingMode),
+    vehiclePrices:
+      nightlyPrices ??
+      itinerary.vehiclePrices.map((price) => ({
+        ...normalizeVehiclePrice(price),
+        includesDriver: quotationOptions.includesDriver,
+        includesGuide: quotationOptions.includesGuide,
+      })),
   };
   const issues: WebsiteValidation[] = [];
   const seenIssues = new Set<string>();
@@ -370,11 +392,25 @@ export function buildWebsitePreview(
     issue('VAL-E01', 'ERROR', '行程日数及顺序必须与计划天数一致', undefined, {
       kind: 'reorder',
     });
+  for (const day of accommodation?.missingDays ?? [])
+    issue(
+      'VAL-E06',
+      'ERROR',
+      '请选择当晚实际入住的酒店并填写间数和每间每晚售价',
+      day,
+      { kind: 'prices' },
+    );
+  if (nightlyPrices?.some((p) => p.overflow))
+    issue('VAL-E07', 'ERROR', '逐晚套餐人均售价超过金额上限', undefined, {
+      kind: 'prices',
+    });
   if (!itinerary.vehiclePrices.some((price) => price.unitPrice !== null))
     issue(
       'VAL-E07',
       'ERROR',
-      '至少填写一个车型与酒店档次组合的人民币人均售价',
+      nightly
+        ? '请补齐逐晚住宿报价的人数及价格'
+        : '至少填写一个车型与酒店档次组合的人民币人均售价',
       undefined,
       {
         kind: 'prices',
@@ -462,6 +498,7 @@ export function buildWebsitePreview(
           day.dayNumber,
         );
       if (
+        !nightly &&
         hasHotels &&
         !day.hotels.some((hotel) => hotel.nameEn.trim() && hotel.nameZh.trim())
       )
@@ -473,6 +510,19 @@ export function buildWebsitePreview(
           { kind: 'hotel', tier: day.hotels[0]?.tier },
         );
       for (const hotel of day.hotels) {
+        const target = {
+          kind: 'hotel' as const,
+          tier: hotel.tier,
+          ...(nightly ? { id: hotel.id } : {}),
+        };
+        if (nightly && (!hotel.nameEn.trim() || !hotel.nameZh.trim()))
+          issue(
+            'VAL-E06',
+            'ERROR',
+            '请补齐本次入住酒店的中英文名称',
+            day.dayNumber,
+            target,
+          );
         if (hotel.configHotelId) {
           const configured = hotels.get(hotel.configHotelId);
           if (!configured || configured.cityId !== hotel.cityId)
@@ -481,7 +531,7 @@ export function buildWebsitePreview(
               'ERROR',
               '所选独立站酒店不存在或与住宿城市不一致',
               day.dayNumber,
-              { kind: 'hotel', tier: hotel.tier },
+              target,
             );
         }
         if (hotel.cityId !== day.overnightCityId)
@@ -490,7 +540,7 @@ export function buildWebsitePreview(
             'ERROR',
             '酒店城市与当日住宿城市不一致',
             day.dayNumber,
-            { kind: 'hotel', tier: hotel.tier },
+            target,
           );
       }
     } else if (day.hotels.length) {
@@ -763,6 +813,7 @@ export function buildWebsitePreview(
     for (const day of itinerary.days) {
       const date = websiteDayDate(itinerary, day.dayNumber);
       const selectedDate = itinerary.serviceDates ? date : null;
+      const stayDate = nightly ? date : selectedDate;
       const attractionsById = new Map<string, string>();
       for (const item of day.items) {
         const name = language === 'en' ? item.nameEn : item.nameZh;
@@ -831,7 +882,22 @@ export function buildWebsitePreview(
       });
       for (const hotel of day.overnightCityId ? day.hotels : []) {
         const name = language === 'en' ? hotel.nameEn : hotel.nameZh;
-        const hotelOption = {
+        const line = nightlyRoomTotal(hotel.nightlyRate, hotel.nightlyRooms);
+        const showRate =
+          nightly && itinerary.nightlyShowHotelPrice && line !== null;
+        const hotelOption: WebsiteOutput['hotelOptions'][number] = {
+          ...(nightly && hotel.nightlyRooms != null
+            ? { roomCount: hotel.nightlyRooms }
+            : {}),
+          ...(nightly && date ? { checkoutDate: addDays(date, 1) } : {}),
+          ...(showRate
+            ? {
+                nightlyRate: nightlyMoney(
+                  nightlyRoomTotal(hotel.nightlyRate, 1)!,
+                ),
+                subtotal: nightlyMoney(line),
+              }
+            : {}),
           tier: hotel.tier,
           city: city(hotel.cityId),
           hotel: name,
@@ -839,9 +905,7 @@ export function buildWebsitePreview(
           tierLabel: hotelLabel(hotel.tier),
           startDay: day.dayNumber,
           endDay: day.dayNumber,
-          ...(selectedDate
-            ? { startDate: selectedDate, endDate: selectedDate }
-            : {}),
+          ...(stayDate ? { startDate: stayDate, endDate: stayDate } : {}),
           nights: 1,
           breakfastIncluded: hotel.breakfastIncluded,
         };
@@ -851,7 +915,14 @@ export function buildWebsitePreview(
             hotel.cityId,
             hotel.configHotelId,
             hotel.resourceId,
-            name,
+            ...(nightly
+              ? [
+                  hotel.nameZh,
+                  hotel.nameEn,
+                  hotel.nightlyRooms,
+                  line?.toString(),
+                ]
+              : [name]),
             hotel.roomType,
             hotel.breakfastIncluded,
           ]);
@@ -861,8 +932,12 @@ export function buildWebsitePreview(
             consecutiveServiceDays(itinerary.serviceDates, day.dayNumber)
           ) {
             previous.endDay = day.dayNumber;
-            if (selectedDate) previous.endDate = selectedDate;
+            if (stayDate) previous.endDate = stayDate;
             previous.nights = (previous.nights ?? 1) + 1;
+            if (hotelOption.checkoutDate)
+              previous.checkoutDate = hotelOption.checkoutDate;
+            if (showRate)
+              previous.subtotal = nightlyMoney(line * BigInt(previous.nights));
           } else {
             hotelOptions.push(hotelOption);
             hotelStays.set(stayKey, hotelOption);
@@ -1002,6 +1077,12 @@ export function buildWebsitePreview(
       inclusions: [...inclusions],
       exclusions: [...exclusions],
       hotelOptions,
+      ...(nightly ? { hotelPricingMode: 'nightly' as const } : {}),
+      ...(nightly &&
+      itinerary.nightlyShowHotelPrice &&
+      accommodation?.total != null
+        ? { nightlyHotelTotal: nightlyMoney(accommodation.total) }
+        : {}),
       quotationServices: quotationOptions,
       quotation: [...pricedPlans]
         .sort(
@@ -1038,7 +1119,11 @@ export function buildWebsitePreview(
             vehicle: vehicleLabel(price.vehicleType),
             vehicleType: price.vehicleType,
             hotelTier: price.hotelTier,
-            hotelCategory: hotelLabel(price.hotelTier),
+            hotelCategory: nightly
+              ? language === 'en'
+                ? 'Nightly accommodation'
+                : '逐晚住宿'
+              : hotelLabel(price.hotelTier),
             includesDriver: price.includesDriver,
             includesGuide: price.includesGuide,
             pax: itinerary.pax,
@@ -1052,8 +1137,9 @@ export function buildWebsitePreview(
                 category: component.category,
                 unitPrice: money(BigInt(toCents(Number(component.unitPrice)))),
               })),
-            totalPrice:
-              itinerary.pax === null
+            totalPrice: nightly
+              ? (groupTotals.get(price.vehicleType) ?? null)
+              : itinerary.pax === null
                 ? null
                 : money(cents * BigInt(itinerary.pax)),
             services,
@@ -1100,7 +1186,7 @@ export function buildWebsitePreview(
     inquiryVersion: inquiry.version,
     configVersion: config.version,
     schemaVersion: 6,
-    validationVersion: itinerary.serviceDates ? 8 : 7,
+    validationVersion: nightly ? 9 : itinerary.serviceDates ? 8 : 7,
     ...(itinerary.serviceDates ? { serviceDates: itinerary.serviceDates } : {}),
     issues,
     english,

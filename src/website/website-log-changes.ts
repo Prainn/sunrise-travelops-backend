@@ -45,6 +45,14 @@ function itineraryContent(value: WebsiteItinerary) {
     configVersion: value.configVersion,
     status: value.status,
     days: value.days,
+    hotelPricingMode: value.hotelPricingMode ?? 'tiered',
+    nightlyShowHotelPrice: value.nightlyShowHotelPrice ?? false,
+    nightlyVehiclePrices: Object.fromEntries(
+      (value.nightlyVehiclePrices ?? []).map((p) => [
+        JSON.stringify(p.vehicleType),
+        p.priceComponents ?? [],
+      ]),
+    ),
     reorderDraft: value.reorderDraft ?? null,
     deletedDays: [...(value.deletedDays ?? [])]
       .sort((a, b) => a.day.id.localeCompare(b.day.id))

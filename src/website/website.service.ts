@@ -67,6 +67,7 @@ import {
   generateWebsiteDraft,
   validateWebsiteConfig,
 } from './website-engine';
+import { quotedHotelDays } from './website-nightly-pricing';
 import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
 import { sameServiceDates, websiteDayDate } from './website-service-dates';
 import { WEBSITE_LOG_ACTIONS } from './website.types';
@@ -135,6 +136,7 @@ const inquiryColumns = `i.id,i.code,i.business_unit AS "businessUnit",i.customer
   to_char(i.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(i.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
 const itineraryColumns = `id,business_unit AS "businessUnit",inquiry_id AS "inquiryId",code,title,duration,start_date::text AS "startDate",pax,
+  hotel_pricing_mode AS "hotelPricingMode",nightly_show_hotel_price AS "nightlyShowHotelPrice",
   service_dates::text[] AS "serviceDates",config_version AS "configVersion",reorder_draft AS "reorderDraft",status,version,
   to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
   to_char(updated_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`;
@@ -224,6 +226,42 @@ export class WebsiteService {
         '记录已更新，请重新加载',
         HttpStatus.CONFLICT,
         { currentVersion: current },
+      );
+  }
+  private requireNightlyPricingFields(
+    itinerary: WebsiteItinerary,
+    input: WebsiteUpdateItineraryDto,
+  ) {
+    if (
+      input.hotelPricingMode !== undefined &&
+      input.nightlyShowHotelPrice !== undefined &&
+      input.nightlyVehiclePrices !== undefined
+    )
+      return;
+
+    const days = [
+      ...itinerary.days,
+      ...(itinerary.deletedDays ?? []).map(({ day }) => day),
+    ];
+    if (
+      itinerary.hotelPricingMode === 'nightly' ||
+      itinerary.nightlyShowHotelPrice ||
+      itinerary.nightlyVehiclePrices?.length ||
+      days.some((day) =>
+        day.hotels.some(
+          (hotel) =>
+            hotel.nightlyOnly ||
+            hotel.nightlySelected != null ||
+            hotel.nightlyRooms != null ||
+            hotel.nightlyRate != null,
+        ),
+      )
+    )
+      fail(
+        'ITINERARY_VERSION_CONFLICT',
+        '页面版本已更新，请刷新浏览器后再编辑逐晚住宿报价',
+        HttpStatus.CONFLICT,
+        { currentVersion: itinerary.version },
       );
   }
   private async inquiry(
@@ -1329,6 +1367,26 @@ export class WebsiteService {
     validate = false,
   ): Promise<WebsiteItineraryInput> {
     const { businessUnit, destinations } = inquiry;
+    const nightlyPrices = input.nightlyVehiclePrices ?? [];
+    if (
+      businessUnit !== 'website' &&
+      (input.hotelPricingMode === 'nightly' ||
+        input.nightlyShowHotelPrice ||
+        nightlyPrices.length)
+    )
+      invalid('逐晚住宿报价仅适用于独立站询盘');
+    if (
+      duplicate(nightlyPrices.map(quotationPriceKey)) ||
+      nightlyPrices.some(
+        (p) =>
+          p.hotelTier !== null ||
+          p.priceComponents?.some(
+            (c) =>
+              c.category === 'hotel' && (c.unitPrice !== null || c.showInPdf),
+          ),
+      )
+    )
+      invalid('逐晚报价按车型填写，酒店费由住宿明细汇总');
     const inherited = old ? old.serviceDates : inquiry.serviceDates;
     const dates = selectedDates(
       businessUnit,
@@ -1442,12 +1500,27 @@ export class WebsiteService {
       if (index < input.days.length || day.endCityId) city(day.endCityId);
       if (day.overnightCityId) city(day.overnightCityId);
       if (
-        duplicate(day.hotels.map((h) => h.tier)) ||
+        duplicate(
+          day.hotels.filter((h) => !h.nightlyOnly).map((h) => h.tier),
+        ) ||
         duplicate(day.meals.map((m) => m.slot))
       )
         invalid('一天内酒店档次或餐食时段不能重复');
       day.hotels.forEach((hotel) => {
         city(hotel.cityId);
+        if (
+          businessUnit !== 'website' &&
+          (hotel.nightlyOnly ||
+            hotel.nightlySelected !== undefined ||
+            hotel.nightlyRate != null ||
+            hotel.nightlyRooms != null)
+        )
+          invalid('逐晚酒店明细仅适用于独立站询盘');
+        if (
+          hotel.nightlySelected === undefined &&
+          (hotel.nightlyRooms != null || hotel.nightlyRate != null)
+        )
+          invalid('请指明酒店是否参与逐晚报价');
         if (!hotel.configHotelId) return;
         const configured = config.hotels.find(
           (h) => h.id === hotel.configHotelId,
@@ -1513,7 +1586,19 @@ export class WebsiteService {
           descriptionEn: attraction.descriptionEn,
         };
       });
-      return { ...day, items };
+      const hotels = day.hotels.map((hotel) =>
+        hotel.nightlySelected !== undefined && hotel.nightlyRate === undefined
+          ? {
+              ...hotel,
+              nightlyRate:
+                config.hotels.find(
+                  (h) =>
+                    h.id === hotel.configHotelId && h.cityId === hotel.cityId,
+                )?.price ?? null,
+            }
+          : hotel,
+      );
+      return { ...day, items, hotels };
     });
     const refs = this.planReferences({ ...input, days: normalized }, config);
     const issues = validate
@@ -1527,12 +1612,17 @@ export class WebsiteService {
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
     let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
+    let nightlyVehiclePrices: WebsiteItineraryInput['nightlyVehiclePrices'];
     try {
-      vehiclePrices = input.vehiclePrices.map((price) => {
+      const normalize = (
+        price: WebsiteItineraryInput['vehiclePrices'][number],
+      ) => {
         if (price.unitPrice !== null && !price.priceComponents?.length)
           throw new Error('Price components required');
         return normalizeVehiclePrice(price);
-      });
+      };
+      vehiclePrices = input.vehiclePrices.map(normalize);
+      nightlyVehiclePrices = nightlyPrices.map(normalize);
     } catch {
       invalid(
         '报价须包含五个不重复的分项，金额须有效且人均合计不超过9999999999.99元',
@@ -1543,6 +1633,7 @@ export class WebsiteService {
       serviceDates: dates,
       startDate: dates?.[0] ?? input.startDate,
       vehiclePrices,
+      nightlyVehiclePrices,
       days,
       deletedDays: (input.deletedDays ?? []).map((entry, index) => ({
         ...entry,
@@ -1641,8 +1732,8 @@ export class WebsiteService {
     const id = randomUUID(),
       code = await nextBusinessCode(manager, 'WIT');
     await manager.query(
-      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit,service_dates)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2),$10)`,
+      `INSERT INTO website_itineraries(id,inquiry_id,code,title,duration,start_date,pax,config_version,reorder_draft,business_unit,service_dates,hotel_pricing_mode,nightly_show_hotel_price)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT business_unit FROM website_inquiries WHERE id=$2),$10,$11,$12)`,
       [
         id,
         inquiryId,
@@ -1654,6 +1745,8 @@ export class WebsiteService {
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
         input.serviceDates ?? null,
+        input.hotelPricingMode ?? 'tiered',
+        input.nightlyShowHotelPrice ?? false,
       ],
     );
     await saveWebsiteDetails(
@@ -1662,6 +1755,7 @@ export class WebsiteService {
       input.days,
       input.vehiclePrices,
       input.deletedDays,
+      input.nightlyVehiclePrices,
     );
     await manager.query(
       "UPDATE website_inquiries SET status=CASE WHEN status='new' THEN 'planning' ELSE status END,version=version+1,updated_at=now() WHERE id=$1",
@@ -1707,7 +1801,7 @@ export class WebsiteService {
   ) {
     await manager.query(
       `UPDATE website_itineraries SET title=$2,duration=$3,start_date=$4,pax=$5,
-      config_version=$6,reorder_draft=$7,service_dates=$8,version=version+1,updated_at=now() WHERE id=$1`,
+      config_version=$6,reorder_draft=$7,service_dates=$8,hotel_pricing_mode=$9,nightly_show_hotel_price=$10,version=version+1,updated_at=now() WHERE id=$1`,
       [
         itinerary.id,
         input.title,
@@ -1717,6 +1811,8 @@ export class WebsiteService {
         input.configVersion,
         input.reorderDraft ? JSON.stringify(input.reorderDraft) : null,
         input.serviceDates ?? null,
+        input.hotelPricingMode ?? 'tiered',
+        input.nightlyShowHotelPrice ?? false,
       ],
     );
     await saveWebsiteDetails(
@@ -1725,6 +1821,7 @@ export class WebsiteService {
       input.days,
       input.vehiclePrices,
       input.deletedDays,
+      input.nightlyVehiclePrices,
     );
     const saved = await this.itinerary(itinerary.id, user, manager);
     await this.log(
@@ -1753,6 +1850,7 @@ export class WebsiteService {
       await this.mutable(inquiry, manager);
       this.draft(itinerary);
       this.version(itinerary.version, input.version, true);
+      this.requireNightlyPricingFields(itinerary, input);
       const plan = await this.preparePlan(manager, input, inquiry, itinerary);
       if (
         itinerary.serviceDates &&
@@ -1928,6 +2026,7 @@ export class WebsiteService {
     await this.mutable(inquiry, this.db.manager);
     this.draft(itinerary);
     this.version(itinerary.version, input.version, true);
+    this.requireNightlyPricingFields(itinerary, input);
     const options = websiteQuotationOptions(input.days);
     return this.previewData(
       this.db.manager,
@@ -1990,8 +2089,18 @@ export class WebsiteService {
         message: '请先应用已暂存的顺序调整',
         target: { kind: 'reorder' },
       });
+    itinerary = {
+      ...itinerary,
+      days: quotedHotelDays(itinerary.days, itinerary.hotelPricingMode),
+    };
     try {
-      await this.preparePlan(manager, normalized, inquiry, itinerary, true);
+      await this.preparePlan(
+        manager,
+        { ...normalized, days: itinerary.days },
+        inquiry,
+        itinerary,
+        true,
+      );
     } catch (cause) {
       if (
         !(cause instanceof BusinessException) ||

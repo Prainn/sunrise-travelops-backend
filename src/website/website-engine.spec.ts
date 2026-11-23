@@ -188,6 +188,80 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it('prices only selected room nights, preserves group cents and keeps tiered quotes independent', () => {
+    const { itinerary, config, inquiry } = fixture();
+    itinerary.hotelPricingMode = 'nightly';
+    itinerary.startDate = '2026-11-27';
+    itinerary.nightlyShowHotelPrice = true;
+    const [first, second] = itinerary.days;
+    const original = first.hotels[0];
+    Object.assign(original, {
+      nightlySelected: true,
+      nightlyRate: '264.00',
+      nightlyRooms: 2,
+    });
+    first.hotels.push({
+      ...original,
+      id: randomUUID(),
+      nightlyOnly: true,
+      roomType: 'Single',
+      nightlyRooms: 1,
+      nightlyRate: '100.01',
+    });
+    first.hotels.push({
+      ...original,
+      id: randomUUID(),
+      tier: 'B',
+      nameEn: 'Unselected',
+      nightlySelected: false,
+      nightlyRate: '990',
+    });
+    second.overnightCityId = original.cityId;
+    second.hotels = [
+      {
+        ...original,
+        id: randomUUID(),
+        tier: 'C',
+        nameEn: 'Second Hotel',
+        nightlyRooms: 1,
+        nightlyRate: '615',
+      },
+    ];
+    const preview = () => buildWebsitePreview(inquiry, itinerary, config);
+    const result = preview();
+    expect(result.issues.filter((i) => i.severity === 'ERROR')).toEqual([]);
+    for (const language of [result.chinese, result.english]) {
+      expect(language.hotelOptions.map((h) => h.subtotal)).toEqual([
+        '528.00',
+        '100.01',
+        '615.00',
+      ]);
+      expect(language.hotelOptions[0].checkoutDate).toBe('2026-11-28');
+      expect(language.nightlyHotelTotal).toBe('1243.01');
+      expect(language.quotation).toHaveLength(1);
+      expect(language.quotation[0]).toMatchObject({
+        unitPrice: '414.34',
+        totalPrice: '1243.01',
+      });
+    }
+    expect(JSON.stringify(result.english)).not.toContain('Unselected');
+    itinerary.nightlyShowHotelPrice = false;
+    expect(preview().english.hotelOptions[0]).not.toHaveProperty('nightlyRate');
+    expect(preview().english).not.toHaveProperty('nightlyHotelTotal');
+    second.hotels[0].nightlyRate = null;
+    expect(preview().issues).toContainEqual(
+      expect.objectContaining({ code: 'VAL-E06', dayNumber: 2 }),
+    );
+    itinerary.hotelPricingMode = 'tiered';
+    const tiered = preview();
+    expect(tiered.english.quotation[0].unitPrice).toBe('8800.00');
+    expect(tiered.english.hotelOptions.map((h) => h.roomType)).not.toContain(
+      'Single',
+    );
+    expect(tiered.issues).toContainEqual(
+      expect.objectContaining({ code: 'VAL-E09' }),
+    );
+  });
   it('places marked descriptions around the ordered sights in each language on a one-day visit', () => {
     const { config, inquiry, itinerary } = fixture();
     const first = itinerary.days[0];

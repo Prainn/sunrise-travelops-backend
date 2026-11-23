@@ -1,5 +1,9 @@
 import type { EntityManager } from 'typeorm';
-import { websiteQuotationOptions } from './website-price';
+import {
+  normalizeVehiclePrice,
+  WEBSITE_PRICE_CATEGORIES,
+  websiteQuotationOptions,
+} from './website-price';
 import type {
   WebsitePriceComponent,
   WebsiteDay,
@@ -53,7 +57,9 @@ export async function loadWebsiteDetails(
     `SELECT day_id AS "dayId",json_build_object(
       'id',id,'tier',tier,'cityId',city_id,'configHotelId',config_hotel_id,'resourceId',resource_id,'nameZh',name_zh,'nameEn',name_en,
       'roomType',room_type,'breakfastIncluded',breakfast_included
-      ) AS value FROM website_hotels WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
+      )::jsonb || CASE WHEN nightly_only THEN '{"nightlyOnly":true}'::jsonb ELSE '{}'::jsonb END
+      || CASE WHEN nightly_selected IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+        'nightlySelected',nightly_selected,'nightlyRooms',nightly_rooms,'nightlyRate',nightly_rate::text) END AS value FROM website_hotels WHERE day_id=ANY($1::uuid[]) ORDER BY position`,
     [dayIds],
   );
   const meals = await manager.query<DetailRow<WebsiteMeal>[]>(
@@ -96,6 +102,34 @@ export async function loadWebsiteDetails(
         unitPrice,
         showInPdf,
       }));
+  const nightlyComponents = await manager.query<
+    (WebsitePriceComponent & { vehicleType: string | null })[]
+  >(
+    `SELECT NULLIF(vehicle_type,'') AS "vehicleType",category,unit_price::text AS "unitPrice",show_in_pdf AS "showInPdf"
+     FROM website_nightly_price_components WHERE itinerary_id=$1 ORDER BY vehicle_type,category`,
+    [itineraryId],
+  );
+  const nightlyGroups = new Map<string | null, WebsitePriceComponent[]>();
+  for (const { vehicleType, ...component } of nightlyComponents) {
+    const group = nightlyGroups.get(vehicleType) ?? [];
+    group.push(component);
+    nightlyGroups.set(vehicleType, group);
+  }
+  const nightlyVehiclePrices = [...nightlyGroups].map(([vehicleType, group]) =>
+    normalizeVehiclePrice({
+      vehicleType,
+      hotelTier: null,
+      unitPrice: null as string | null,
+      priceComponents: WEBSITE_PRICE_CATEGORIES.map(
+        (category) =>
+          group.find((c) => c.category === category) ?? {
+            category,
+            unitPrice: null,
+            showInPdf: false,
+          },
+      ),
+    }),
+  );
   const forDay = <T>(rows: DetailRow<T>[], id: string) =>
     rows.filter((r) => r.dayId === id).map((r) => r.value);
   const readDay = (day: DayRow): WebsiteDay => ({
@@ -120,6 +154,7 @@ export async function loadWebsiteDetails(
   }
   return {
     days: activeDays,
+    nightlyVehiclePrices,
     quotationOptions,
     deletedDays: days
       .filter((day) => day.isDeleted)
@@ -157,6 +192,7 @@ export async function saveWebsiteDetails(
   days: WebsiteDay[],
   prices: WebsiteVehiclePriceInput[],
   deletedDays: { day: WebsiteDay; originalDate: string | null }[] = [],
+  nightlyPrices: WebsiteVehiclePriceInput[] = [],
 ) {
   const activeIds = new Set(days.map((day) => day.id));
   const originalDates = new Map(
@@ -285,6 +321,10 @@ export async function saveWebsiteDetails(
       'name_en',
       'room_type',
       'breakfast_included',
+      'nightly_only',
+      'nightly_selected',
+      'nightly_rooms',
+      'nightly_rate',
     ],
     days.flatMap((d) =>
       d.hotels.map((i, n) => [
@@ -299,6 +339,10 @@ export async function saveWebsiteDetails(
         i.nameEn,
         i.roomType,
         i.breakfastIncluded,
+        i.nightlyOnly ?? false,
+        i.nightlySelected ?? null,
+        i.nightlyRooms ?? null,
+        i.nightlyRate ?? null,
       ]),
     ),
   );
@@ -342,6 +386,26 @@ export async function saveWebsiteDetails(
         i.appears,
         i.feeState,
       ]),
+    ),
+  );
+  await manager.query(
+    'DELETE FROM website_nightly_price_components WHERE itinerary_id=$1',
+    [itineraryId],
+  );
+  await insertRows(
+    manager,
+    'website_nightly_price_components',
+    ['itinerary_id', 'vehicle_type', 'category', 'unit_price', 'show_in_pdf'],
+    nightlyPrices.flatMap((price) =>
+      (price.priceComponents ?? [])
+        .filter((c) => c.category !== 'hotel' && c.unitPrice !== null)
+        .map((c) => [
+          itineraryId,
+          price.vehicleType ?? '',
+          c.category,
+          c.unitPrice,
+          c.showInPdf,
+        ]),
     ),
   );
   await insertRows(

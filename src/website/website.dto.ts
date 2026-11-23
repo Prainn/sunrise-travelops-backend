@@ -345,6 +345,17 @@ export class WebsiteLegDto implements WebsiteLeg {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteHotelDto implements WebsiteHotelStay {
+  @ValidateIf((_, value) => value !== undefined)
+  @IsBoolean()
+  nightlyOnly?: boolean;
+  @ValidateIf((_, value) => value !== undefined)
+  @IsBoolean()
+  nightlySelected?: boolean;
+  @IsOptional() @IsInt() @Min(1) @Max(10000) nightlyRooms?: number | null;
+  @IsOptional()
+  @IsString()
+  @Matches(/^(0|[1-9]\d{0,9})(\.\d{1,2})?$/)
+  nightlyRate?: string | null;
   @IsUUID() id: string;
   @IsIn(['A', 'B', 'C', 'D']) tier: 'A' | 'B' | 'C' | 'D';
   @IsUUID() cityId: string;
@@ -412,7 +423,7 @@ export class WebsiteDayDto implements WebsiteDay {
   @Type(() => WebsiteLegDto)
   legs: WebsiteLegDto[];
   @IsArray()
-  @ArrayMaxSize(4)
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => WebsiteHotelDto)
   hotels: WebsiteHotelDto[];
@@ -599,6 +610,18 @@ export class WebsiteItineraryDto
   @ValidateNested({ each: true })
   @Type(() => WebsiteVehiclePriceDto)
   vehiclePrices: WebsiteVehiclePriceDto[] = [];
+  @ValidateIf((o: WebsiteItineraryDto) => o.hotelPricingMode !== undefined)
+  @IsIn(['tiered', 'nightly'])
+  hotelPricingMode?: 'tiered' | 'nightly';
+  @ValidateIf((o: WebsiteItineraryDto) => o.nightlyShowHotelPrice !== undefined)
+  @IsBoolean()
+  nightlyShowHotelPrice?: boolean;
+  @ValidateIf((o: WebsiteItineraryDto) => o.nightlyVehiclePrices !== undefined)
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => WebsiteVehiclePriceDto)
+  nightlyVehiclePrices?: WebsiteVehiclePriceDto[];
 }
 export class WebsiteUpdateItineraryDto extends WebsiteItineraryDto {
   @IsInt() @Min(1) version: number;
