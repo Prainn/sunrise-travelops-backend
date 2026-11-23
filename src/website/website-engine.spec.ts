@@ -188,6 +188,59 @@ function fixture() {
 }
 
 describe('website UAT output', () => {
+  it('places marked descriptions around the ordered sights in each language on a one-day visit', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const first = itinerary.days[0];
+    itinerary.days = [first];
+    itinerary.duration = 1;
+    const [arrival, departure] = first.legs;
+    Object.assign(arrival, {
+      isAirportPickup: true,
+      nameZh: '机场到酒店',
+      nameEn: 'Arrivals to hotel',
+    });
+    Object.assign(departure, {
+      isAirportDropoff: true,
+      nameZh: '酒店到机场',
+      nameEn: 'Hotel to departures',
+    });
+    first.items = ['A', 'B'].map((name) => ({
+      id: randomUUID(),
+      attractionId: null,
+      nameZh: name,
+      nameEn: name,
+      appears: true,
+      descriptionZh: `游览 ${name}`,
+      descriptionEn: `Visit ${name}`,
+      feeState: 'SELF_PAY',
+    }));
+    first.eventOrder = [
+      departure.id,
+      first.items[1].id,
+      first.items[0].id,
+      arrival.id,
+    ];
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(preview.chinese.itinerary[0].sightseeing).toBe(
+      '机场到酒店\n游览 B\n游览 A\n酒店到机场',
+    );
+    expect(preview.english.itinerary[0].sightseeing).toBe(
+      'Arrivals to hotel\nVisit B\nVisit A\nHotel to departures',
+    );
+    expect(preview.english.mileage).toEqual([]);
+    first.items = [];
+    first.legs = [{ ...arrival, isAirportDropoff: true, nameZh: '' }];
+    const combined = buildWebsitePreview(inquiry, itinerary, config);
+    expect(combined.english.itinerary[0].sightseeing).toBe('Arrivals to hotel');
+    expect(combined.chinese.itinerary[0].sightseeing).toBe('接机\n送机');
+    expect(
+      buildWebsitePreview(
+        { ...inquiry, businessUnit: 'linxi' },
+        itinerary,
+        config,
+      ).chinese.itinerary[0].sightseeing,
+    ).toBe('');
+  });
   it('starts a new city and hotel/meal segment after each unserved date', () => {
     const { config, itinerary } = fixture();
     const [a, b] = config.cities;
@@ -344,11 +397,63 @@ describe('website UAT output', () => {
   it('keeps stale hotel tier prices invalid after every hotel is removed', () => {
     const { config, inquiry, itinerary } = fixture();
     itinerary.days.forEach((day) => (day.hotels = []));
-    expect(
-      buildWebsitePreview(inquiry, itinerary, config).issues,
-    ).toContainEqual(
-      expect.objectContaining({ code: 'VAL-E09', severity: 'ERROR' }),
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues.filter((issue) => issue.code === 'VAL-E09')).toEqual([
+      expect.objectContaining({
+        severity: 'ERROR',
+        target: { kind: 'prices' },
+      }),
+    ]);
+  });
+
+  it('locates the offending leg and distinguishes each quoted hotel tier on the same day', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    day.legs[1].mode = 'private_vehicle';
+    day.hotels[0].nameEn = '';
+    day.hotels.unshift({ ...day.hotels[0], id: randomUUID(), tier: 'B' });
+    itinerary.vehiclePrices.push({
+      ...itinerary.vehiclePrices[0],
+      hotelTier: 'B',
+    });
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        code: 'ITINERARY_INVALID',
+        dayNumber: 1,
+        target: { kind: 'event', id: day.legs[1].id },
+      }),
     );
+    expect(
+      issues
+        .filter((issue) => issue.code === 'VAL-E09' && issue.dayNumber === 1)
+        .map((issue) => issue.target),
+    ).toEqual([
+      { kind: 'hotel', tier: 'A' },
+      { kind: 'hotel', tier: 'B' },
+    ]);
+  });
+
+  it('returns one vehicle issue per offending leg, including after one is corrected', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const day = itinerary.days[0];
+    const [first, second] = day.legs;
+    first.mode = second.mode = 'private_vehicle';
+    const complete = { ...second, id: randomUUID(), vehicleType: '7_seat' };
+    day.legs.splice(1, 0, complete);
+    const vehicleTargets = () =>
+      buildWebsitePreview(inquiry, itinerary, config)
+        .issues.filter(
+          (issue) =>
+            issue.code === 'ITINERARY_INVALID' && issue.dayNumber === 1,
+        )
+        .map((issue) => issue.target);
+    expect(vehicleTargets()).toEqual([
+      { kind: 'event', id: first.id },
+      { kind: 'event', id: second.id },
+    ]);
+    second.vehicleType = '5_seat';
+    expect(vehicleTargets()).toEqual([{ kind: 'event', id: first.id }]);
   });
 
   it('still requires bilingual hotel names and complete stays when hotels are arranged', () => {

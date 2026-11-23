@@ -207,6 +207,9 @@ importers:
       typescript-eslint:
         specifier: ^8.0.0
         version: 8.68.0(eslint@10.9.1(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)
+      webpack:
+        specifier: 5.106.2
+        version: 5.106.2(uglify-js@3.19.3)
 
 packages:
 

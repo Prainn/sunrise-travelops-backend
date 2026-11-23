@@ -1338,6 +1338,13 @@ export class WebsiteService {
       invalid('新行程须采用询盘的服务日期');
     if (dates && input.days.some((day) => day.dayNumber > dates.length))
       invalid('逐日行程超出已选服务日期');
+    const lastDayNumber = dates?.length ?? input.days.length;
+    if (
+      input.reorderDraft?.transportCopies?.some(
+        (leg) => leg.isAirportPickup || leg.isAirportDropoff,
+      )
+    )
+      invalid('请在安置交通段后标记接机或送机');
     if (dates && old && !sameServiceDates(old.serviceDates, dates)) {
       const byDate = new Map(
         input.days.map((day) => [dates[day.dayNumber - 1], day.id]),
@@ -1415,6 +1422,22 @@ export class WebsiteService {
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
     const normalized = allDays.map((day, index) => {
+      const pickupCount = day.legs.filter((leg) => leg.isAirportPickup).length;
+      const dropoffCount = day.legs.filter(
+        (leg) => leg.isAirportDropoff,
+      ).length;
+      if (pickupCount || dropoffCount) {
+        if (businessUnit !== 'website')
+          invalid('接机和送机标记仅适用于独立站询盘');
+        if (pickupCount > 1 || dropoffCount > 1)
+          invalid('同一天最多可选一个接机交通段、一个送机交通段');
+        if (index < input.days.length) {
+          if (pickupCount && day.dayNumber !== 1)
+            invalid('只有行程首日可以标记接机');
+          if (dropoffCount && day.dayNumber !== lastDayNumber)
+            invalid('只有行程末日可以标记送机');
+        }
+      }
       if (index < input.days.length || day.departCityId) city(day.departCityId);
       if (index < input.days.length || day.endCityId) city(day.endCityId);
       if (day.overnightCityId) city(day.overnightCityId);
@@ -1503,16 +1526,6 @@ export class WebsiteService {
     if (validate && issues.length)
       invalid('行程引用的共享资源不可用', { issues });
     const days = normalized.slice(0, input.days.length);
-    const options = websiteQuotationOptions(days);
-    if (
-      validate &&
-      input.vehiclePrices.some(
-        (price) =>
-          !options.vehicleTypes.includes(price.vehicleType) ||
-          !options.hotelTiers.includes(price.hotelTier),
-      )
-    )
-      invalid('报价车型与酒店档次必须来自当前活动行程，请调整已失效的报价组合');
     let vehiclePrices: WebsiteItineraryInput['vehiclePrices'];
     try {
       vehiclePrices = input.vehiclePrices.map((price) => {
@@ -1975,6 +1988,7 @@ export class WebsiteService {
         code: 'REORDER_PENDING',
         severity: 'ERROR',
         message: '请先应用已暂存的顺序调整',
+        target: { kind: 'reorder' },
       });
     try {
       await this.preparePlan(manager, normalized, inquiry, itinerary, true);
@@ -2080,6 +2094,7 @@ export class WebsiteService {
               severity: 'ERROR',
               dayNumber: day.dayNumber,
               message: `餐厅不在当天行程城市：${meal.restaurantZh || meal.restaurantEn}`,
+              target: { kind: 'event', id: meal.id },
             });
           else if (
             restaurant?.city &&
