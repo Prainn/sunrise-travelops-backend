@@ -1,7 +1,8 @@
 import { DataSource, EntityManager } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
 import { WebsiteService } from './website.service';
 import { WEBSITE_PRICE_CATEGORIES } from './website-price';
-import type { WebsiteUpdateItineraryDto } from './website.dto';
+import { WebsiteUpdateItineraryDto } from './website.dto';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import type {
   WebsiteConfig,
@@ -231,6 +232,30 @@ describe('website draft save and explicit validation', () => {
       preview.issues.some((issue) => issue.code === 'ITINERARY_INVALID'),
     ).toBe(true);
     expect(save).not.toHaveBeenCalled();
+  });
+  it('rejects old page payloads only after nightly pricing has been configured', async () => {
+    const { service, plan, save } = setup();
+    const legacy = plainToInstance(WebsiteUpdateItineraryDto, {
+      ...plan,
+      hotelPricingMode: undefined,
+      nightlyShowHotelPrice: undefined,
+      nightlyVehiclePrices: undefined,
+    });
+    await service.saveItinerary(plan.id, legacy, user);
+    expect(save).toHaveBeenCalledTimes(1);
+    save.mockClear();
+
+    plan.nightlyShowHotelPrice = true;
+    for (const action of ['saveItinerary', 'validateItinerary'] as const) {
+      await expect(
+        service[action](plan.id, legacy, user),
+      ).rejects.toMatchObject({
+        code: 'ITINERARY_VERSION_CONFLICT',
+      });
+    }
+    expect(save).not.toHaveBeenCalled();
+    await service.saveItinerary(plan.id, plan, user);
+    expect(save).toHaveBeenCalledTimes(1);
   });
   it('keeps version, readonly and permission guards for both save and validation', async () => {
     const { service, plan, save } = setup();
