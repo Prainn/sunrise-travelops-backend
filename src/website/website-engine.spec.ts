@@ -303,10 +303,19 @@ describe('website UAT output', () => {
     );
     expect(preview.english.mileage).toEqual([]);
     first.items = [];
-    first.legs = [{ ...arrival, isAirportDropoff: true, nameZh: '' }];
+    first.legs = [{ ...arrival, isAirportDropoff: true, nameZh: ' ' }];
     const combined = buildWebsitePreview(inquiry, itinerary, config);
     expect(combined.english.itinerary[0].sightseeing).toBe('Arrivals to hotel');
-    expect(combined.chinese.itinerary[0].sightseeing).toBe('接机\n送机');
+    expect(combined.chinese.itinerary[0].sightseeing).toBe(
+      '根据航班时间接机。\n根据航班时间送机。',
+    );
+    first.legs[0].nameEn = '';
+    expect(
+      buildWebsitePreview(inquiry, itinerary, config).english.itinerary[0]
+        .sightseeing,
+    ).toBe(
+      'Airport pickup timed to your flight.\nAirport drop-off timed to your flight.',
+    );
     expect(
       buildWebsitePreview(
         { ...inquiry, businessUnit: 'linxi' },
@@ -910,10 +919,11 @@ describe('required attraction copy at configuration write boundaries', () => {
   );
 });
 
-it('generates first and last day attractions without confirmed travel times', () => {
+it('generates included attractions and components without confirmed travel times', () => {
   const { config, itinerary } = fixture();
   const cityId = config.cities[0].id;
   const attractionId = randomUUID();
+  const componentId = randomUUID();
   config.attractions.push({
     id: attractionId,
     cityId,
@@ -929,13 +939,23 @@ it('generates first and last day attractions without confirmed travel times', ()
     descriptionEn: 'Visit the sight',
     recommendedMonths: [],
   });
+  config.attractions.push({
+    ...config.attractions[0],
+    id: componentId,
+    parentId: attractionId,
+    nameZh: '索道',
+    nameEn: 'Cable car',
+    kind: 'component',
+    chargeable: true,
+    price: '35.00',
+  });
   config.patterns.push({
     id: randomUUID(),
     cityId,
     status: 'enabled',
     nameZh: '模板',
     nameEn: 'Pattern',
-    attractionIds: [attractionId],
+    attractionIds: [attractionId, componentId],
   });
   config.skeletons.push({
     id: randomUUID(),
@@ -950,8 +970,19 @@ it('generates first and last day attractions without confirmed travel times', ()
     config.skeletons[0].id,
   );
   expect(
-    generated.days.map((day) => day.items.map((item) => item.attractionId)),
-  ).toEqual([[attractionId], [attractionId]]);
+    generated.days.map((day) =>
+      day.items.map(({ attractionId, feeState }) => [attractionId, feeState]),
+    ),
+  ).toEqual([
+    [
+      [attractionId, 'INCLUDED'],
+      [componentId, 'INCLUDED'],
+    ],
+    [
+      [attractionId, 'INCLUDED'],
+      [componentId, 'INCLUDED'],
+    ],
+  ]);
   expect(generated.days[0].items[0].descriptionZh).toBe('游览景点');
   expect(generated.days[0].items[0].descriptionEn).toBe('Visit the sight');
   config.attractions[0].descriptionEn = '{hotel}';
