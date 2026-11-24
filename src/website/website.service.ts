@@ -151,6 +151,18 @@ function fail(
 function invalid(message: string, details?: Record<string, unknown>): never {
   return fail('ITINERARY_INVALID', message, HttpStatus.BAD_REQUEST, details);
 }
+function referencedCityIds(days: WebsiteDay[]) {
+  return new Set(
+    days.flatMap((day) => [
+      day.departCityId,
+      day.endCityId,
+      ...(day.viaCityIds ?? []),
+      ...(day.overnightCityId ? [day.overnightCityId] : []),
+      ...day.hotels.map((hotel) => hotel.cityId),
+      ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
+    ]),
+  );
+}
 function selectedDates(
   unit: WebsiteBusinessUnit,
   dates?: string[] | null,
@@ -598,15 +610,7 @@ export class WebsiteService {
     input: WebsiteItineraryInput,
     config: WebsiteConfig,
   ): ResourceReference[] {
-    const cityIds = new Set(
-      input.days.flatMap((d) => [
-        d.departCityId,
-        d.endCityId,
-        ...(d.overnightCityId ? [d.overnightCityId] : []),
-        ...d.hotels.map((h) => h.cityId),
-        ...d.legs.flatMap((l) => [l.fromCityId, l.toCityId]),
-      ]),
-    );
+    const cityIds = referencedCityIds(input.days);
     const attractionIds = new Set(
       input.days.flatMap((d) =>
         d.items.flatMap((i) => (i.attractionId ? [i.attractionId] : [])),
@@ -1424,10 +1428,6 @@ export class WebsiteService {
     const oldConfig = old
       ? await this.config(manager, businessUnit, old.configVersion)
       : config;
-    const allDays = [
-      ...input.days,
-      ...(input.deletedDays ?? []).map((entry) => entry.day),
-    ];
     const originalDates = new Map<string, string | null>();
     if (old?.serviceDates) {
       for (const day of old.days)
@@ -1443,6 +1443,14 @@ export class WebsiteService {
           ...(old.deletedDays ?? []).map((entry) => entry.day),
         ],
       };
+    const savedDays = new Map(old?.days.map((day) => [day.id, day]));
+    const allDays = [
+      ...input.days,
+      ...(input.deletedDays ?? []).map((entry) => entry.day),
+    ].map((day) => ({
+      ...day,
+      viaCityIds: day.viaCityIds ?? savedDays.get(day.id)?.viaCityIds ?? [],
+    }));
     const ids = allDays.flatMap((d) => [
       d.id,
       ...d.items.map((i) => i.id),
@@ -1458,15 +1466,8 @@ export class WebsiteService {
     )
       invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
     this.assertDestinationScope(destinations, allDays, old?.days ?? [], config);
-    const retainedCities = new Set(
-      old?.days.flatMap((d) => [
-        d.departCityId,
-        d.endCityId,
-        ...(d.overnightCityId ? [d.overnightCityId] : []),
-        ...d.hotels.map((h) => h.cityId),
-        ...d.legs.flatMap((l) => [l.fromCityId, l.toCityId]),
-      ]),
-    );
+    const retainedCities = referencedCityIds(old?.days ?? []);
+    const configCities = new Map(config.cities.map((row) => [row.id, row]));
     const retainedAttractions = new Set(
       old?.days.flatMap((d) => d.items.map((i) => i.attractionId)),
     );
@@ -1475,18 +1476,28 @@ export class WebsiteService {
     );
     const city = (id: string) => {
       if (!validate) return;
-      const row = config.cities.find((c) => c.id === id);
+      const row = configCities.get(id);
       if (!row || (!retainedCities.has(id) && row.status !== 'enabled'))
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
-    const savedRemarks = new Map(
-      old?.days.map((d) => [d.id, d.internalRemark]),
-    );
     const normalized = allDays.map((day, index) => {
-      const internalRemark =
-        day.internalRemark ?? savedRemarks.get(day.id) ?? '';
+      const saved = savedDays.get(day.id);
+      const internalRemark = day.internalRemark ?? saved?.internalRemark ?? '';
       if (internalRemark && businessUnit !== 'website')
         invalid('行程日内部备注仅适用于独立站询盘');
+      if (day.viaCityIds.length && businessUnit !== 'website')
+        invalid('途经地仅适用于独立站询盘');
+      for (const cityId of day.viaCityIds) {
+        const details = { cityId, dayNumber: day.dayNumber };
+        if (cityId === day.departCityId || cityId === day.endCityId)
+          invalid('途经地不能与当天出发或结束城市重复', details);
+        const row = configCities.get(cityId);
+        if (
+          !row ||
+          (row.status !== 'enabled' && !saved?.viaCityIds?.includes(cityId))
+        )
+          invalid('途经地必须选择行程绑定配置中的启用城市', details);
+      }
       const pickupCount = day.legs.filter((leg) => leg.isAirportPickup).length;
       const dropoffCount = day.legs.filter(
         (leg) => leg.isAirportDropoff,
@@ -1692,6 +1703,8 @@ export class WebsiteService {
       }
       check(day.departCityId, saved?.departCityId);
       check(day.endCityId, saved?.endCityId);
+      for (const cityId of day.viaCityIds ?? [])
+        check(cityId, ...(saved?.viaCityIds ?? []));
       check(day.overnightCityId, saved?.overnightCityId, day.endCityId);
       const endpoints = [day.departCityId, day.endCityId];
       const savedStops =
@@ -1716,6 +1729,7 @@ export class WebsiteService {
       }
       const stops = [
         ...endpoints,
+        ...(day.viaCityIds ?? []),
         ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
       ];
       for (const item of day.items) {
@@ -2127,15 +2141,7 @@ export class WebsiteService {
         severity: 'ERROR',
         message: '配置版本已更新，请明确选择当前配置版本并保存行程',
       });
-    const cityIds = new Set(
-      itinerary.days.flatMap((d) => [
-        d.departCityId,
-        d.endCityId,
-        ...(d.overnightCityId ? [d.overnightCityId] : []),
-        ...d.hotels.map((h) => h.cityId),
-        ...d.legs.flatMap((l) => [l.fromCityId, l.toCityId]),
-      ]),
-    );
+    const cityIds = referencedCityIds(itinerary.days);
     const attractionIds = new Set(
       itinerary.days.flatMap((d) =>
         d.items.flatMap((i) => (i.attractionId ? [i.attractionId] : [])),
