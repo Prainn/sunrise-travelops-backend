@@ -724,6 +724,11 @@ export function buildWebsitePreview(
     const standards = new Map<Category, Set<string>>(
       categories.map((category) => [category, new Set()]),
     );
+    const entryTemplates = {
+      attraction: 'first-entry-ticket',
+      service: 'included-service',
+    };
+    const entryNames = new Map<keyof typeof entryTemplates, Set<string>>();
     function include(line: string, category: Category) {
       if (!line) return;
       inclusions.add(line);
@@ -845,12 +850,16 @@ export function buildWebsitePreview(
           const attraction = item.attractionId
             ? attractions.get(item.attractionId)
             : undefined;
-          if (attraction?.chargeable && attraction.kind === 'attraction') {
-            const line = template('first-entry-ticket', { attraction: name });
-            include(line, 'entry');
-          } else {
-            includeService(name, item.feeState, 'entry');
-          }
+          const variable =
+            attraction?.chargeable && attraction.kind === 'attraction'
+              ? 'attraction'
+              : 'service';
+          const line = template(entryTemplates[variable], { [variable]: name });
+          if (!line) continue;
+          inclusions.add(line);
+          const names = entryNames.get(variable) ?? new Set<string>();
+          names.add(name);
+          entryNames.set(variable, names);
         }
       }
       if (day.guideLanguage.trim()) {
@@ -1030,6 +1039,13 @@ export function buildWebsitePreview(
         hotel: day.overnightCityId ? city(day.overnightCityId) : '',
         meal: meals.join(' / '),
       });
+    }
+    const entrySeparator = language === 'en' ? ', ' : '、';
+    for (const [variable, names] of entryNames) {
+      const line = template(entryTemplates[variable], {
+        [variable]: [...names].join(entrySeparator),
+      });
+      if (line) standards.get('entry')!.add(line);
     }
     const guideDays = quotationOptions.guideServices.map(
       ({ dayNumber }) => dayNumber,
