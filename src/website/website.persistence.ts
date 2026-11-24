@@ -30,10 +30,12 @@ export async function loadWebsiteDetails(
   itineraryId: string,
 ) {
   const days = await manager.query<DayRow[]>(
-    `SELECT id,day_number AS "dayNumber",
+    `SELECT d.id,day_number AS "dayNumber",COALESCE(r.internal_remark,'') AS "internalRemark",
     COALESCE(depart_city_id::text,'') AS "departCityId",COALESCE(end_city_id::text,'') AS "endCityId",overnight_city_id AS "overnightCityId",
-    guide_language AS "guideLanguage",event_order AS "eventOrder",is_deleted AS "isDeleted",original_date AS "originalDate" FROM website_days
-    WHERE itinerary_id=$1 ORDER BY day_number`,
+    ARRAY(SELECT v.city_id FROM website_day_via_cities v WHERE v.itinerary_id=d.itinerary_id AND v.day_id=d.id ORDER BY v.position) AS "viaCityIds",
+    guide_language AS "guideLanguage",event_order AS "eventOrder",is_deleted AS "isDeleted",original_date AS "originalDate" FROM website_days d
+    LEFT JOIN website_day_internal_remarks r ON r.itinerary_id=d.itinerary_id AND r.day_id=d.id
+    WHERE d.itinerary_id=$1 ORDER BY day_number`,
     [itineraryId],
   );
   const dayIds = days.map((d) => d.id);
@@ -135,8 +137,10 @@ export async function loadWebsiteDetails(
   const readDay = (day: DayRow): WebsiteDay => ({
     id: day.id,
     dayNumber: day.dayNumber,
+    internalRemark: day.internalRemark,
     departCityId: day.departCityId,
     endCityId: day.endCityId,
+    viaCityIds: day.viaCityIds,
     overnightCityId: day.overnightCityId,
     guideLanguage: day.guideLanguage,
     eventOrder: day.eventOrder ?? [],
@@ -199,6 +203,35 @@ export async function saveWebsiteDetails(
     deletedDays.map((entry) => [entry.day.id, entry.originalDate]),
   );
   days = [...days, ...deletedDays.map((entry) => entry.day)];
+  await manager.query(
+    'DELETE FROM website_day_via_cities WHERE itinerary_id=$1',
+    [itineraryId],
+  );
+  await insertRows(
+    manager,
+    'website_day_via_cities',
+    ['itinerary_id', 'day_id', 'position', 'city_id'],
+    days.flatMap((day) =>
+      (day.viaCityIds ?? []).map((cityId, position) => [
+        itineraryId,
+        day.id,
+        position,
+        cityId,
+      ]),
+    ),
+  );
+  await manager.query(
+    'DELETE FROM website_day_internal_remarks WHERE itinerary_id=$1',
+    [itineraryId],
+  );
+  await insertRows(
+    manager,
+    'website_day_internal_remarks',
+    ['itinerary_id', 'day_id', 'internal_remark'],
+    days.flatMap((day) =>
+      day.internalRemark ? [[itineraryId, day.id, day.internalRemark]] : [],
+    ),
+  );
   await manager.query('DELETE FROM website_days WHERE itinerary_id=$1', [
     itineraryId,
   ]);

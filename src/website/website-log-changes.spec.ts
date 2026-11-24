@@ -62,6 +62,18 @@ function plan(): WebsiteItinerary {
 }
 
 describe('website field audit', () => {
+  it('excludes day remarks from both field edits and whole-day report entries', () => {
+    const before = plan();
+    const after = structuredClone(before);
+    after.days[0].internalRemark = '仅供计调';
+    expect(websiteLogChanges(before, after)).toEqual([]);
+    after.deletedDays = [{ originalDate: null, day: after.days.shift()! }];
+    for (const changes of [
+      websiteLogChanges(undefined, after),
+      websiteLogChanges(before, after),
+    ])
+      expect(JSON.stringify(changes)).not.toMatch(/internalRemark|仅供计调/);
+  });
   it('ignores object key order and system version/timestamp changes', () => {
     const before = plan();
     const after = structuredClone(before);

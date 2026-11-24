@@ -184,11 +184,14 @@ export interface WebsiteService {
   feeState: FeeState;
 }
 export interface WebsiteDay {
+  internalRemark?: string;
   eventOrder?: string[];
   id: string;
   dayNumber: number;
   departCityId: string;
   endCityId: string;
+  /** Config city IDs in travel order. An omitted field preserves a saved day's stops. */
+  viaCityIds?: string[];
   overnightCityId: string | null;
   items: WebsiteItem[];
   legs: WebsiteLeg[];
