@@ -33,7 +33,6 @@ import type {
   WebsiteItinerary,
   WebsiteItineraryResponse,
   WebsiteItineraryInput,
-  WebsiteInquiryLog,
   WebsiteLogAction,
   WebsiteLogMetadata,
   WebsiteQuotation,
@@ -72,6 +71,8 @@ import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
 import { sameServiceDates, websiteDayDate } from './website-service-dates';
 import { WEBSITE_LOG_ACTIONS } from './website.types';
 import { websiteLogChanges } from './website-log-changes';
+import { captureLogNames, presentWebsiteLogs } from './website-log-history';
+import type { StoredWebsiteLog } from './website-log-history';
 
 type ResourceKind =
   'city' | 'attraction' | 'hotel' | 'restaurant' | 'transport';
@@ -887,6 +888,13 @@ export class WebsiteService {
     const changes = websiteLogChanges(before, after);
     if (before && changes.length === 0) return;
     const isItinerary = 'inquiryId' in after;
+    const logNames = await captureLogNames(
+      manager,
+      changes,
+      inquiry.businessUnit,
+      before,
+      after,
+    );
     await manager.query(
       `INSERT INTO website_logs(id,inquiry_id,action,target_id,actor_id,actor_name,detail,
         inquiry_code,operator_username,target_type,target_code,summary,changes,metadata)
@@ -905,7 +913,10 @@ export class WebsiteService {
         after.code,
         isItinerary ? after.title : null,
         JSON.stringify(changes),
-        JSON.stringify(options.metadata ?? {}),
+        JSON.stringify({
+          ...options.metadata,
+          ...(logNames ? { logNames } : {}),
+        }),
       ],
     );
   }
@@ -1250,14 +1261,14 @@ export class WebsiteService {
        JOIN website_inquiries i ON i.id=l.inquiry_id ${where}`,
       params,
     );
-    const list = await this.db.manager.query<WebsiteInquiryLog[]>(
+    const list = await this.db.manager.query<StoredWebsiteLog[]>(
       `SELECT l.id,l.inquiry_id AS "inquiryId",COALESCE(l.inquiry_code,i.code) AS "inquiryCode",
         i.business_unit AS "businessUnit",l.action,
         to_char(l.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "occurredAt",
         l.actor_id AS "operatorId",l.actor_name AS "operatorName",l.operator_username AS "operatorUsername",
         COALESCE(l.target_type,CASE WHEN l.target_id=i.id THEN 'inquiry' ELSE 'itinerary' END) AS "targetType",
         l.target_id AS "targetId",COALESCE(l.target_code,CASE WHEN l.target_id=i.id THEN i.code ELSE t.code END) AS "targetCode",
-        CASE WHEN l.changes IS NULL THEN t.title ELSE l.summary END AS summary,l.detail,l.metadata,l.changes
+        CASE WHEN l.changes IS NULL THEN t.title ELSE l.summary END AS summary,l.detail,l.metadata - 'logNames' AS metadata,l.metadata->'logNames' AS "logNames",l.changes
        FROM website_logs l JOIN website_inquiries i ON i.id=l.inquiry_id
        LEFT JOIN website_itineraries t ON t.id=l.target_id AND t.inquiry_id=i.id
        ${where} ORDER BY l.occurred_at DESC,l.id DESC
@@ -1265,7 +1276,7 @@ export class WebsiteService {
       [...params, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
-      list,
+      list: await presentWebsiteLogs(this.db.manager, list),
       total: Number(count.total),
       page: query.page,
       pageSize: query.pageSize,
