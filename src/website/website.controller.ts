@@ -150,7 +150,7 @@ export class WebsiteController {
   @ApiOperation({ summary: '独立站询盘日志分页（按当前询盘归属及负责人授权）' })
   @ApiOkResponse({
     description:
-      'data: {list: WebsiteInquiryLog[],total,page,pageSize}；历史 changes 为 null。详见统一 API §18.2.1。',
+      'data: {list: WebsiteInquiryLog[],total,page,pageSize}；changes 保留原始差异，displayChanges 为含历史名称的展示差异。旧记录未采集差异时两者均为 null。详见统一 API §18.2.1。',
   })
   inquiryLogs(
     @Query() query: WebsiteLogQuery,
