@@ -1312,6 +1312,86 @@ it('freezes the complete sum but exposes only selected component prices in both 
 });
 
 describe('compact bilingual customer itinerary', () => {
+  it('lists included tickets together across days using the bilingual templates', () => {
+    const { config, inquiry, itinerary } = fixture();
+    const includedService = config.templates.find(
+      ({ code }) => code === 'included-service',
+    )!;
+    includedService.zh = '报价包含{service}。';
+    includedService.en = 'The quotation includes {service}.';
+    const firstEntry = {
+      ...includedService,
+      id: randomUUID(),
+      name: 'first-entry-ticket',
+      code: 'first-entry-ticket',
+      zh: '行程中正式安排的收费景点均包含首次入园门票。',
+      en: 'First-entry admission is included for scheduled paid attractions.',
+    };
+    config.templates.push(firstEntry);
+    const attraction = {
+      id: randomUUID(),
+      status: 'enabled' as const,
+      cityId: config.cities[0].id,
+      parentId: null,
+      resourceId: null,
+      kind: 'attraction' as const,
+      nameZh: '玉龙雪山',
+      nameEn: 'Jade Dragon Snow Mountain',
+      descriptionZh: '游览玉龙雪山。',
+      descriptionEn: 'Visit Jade Dragon Snow Mountain.',
+      chargeable: true,
+      price: '100.00',
+      recommendedMonths: [],
+    };
+    config.attractions.push(attraction);
+    const ticket = {
+      id: randomUUID(),
+      attractionId: null,
+      nameZh: '蓝月谷',
+      nameEn: 'Blue Moon Valley',
+      descriptionZh: '游览蓝月谷。',
+      descriptionEn: 'Visit Blue Moon Valley.',
+      appears: true,
+      feeState: 'INCLUDED' as const,
+    };
+    itinerary.days[0].items = [
+      {
+        ...attraction,
+        attractionId: attraction.id,
+        appears: true,
+        feeState: 'INCLUDED',
+      },
+      ticket,
+    ];
+    itinerary.days[1].items = [
+      {
+        ...ticket,
+        id: randomUUID(),
+        nameZh: '印象丽江',
+        nameEn: 'Impression Lijiang',
+      },
+      {
+        ...ticket,
+        id: randomUUID(),
+        feeState: 'OPTIONAL',
+        nameZh: '索道',
+        nameEn: 'Cable car',
+      },
+    ];
+
+    const preview = buildWebsitePreview(inquiry, itinerary, config);
+    expect(
+      preview.chinese.teamStandard?.find(({ category }) => category === 'entry')
+        ?.included,
+    ).toEqual([`${firstEntry.zh} 报价包含蓝月谷、印象丽江。`]);
+    expect(
+      preview.english.teamStandard?.find(({ category }) => category === 'entry')
+        ?.included,
+    ).toEqual([
+      `${firstEntry.en} The quotation includes Blue Moon Valley, Impression Lijiang.`,
+    ]);
+  });
+
   it('uses actual daily modes, visible attraction descriptions and the overnight city only', () => {
     const { config, inquiry, itinerary } = fixture();
     const day = itinerary.days[0];
