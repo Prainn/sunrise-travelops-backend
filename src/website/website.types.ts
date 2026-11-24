@@ -184,6 +184,7 @@ export interface WebsiteService {
   feeState: FeeState;
 }
 export interface WebsiteDay {
+  internalRemark?: string;
   eventOrder?: string[];
   id: string;
   dayNumber: number;

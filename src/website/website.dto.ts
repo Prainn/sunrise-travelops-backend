@@ -392,6 +392,15 @@ export class WebsiteServiceDto implements WebsiteService {
   @IsIn(fees) feeState: FeeState;
 }
 export class WebsiteDayDto implements WebsiteDay {
+  @ApiPropertyOptional({
+    description: '独立站行程日内部备注，空字符串清除',
+    maxLength: 200,
+  })
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @Transform(trim)
+  @IsString()
+  @MaxLength(200)
+  internalRemark?: string;
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(1000)

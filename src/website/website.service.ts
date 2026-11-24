@@ -1479,7 +1479,14 @@ export class WebsiteService {
       if (!row || (!retainedCities.has(id) && row.status !== 'enabled'))
         invalid('行程引用的配置城市不可用', { cityId: id });
     };
+    const savedRemarks = new Map(
+      old?.days.map((d) => [d.id, d.internalRemark]),
+    );
     const normalized = allDays.map((day, index) => {
+      const internalRemark =
+        day.internalRemark ?? savedRemarks.get(day.id) ?? '';
+      if (internalRemark && businessUnit !== 'website')
+        invalid('行程日内部备注仅适用于独立站询盘');
       const pickupCount = day.legs.filter((leg) => leg.isAirportPickup).length;
       const dropoffCount = day.legs.filter(
         (leg) => leg.isAirportDropoff,
@@ -1598,7 +1605,7 @@ export class WebsiteService {
             }
           : hotel,
       );
-      return { ...day, items, hotels };
+      return { ...day, internalRemark, items, hotels };
     });
     const refs = this.planReferences({ ...input, days: normalized }, config);
     const issues = validate
