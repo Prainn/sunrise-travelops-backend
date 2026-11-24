@@ -1,5 +1,6 @@
 import { diffChanges } from '../inquiries/changes';
 import type {
+  WebsiteDay,
   WebsiteInquiry,
   WebsiteItinerary,
   WebsiteLogChange,
@@ -35,6 +36,12 @@ function inquiryContent(value: WebsiteInquiry) {
   };
 }
 
+function dayLogContent(day: WebsiteDay) {
+  const content = { ...day };
+  delete content.internalRemark;
+  return content;
+}
+
 function itineraryContent(value: WebsiteItinerary) {
   return {
     title: value.title,
@@ -44,7 +51,7 @@ function itineraryContent(value: WebsiteItinerary) {
     pax: value.pax,
     configVersion: value.configVersion,
     status: value.status,
-    days: value.days,
+    days: value.days.map(dayLogContent),
     hotelPricingMode: value.hotelPricingMode ?? 'tiered',
     nightlyShowHotelPrice: value.nightlyShowHotelPrice ?? false,
     nightlyVehiclePrices: Object.fromEntries(
@@ -59,6 +66,7 @@ function itineraryContent(value: WebsiteItinerary) {
       .map((entry) => ({
         id: entry.day.id,
         ...entry,
+        day: dayLogContent(entry.day),
       })),
     // The database canonicalizes money and sorts vehicle prices by type.
     // Key by vehicle type so repricing is a field change, not an array replacement.

@@ -172,6 +172,38 @@ describe('website draft save and explicit validation', () => {
       );
     return { service, plan, save, config, query };
   }
+  it('keeps omitted remarks with their day across recycling and restoration, and accepts an explicit clear', async () => {
+    const { service, plan } = setup();
+    const original = plan.days[0];
+    const recycled = { ...original, id: 'recycled' };
+    plan.days = [{ ...original, internalRemark: '原日备注' }];
+    plan.deletedDays = [
+      { originalDate: null, day: { ...recycled, internalRemark: '恢复备注' } },
+    ];
+    const update = {
+      ...plan,
+      days: [recycled],
+      deletedDays: [{ originalDate: null, day: original }],
+    };
+    const saved = await service.saveItinerary(plan.id, update, user);
+    expect(saved.days[0].internalRemark).toBe('恢复备注');
+    expect(saved.deletedDays?.[0].day.internalRemark).toBe('原日备注');
+    const preview = await service.validateItinerary(plan.id, update, user);
+    expect(JSON.stringify(preview)).not.toMatch(
+      /internalRemark|恢复备注|原日备注/,
+    );
+    update.days[0].internalRemark = '';
+    const cleared = await service.saveItinerary(plan.id, update, user);
+    expect(cleared.days[0].internalRemark).toBe('');
+  });
+
+  it('limits nonempty day remarks to website inquiries', async () => {
+    const { service, plan } = setup([], 'linxi');
+    plan.days[0].internalRemark = '内部标记';
+    await expect(service.saveItinerary(plan.id, plan, user)).rejects.toThrow(
+      '行程日内部备注仅适用于独立站询盘',
+    );
+  });
   it.each(['isAirportPickup', 'isAirportDropoff'] as const)(
     'validates uniqueness, service-day boundary and business scope for %s',
     async (role) => {
