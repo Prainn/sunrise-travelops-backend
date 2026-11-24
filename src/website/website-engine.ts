@@ -259,7 +259,7 @@ export function generateWebsiteDraft(
           descriptionZh: attraction.descriptionZh,
           descriptionEn: attraction.descriptionEn,
           appears: true,
-          feeState: attraction.kind === 'component' ? 'EXCLUDED' : 'INCLUDED',
+          feeState: 'INCLUDED',
         });
       }
     }
@@ -1015,13 +1015,13 @@ export function buildWebsitePreview(
         const pickupText =
           pickup &&
           (language === 'en'
-            ? pickup.nameEn.trim() || 'Airport pickup'
-            : pickup.nameZh.trim() || '接机');
+            ? pickup.nameEn.trim() || 'Airport pickup timed to your flight.'
+            : pickup.nameZh.trim() || '根据航班时间接机。');
         const dropoffText =
           dropoff &&
           (language === 'en'
-            ? dropoff.nameEn.trim() || 'Airport drop-off'
-            : dropoff.nameZh.trim() || '送机');
+            ? dropoff.nameEn.trim() || 'Airport drop-off timed to your flight.'
+            : dropoff.nameZh.trim() || '根据航班时间送机。');
         const sameOnlyLine =
           !sightseeing.length &&
           pickup &&
