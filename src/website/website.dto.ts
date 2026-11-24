@@ -417,6 +417,18 @@ export class WebsiteDayDto implements WebsiteDay {
   @IsString()
   @IsUUID()
   endCityId: string;
+  @ApiPropertyOptional({
+    description: '独立站当日途经城市，按到访顺序选择，空数组清除',
+    type: [String],
+    maxItems: 365,
+    uniqueItems: true,
+  })
+  @ValidateIf((_, value: unknown) => value !== undefined)
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(365)
+  @IsUUID('all', { each: true })
+  viaCityIds?: string[];
   @IsDefined()
   @ValidateIf((o: WebsiteDayDto) => o.overnightCityId !== null)
   @IsUUID()

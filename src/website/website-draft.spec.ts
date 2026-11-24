@@ -376,6 +376,44 @@ describe('website draft save and explicit validation', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('checks new stops against the inquiry, config and day endpoints even for draft saves', async () => {
+    const { service, plan, config } = setup(['origin', 'stop', 'disabled']);
+    config.cities = ['origin', 'stop', 'disabled', 'outside'].map((id) => ({
+      id,
+      nameZh: id,
+      nameEn: id,
+      resourceId: null,
+      status: id === 'disabled' ? 'disabled' : 'enabled',
+    }));
+    const edited = structuredClone(plan);
+    edited.days[0].departCityId = 'origin';
+    for (const cityId of ['origin', 'disabled', 'outside', 'unknown']) {
+      edited.days[0].viaCityIds = [cityId];
+      for (const action of ['saveItinerary', 'validateItinerary'] as const)
+        await expect(
+          service[action](plan.id, edited, user),
+        ).rejects.toMatchObject({
+          code: 'ITINERARY_INVALID',
+          details: { cityId, dayNumber: 1 },
+        });
+    }
+    // An already saved stop still belongs to the same day after narrowing the inquiry.
+    plan.days[0].viaCityIds = ['outside'];
+    edited.days[0].viaCityIds = undefined;
+    const saved = await service.saveItinerary(plan.id, edited, user);
+    expect(saved.days[0].viaCityIds).toEqual(['outside']);
+    edited.days[0].viaCityIds = [];
+    expect(
+      (await service.saveItinerary(plan.id, edited, user)).days[0].viaCityIds,
+    ).toEqual([]);
+
+    const linxi = setup([], 'linxi');
+    linxi.plan.days[0].viaCityIds = ['stop'];
+    await expect(
+      linxi.service.saveItinerary(linxi.plan.id, linxi.plan, user),
+    ).rejects.toThrow('途经地仅适用于独立站询盘');
+  });
+
   it('validates and freezes a hotel-free overnight itinerary while preserving other quotation guards', async () => {
     const { service, plan, config, query } = setup(['other-city']);
     plan.title = 'No hotels';

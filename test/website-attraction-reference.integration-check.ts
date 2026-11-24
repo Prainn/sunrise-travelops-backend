@@ -2,11 +2,13 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { IsolationHarness } from './business-isolation.harness';
+import { AddWebsiteDayViaCities1796256017000 } from '../src/migrations/1796256017000-AddWebsiteDayViaCities';
 import type {
   WebsiteConfig,
   WebsiteDay,
   WebsiteInquiry,
   WebsiteItineraryResponse,
+  WebsitePreview,
 } from '../src/website/website.types';
 
 const h = new IsolationHarness();
@@ -39,6 +41,18 @@ async function main() {
       descriptionEn: 'Description',
       recommendedMonths: [],
     };
+    const origin = {
+      ...city,
+      id: randomUUID(),
+      nameZh: '起点',
+      nameEn: 'Origin',
+    };
+    const otherStop = {
+      ...city,
+      id: randomUUID(),
+      nameZh: '途经城市',
+      nameEn: 'Other stop',
+    };
     const pattern = {
       id: randomUUID(),
       status: 'enabled',
@@ -60,7 +74,7 @@ async function main() {
       '/website/config',
       {
         ...base,
-        cities: [city],
+        cities: [origin, city, otherStop],
         attractions: [attraction],
         patterns: [pattern],
         skeletons: [skeleton],
@@ -84,8 +98,8 @@ async function main() {
     const day: WebsiteDay = {
       id: randomUUID(),
       dayNumber: 1,
-      departCityId: city.id,
-      endCityId: city.id,
+      departCityId: origin.id,
+      endCityId: origin.id,
       overnightCityId: null,
       guideLanguage: '',
       legs: [],
@@ -101,7 +115,7 @@ async function main() {
           nameEn: 'Paid attraction',
           descriptionZh: '说明',
           descriptionEn: 'Description',
-          appears: false,
+          appears: true,
           feeState: 'SELF_PAY',
         },
       ],
@@ -128,6 +142,56 @@ async function main() {
       day.items[0].id,
     );
     assert.equal(plan.attractionPriceReference.items[0].price, '12.30');
+    // Exercise the upgrade with a populated predecessor day and its attraction.
+    const runner = h.db.createQueryRunner();
+    const migration = new AddWebsiteDayViaCities1796256017000();
+    await runner.connect();
+    try {
+      await migration.down(runner);
+      await migration.up(runner);
+    } finally {
+      await runner.release();
+    }
+    const path = `/website/itineraries/${plan.id}`;
+    const upgradedDay = (
+      await h.call<WebsiteItineraryResponse>(owner, 'GET', path)
+    ).days[0];
+    assert.deepEqual(upgradedDay.viaCityIds, []);
+    assert.equal(upgradedDay.items[0].attractionId, attraction.id);
+    const viaCityIds = [otherStop.id, city.id];
+    const validate = (stops: string[]) =>
+      h.call<WebsitePreview>(owner, 'POST', path + '/validate', {
+        ...input,
+        version: plan.version,
+        days: [{ ...day, viaCityIds: stops }],
+      });
+    const without = await validate([]);
+    assert(
+      without.issues.some(
+        (issue) =>
+          issue.code === 'VAL-E03' &&
+          issue.target?.kind === 'event' &&
+          issue.target.id === day.items[0].id,
+      ),
+    );
+    const withStops = await validate(viaCityIds);
+    assert(!withStops.issues.some((issue) => issue.code === 'VAL-E03'));
+    assert.equal(withStops.chinese.itinerary[0].sightseeing, '说明');
+    assert.equal(withStops.english.itinerary[0].sightseeing, 'Description');
+    for (const invalid of [null, 'city', ['bad-id'], [city.id, city.id]]) {
+      await h.call(
+        owner,
+        'PUT',
+        path,
+        {
+          ...input,
+          version: plan.version,
+          days: [{ ...day, viaCityIds: invalid }],
+        },
+        400,
+        'VALIDATION_ERROR',
+      );
+    }
     await h.call(
       editor,
       'PUT',
@@ -167,12 +231,14 @@ async function main() {
       {
         ...input,
         version: plan.version,
+        days: [{ ...day, viaCityIds }],
         deletedDays: [
           {
             day: {
               ...day,
               id: randomUUID(),
               dayNumber: 2,
+              viaCityIds: [...viaCityIds].reverse(),
               items: [{ ...day.items[0], id: randomUUID() }],
             },
             originalDate: null,
@@ -181,6 +247,12 @@ async function main() {
       },
     );
     assert.equal(saved.attractionPriceReference.items.length, 1);
+    const reopened = await h.call<WebsiteItineraryResponse>(owner, 'GET', path);
+    assert.deepEqual(reopened.days[0].viaCityIds, viaCityIds);
+    assert.deepEqual(
+      reopened.deletedDays?.[0].day.viaCityIds,
+      [...viaCityIds].reverse(),
+    );
     assert.equal(saved.attractionPriceReference.total, '12.30');
     await h.call(
       owner,
@@ -202,6 +274,12 @@ async function main() {
       201,
     );
     assert.equal(copy.attractionPriceReference.total, '12.30');
+    assert.notEqual(copy.days[0].id, day.id);
+    assert.deepEqual(copy.days[0].viaCityIds, viaCityIds);
+    assert.deepEqual(
+      copy.deletedDays?.[0].day.viaCityIds,
+      [...viaCityIds].reverse(),
+    );
     assert.notEqual(
       copy.attractionPriceReference.items[0].itemId,
       day.items[0].id,

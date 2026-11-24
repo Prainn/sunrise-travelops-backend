@@ -1092,8 +1092,9 @@ describe('website report plans and mileage', () => {
     const standard = (category: string) =>
       preview.english.teamStandard?.find((row) => row.category === category)
         ?.included ?? [];
-    expect(standard('service')).toContain('D1: Tour guide (English) included.');
-    expect(standard('service').join(' ')).not.toContain('Private driver');
+    expect(standard('service')).toEqual([
+      'Guide service is included on day 1.',
+    ]);
     expect(standard('driver').join(' ')).toContain(
       'Private driver included on D1.',
     );
@@ -1126,6 +1127,69 @@ describe('website report plans and mileage', () => {
       ),
     ).toBe(true);
   });
+
+  it.each([
+    {
+      guidedDays: [],
+      zh: '全程不包含导游',
+      en: 'Guide service is not included.',
+    },
+    {
+      guidedDays: [1, 2, 3],
+      zh: '全程包含导游',
+      en: 'Guide service is included throughout the trip.',
+    },
+    {
+      guidedDays: [1, 3],
+      zh: '第1、3天包含导游',
+      en: 'Guide service is included on days 1 and 3.',
+    },
+  ])(
+    'summarizes guide coverage on active days $guidedDays',
+    ({ guidedDays, zh, en }) => {
+      const { config, inquiry, itinerary } = fixture();
+      inquiry.plannedDays = itinerary.duration = 3;
+      inquiry.serviceDates = itinerary.serviceDates = [
+        '2026-11-23',
+        '2026-11-25',
+        '2026-11-30',
+      ];
+      itinerary.days.push({
+        ...structuredClone(itinerary.days[1]),
+        id: randomUUID(),
+        dayNumber: 3,
+      });
+      for (const day of itinerary.days) {
+        day.guideLanguage = guidedDays.includes(day.dayNumber) ? 'English' : '';
+      }
+      itinerary.deletedDays = [
+        {
+          day: {
+            ...structuredClone(itinerary.days[1]),
+            dayNumber: 4,
+            guideLanguage: 'English',
+          },
+          originalDate: null,
+        },
+      ];
+      const preview = buildWebsitePreview(inquiry, itinerary, config);
+      expect(
+        preview.chinese.teamStandard?.find(
+          ({ category }) => category === 'service',
+        )?.included,
+      ).toEqual([zh]);
+      expect(
+        preview.english.teamStandard?.find(
+          ({ category }) => category === 'service',
+        )?.included,
+      ).toEqual([en]);
+      expect(
+        preview.english.quotationServices?.guideServices.map(
+          ({ dayNumber }) => dayNumber,
+        ),
+      ).toEqual(guidedDays);
+    },
+  );
 
   it('keeps zero, null pax and maximum-precision totals distinct', () => {
     const { inquiry, itinerary, config } = fixture();
@@ -1300,6 +1364,20 @@ describe('compact bilingual customer itinerary', () => {
       hotel: '昆明',
       meal: '早餐',
     });
+    for (const output of [preview.english, preview.chinese]) {
+      const entry = output.teamStandard?.find(
+        ({ category }) => category === 'entry',
+      )?.included;
+      const transport = output.teamStandard?.find(
+        ({ category }) => category === 'transport',
+      )?.included;
+      expect(entry).toHaveLength(1);
+      expect(entry?.[0]).toMatch(/First.*Second.*Hidden/);
+      expect(transport).toHaveLength(1);
+      expect(transport?.[0]).toMatch(
+        output === preview.english ? /Dali.*Kunming/ : /大理.*昆明/,
+      );
+    }
     expect(preview.english.inclusions).toEqual(
       expect.arrayContaining([
         'D1: Tour guide (English) included.',

@@ -268,6 +268,7 @@ export function generateWebsiteDraft(
       dayNumber: index + 1,
       departCityId,
       endCityId: definition.cityId,
+      viaCityIds: [],
       overnightCityId: last ? null : definition.cityId,
       items,
       legs:
@@ -480,7 +481,11 @@ export function buildWebsitePreview(
   const seenAttractions = new Set<string>();
   for (const day of itinerary.days) {
     const date = websiteDayDate(itinerary, day.dayNumber);
-    for (const cityId of [day.departCityId, day.endCityId]) {
+    for (const cityId of [
+      day.departCityId,
+      day.endCityId,
+      ...(day.viaCityIds ?? []),
+    ]) {
       if (!cityId || cities.get(cityId)?.status !== 'enabled')
         issue(
           'CONFIG_NOT_READY',
@@ -554,6 +559,7 @@ export function buildWebsitePreview(
     const allowedCities = new Set([
       day.departCityId,
       day.endCityId,
+      ...(day.viaCityIds ?? []),
       ...day.legs.flatMap((leg) => [leg.fromCityId, leg.toCityId]),
     ]);
     for (const item of day.items) {
@@ -564,6 +570,7 @@ export function buildWebsitePreview(
           'ERROR',
           `景点或组件不在当天行程城市：${item.nameZh}`,
           day.dayNumber,
+          { kind: 'event', id: item.id },
         );
     }
     let legCity = day.departCityId;
@@ -851,7 +858,7 @@ export function buildWebsitePreview(
           language === 'en'
             ? `${selectedDate ?? `D${day.dayNumber}`}: Tour guide (${dictionaryLabel(day.guideLanguage, 'languages')}) included.`
             : `${selectedDate ?? `第${day.dayNumber}天`}：包含${dictionaryLabel(day.guideLanguage, 'languages')}导游服务。`;
-        include(line, 'service');
+        inclusions.add(line);
       }
       const orderedLegs = [...day.legs].sort((a, b) => {
         const order = day.eventOrder ?? [];
@@ -1024,6 +1031,28 @@ export function buildWebsitePreview(
         meal: meals.join(' / '),
       });
     }
+    const guideDays = quotationOptions.guideServices.map(
+      ({ dayNumber }) => dayNumber,
+    );
+    const guideStandard = standards.get('service')!;
+    if (!guideDays.length) {
+      guideStandard.add(
+        language === 'en' ? 'Guide service is not included.' : '全程不包含导游',
+      );
+    } else if (guideDays.length === itinerary.days.length) {
+      guideStandard.add(
+        language === 'en'
+          ? 'Guide service is included throughout the trip.'
+          : '全程包含导游',
+      );
+    } else {
+      const dayLabel = guideDays.length === 1 ? 'day' : 'days';
+      guideStandard.add(
+        language === 'en'
+          ? `Guide service is included on ${dayLabel} ${new Intl.ListFormat('en').format(guideDays.map(String))}.`
+          : `第${guideDays.join('、')}天包含导游`,
+      );
+    }
     if (quotationOptions.includesDriver) {
       const dates = itinerary.serviceDates;
       const days = quotationOptions.driverDays
@@ -1146,10 +1175,19 @@ export function buildWebsitePreview(
             price: `RMB ${unitPrice} PP`,
           };
         }),
-      teamStandard: categories.map((category) => ({
-        category,
-        included: [...standards.get(category)!],
-      })),
+      teamStandard: categories.map((category) => {
+        const lines = [...standards.get(category)!];
+        if (
+          (category === 'entry' || category === 'transport') &&
+          lines.length
+        ) {
+          return {
+            category,
+            included: [lines.join(' ').replace(/\s*[\r\n]+\s*/g, ' ')],
+          };
+        }
+        return { category, included: lines };
+      }),
       mileage: selectedMileages.flatMap((row) =>
         row
           ? [
