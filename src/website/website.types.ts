@@ -390,6 +390,39 @@ export interface WebsiteLogChange {
     vehicleType?: string;
   };
 }
+export interface WebsiteLogReference {
+  source?: 'entry';
+  ref:
+    | 'day'
+    | 'event'
+    | 'item'
+    | 'leg'
+    | 'hotel'
+    | 'meal'
+    | 'service'
+    | 'guide'
+    | 'city'
+    | 'attraction'
+    | 'route'
+    | 'configHotel'
+    | 'sharedHotel'
+    | 'restaurant'
+    | 'owner'
+    | 'country';
+  nameZh?: string;
+  nameEn?: string;
+  dayNumber?: number;
+  hotelTier?: string;
+  mealSlot?: string;
+  mode?: string;
+  code?: string;
+}
+export interface WebsiteLogDisplayChange extends Omit<
+  WebsiteLogChange,
+  'path'
+> {
+  fields: string[];
+}
 export interface WebsiteLogMetadata {
   creationMode?: 'copy';
   sourceId?: string;
@@ -415,6 +448,7 @@ export interface WebsiteInquiryLog {
   detail: string;
   metadata: WebsiteLogMetadata;
   changes: WebsiteLogChange[] | null;
+  displayChanges: WebsiteLogDisplayChange[] | null;
 }
 
 /** Unapplied board edits; canonical details stay in their structured tables. */
