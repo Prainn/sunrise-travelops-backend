@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ValidationPipe } from '@nestjs/common';
 import { WebsiteAttractionDto, WebsiteConfigDto } from './website.dto';
+import { planWithSeatCodes, vehicleWithSeatCode } from './website-vehicle-code';
 import {
   buildWebsitePreview,
   generateWebsiteDraft,
@@ -992,6 +993,32 @@ it('generates included attractions and components without confirmed travel times
 });
 
 describe('website report plans and mileage', () => {
+  it('copies seat aliases into a draft without changing the source or losing a price', () => {
+    const { itinerary } = fixture();
+    const price = {
+      vehicleType: '5座',
+      hotelTier: null,
+      unitPrice: '11.00',
+      includesDriver: true,
+      includesGuide: false,
+    };
+    itinerary.vehiclePrices = [price, { ...price, vehicleType: '5_seat' }];
+    itinerary.days[0].legs[0].vehicleType = '38';
+    const copied = planWithSeatCodes(itinerary, true);
+    expect(copied.days[0].legs[0].vehicleType).toBe('38_seat');
+    expect(copied.vehiclePrices).toEqual([{ ...price, vehicleType: '5_seat' }]);
+    expect(itinerary.days[0].legs[0].vehicleType).toBe('38');
+    expect(itinerary.vehiclePrices).toHaveLength(2);
+    itinerary.vehiclePrices[1].unitPrice = '12.00';
+    expect(() => planWithSeatCodes(itinerary, true)).toThrow('不同的报价明细');
+    for (const alias of ['seat49', '49座', '49-seat vehicle', '49_seat'])
+      expect(vehicleWithSeatCode({ vehicleType: alias }).vehicleType).toBe(
+        '49_seat',
+      );
+    expect(vehicleWithSeatCode({ vehicleType: '别克 GL8' }).vehicleType).toBe(
+      '别克 GL8',
+    );
+  });
   it('uses business dictionary translations for authored language and vehicle values throughout reports', () => {
     const { inquiry, itinerary, config } = fixture();
     itinerary.days[0].guideLanguage = '英文';
@@ -1062,6 +1089,17 @@ describe('website report plans and mileage', () => {
       buildWebsitePreview(inquiry, itinerary, config, dictionaries).english
         .quotation[0].vehicle,
     ).toBe('9-seat minibus');
+    itinerary.days[0].legs[0].vehicleType = '49_seat';
+    itinerary.vehiclePrices[0].vehicleType = '49_seat';
+    dictionaries.vehicles.push({
+      code: '49_seat',
+      name: '49座',
+      englishName: '49-seat coach',
+    });
+    const coach = buildWebsitePreview(inquiry, itinerary, config, dictionaries);
+    expect(coach.chinese.quotation[0].vehicle).toBe('49座');
+    expect(coach.english.quotation[0].vehicle).toBe('49-seat coach');
+    expect(coach.english.mileage?.[0].transport).toBe('49-seat coach');
   });
 
   it('prices vehicle × hotel tiers and derives service scope from active days', () => {

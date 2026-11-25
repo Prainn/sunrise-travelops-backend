@@ -2,8 +2,6 @@ export type WebsiteBusinessUnit = 'linxi' | 'website';
 export type FeeState =
   'INCLUDED' | 'EXCLUDED' | 'OPTIONAL' | 'RECOMMENDED' | 'SELF_PAY' | 'UNKNOWN';
 export type TransportMode = 'hsr' | 'private_vehicle' | 'flight' | 'other';
-export type VehicleType =
-  '5_seat' | '7_seat' | '9_seat' | '14_seat' | '18_seat';
 export type WebsiteHotelTier = 'A' | 'B' | 'C' | 'D';
 export type ConfigStatus = 'enabled' | 'disabled';
 export interface ConfigBase {

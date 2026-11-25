@@ -144,11 +144,12 @@ export class SystemBusinessDictionariesService {
     actorId: string,
   ): Promise<BusinessDictionaryItemResponse> {
     const type = await this.requireTypeByCode(typeCode);
+    const code = this.itemCode(typeCode, input.code);
     this.validateResourceTypes(typeCode, input.resourceTypes);
-    await this.ensureItemCodeAvailable(type.id, input.code);
+    await this.ensureItemCodeAvailable(type.id, code);
     const entity = this.dictionaryItems.create({
       typeId: type.id,
-      code: input.code,
+      code,
       name: input.name,
       englishName: input.englishName,
       resourceTypes: typeCode === 'resource-unit' ? input.resourceTypes : [],
@@ -169,15 +170,15 @@ export class SystemBusinessDictionariesService {
     this.assertMatchingId(input.id, id);
     const type = await this.requireTypeByCode(typeCode);
     const entity = await this.requireItem(id, type.id);
+    const code = this.itemCode(typeCode, input.code);
     this.validateResourceTypes(typeCode, input.resourceTypes);
-    await this.ensureItemCodeAvailable(type.id, input.code, id);
+    await this.ensureItemCodeAvailable(type.id, code, id);
     if (
-      (entity.code !== input.code ||
-        entity.englishName !== input.englishName) &&
+      (entity.code !== code || entity.englishName !== input.englishName) &&
       (await this.referencedItemIds(typeCode, [id])).length
     )
       throw this.referenced('Referenced item code cannot be changed');
-    entity.code = input.code;
+    entity.code = code;
     entity.name = input.name;
     entity.englishName = input.englishName;
     entity.resourceTypes =
@@ -272,6 +273,24 @@ export class SystemBusinessDictionariesService {
       [ids],
     );
     return rows.map((row) => row.id);
+  }
+
+  private itemCode(typeCode: string, code: string): string {
+    if (typeCode === 'vehicle-type') {
+      const canonical = code.replace(/^seat([1-9]\d*)$/, '$1_seat');
+      if (canonical.length <= 100 && /^[1-9]\d*_seat$/.test(canonical))
+        return canonical;
+    } else if (/^[A-Za-z][A-Za-z0-9-]*$/.test(code)) {
+      return code;
+    }
+    throw new BusinessException({
+      code: ErrorCode.VALIDATION_ERROR,
+      message:
+        typeCode === 'vehicle-type'
+          ? '车型编码须使用座位数加 _seat，例如 38_seat'
+          : '分类项编码须以字母开头，仅限字母、数字和连字符',
+      status: HttpStatus.BAD_REQUEST,
+    });
   }
 
   private validateResourceTypes(typeCode: string, resourceTypes: string[]) {

@@ -22,7 +22,6 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import { ErrorCode } from '../common/constants/error-code';
 import type {
   FeeState,
-  VehicleType,
   WebsiteConfig,
   WebsiteDay,
   WebsiteInquiry,
@@ -33,22 +32,18 @@ import type {
   WebsiteValidation,
 } from './website.types';
 
-export const WEBSITE_VEHICLES = {
-  '5_seat': { seats: 5, en: '5-seat vehicle', zh: '5座' },
-  '7_seat': { seats: 7, en: '7-seat vehicle', zh: '7座' },
-  '9_seat': { seats: 9, en: '9-seat vehicle', zh: '9座' },
-  '14_seat': { seats: 14, en: '14-seat vehicle', zh: '14座' },
-  '18_seat': { seats: 18, en: '18-seat vehicle', zh: '18座' },
-} as const;
+function vehicleSeatCount(value: string): string | undefined {
+  return /^([1-9]\d*)_seat$/.exec(value)?.[1];
+}
 
-/** Preserve authored custom vehicle names; translate only established vehicle codes. */
+/** Format a seat code while leaving authored vehicle names intact. */
 export function websiteTransportVehicleLabel(
   value: string,
   language: 'en' | 'zh',
 ): string {
-  return Object.hasOwn(WEBSITE_VEHICLES, value)
-    ? WEBSITE_VEHICLES[value as VehicleType][language]
-    : value;
+  const seats = vehicleSeatCount(value);
+  if (!seats) return value;
+  return language === 'zh' ? `${seats}座` : `${seats}-seat vehicle`;
 }
 
 const TEMPLATE_VARIABLES = new Map<string, readonly string[]>([
@@ -183,6 +178,12 @@ export function validateWebsiteConfig(config: WebsiteConfig): void {
       !Array.isArray(route.vehicleOptions)
     )
       invalid('专车必须提供车型时长列表');
+    if (
+      route.vehicleOptions &&
+      new Set(route.vehicleOptions.map((row) => row.vehicleType)).size !==
+        route.vehicleOptions.length
+    )
+      invalid('同一交通段的座位车型不能重复');
     if (!cities.has(route.fromCityId) || !cities.has(route.toCityId))
       invalid('路线的起点和终点必须为已有独立站城市');
   }
@@ -774,18 +775,16 @@ export function buildWebsitePreview(
       kind: 'languages' | 'vehicles',
     ): string {
       const text = value.trim();
-      const fixedVehicle =
-        kind === 'vehicles' && Object.hasOwn(WEBSITE_VEHICLES, text)
-          ? WEBSITE_VEHICLES[text as VehicleType]
-          : null;
+      const seats = kind === 'vehicles' ? vehicleSeatCount(text) : undefined;
+      if (seats && language === 'zh')
+        return websiteTransportVehicleLabel(text, language);
       const item = dictionaries[kind].find(
         (entry) =>
           [entry.code, entry.name, entry.englishName].includes(text) ||
-          Boolean(fixedVehicle && entry.code === `seat${fixedVehicle.seats}`),
+          (seats && entry.code === `seat${seats}`),
       );
-      if (fixedVehicle && language === 'zh') return fixedVehicle.zh;
       if (item) return language === 'en' ? item.englishName : item.name;
-      if (fixedVehicle) return fixedVehicle[language];
+      if (seats) return websiteTransportVehicleLabel(text, language);
       if (language === 'en' && /[\u3400-\u9fff]/u.test(text)) {
         issue(
           'CONFIG_NOT_READY',
