@@ -1585,13 +1585,6 @@ export class WebsiteService {
               (!retainedRoutes.has(route.id) && route.status !== 'enabled'))
           )
             invalid('路线配置不可用', { routeId: leg.routeId });
-          if (
-            validate &&
-            route &&
-            (route.fromCityId !== leg.fromCityId ||
-              route.toCityId !== leg.toCityId)
-          )
-            invalid('交通段城市与所选路线不一致');
         }
       });
       const items = day.items.map((item) => {

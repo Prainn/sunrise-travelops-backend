@@ -429,6 +429,7 @@ export function buildWebsitePreview(
     config.attractions.map((item) => [item.id, item]),
   );
   const hotels = new Map(config.hotels.map((item) => [item.id, item]));
+  const routes = new Map(config.routes.map((route) => [route.id, route]));
   if (!itinerary.title.trim())
     issue('ITINERARY_INVALID', 'ERROR', '请填写行程名称', undefined, {
       kind: 'basics',
@@ -575,6 +576,18 @@ export function buildWebsitePreview(
     }
     let legCity = day.departCityId;
     for (const leg of day.legs) {
+      const route = leg.routeId ? routes.get(leg.routeId) : undefined;
+      if (
+        route &&
+        (route.fromCityId !== leg.fromCityId || route.toCityId !== leg.toCityId)
+      )
+        issue(
+          'ITINERARY_INVALID',
+          'ERROR',
+          '交通段城市与所选路线不一致',
+          day.dayNumber,
+          { kind: 'event', id: leg.id },
+        );
       if (leg.mode === 'private_vehicle' && !leg.vehicleType)
         issue(
           'ITINERARY_INVALID',
