@@ -775,16 +775,21 @@ export function buildWebsitePreview(
       kind: 'languages' | 'vehicles',
     ): string {
       const text = value.trim();
-      const seats = kind === 'vehicles' ? vehicleSeatCount(text) : undefined;
-      if (seats && language === 'zh')
-        return websiteTransportVehicleLabel(text, language);
-      const item = dictionaries[kind].find(
-        (entry) =>
-          [entry.code, entry.name, entry.englishName].includes(text) ||
-          (seats && entry.code === `seat${seats}`),
-      );
+      const entries = dictionaries[kind];
+      const byCode =
+        kind === 'vehicles'
+          ? entries.find((entry) => entry.code === text)
+          : undefined;
+      const item =
+        byCode ??
+        entries.find((entry) =>
+          kind === 'languages'
+            ? [entry.code, entry.name, entry.englishName].includes(text)
+            : [entry.name, entry.englishName].includes(text),
+        );
       if (item) return language === 'en' ? item.englishName : item.name;
-      if (seats) return websiteTransportVehicleLabel(text, language);
+      if (kind === 'vehicles' && vehicleSeatCount(text))
+        return websiteTransportVehicleLabel(text, language);
       if (language === 'en' && /[\u3400-\u9fff]/u.test(text)) {
         issue(
           'CONFIG_NOT_READY',

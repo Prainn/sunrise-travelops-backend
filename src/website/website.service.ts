@@ -69,7 +69,6 @@ import {
 import { quotedHotelDays } from './website-nightly-pricing';
 import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
 import { sameServiceDates, websiteDayDate } from './website-service-dates';
-import { planWithSeatCodes, vehicleWithSeatCode } from './website-vehicle-code';
 import { WEBSITE_LOG_ACTIONS } from './website.types';
 import { websiteLogChanges } from './website-log-changes';
 import { captureLogNames, presentWebsiteLogs } from './website-log-history';
@@ -716,17 +715,6 @@ export class WebsiteService {
     user: AuthenticatedUser,
     businessUnit: WebsiteBusinessUnit,
   ) {
-    input = {
-      ...input,
-      routes: input.routes.map((route) =>
-        route.vehicleOptions
-          ? {
-              ...route,
-              vehicleOptions: route.vehicleOptions.map(vehicleWithSeatCode),
-            }
-          : route,
-      ),
-    };
     validateWebsiteConfig(input);
     const issues = await this.resourceIssues(
       manager,
@@ -1394,7 +1382,6 @@ export class WebsiteService {
     old?: WebsiteItinerary,
     validate = false,
   ): Promise<WebsiteItineraryInput> {
-    if (old?.status !== 'quoted') input = planWithSeatCodes(input);
     const { businessUnit, destinations } = inquiry;
     const nightlyPrices = input.nightlyVehiclePrices ?? [];
     if (
@@ -1986,7 +1973,7 @@ export class WebsiteService {
       return this.insertItinerary(
         manager,
         inquiry.id,
-        planWithSeatCodes(clone, true),
+        clone,
         user,
         'itinerary_copied',
         {
