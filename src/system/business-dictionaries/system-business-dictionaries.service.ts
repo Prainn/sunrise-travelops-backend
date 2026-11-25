@@ -144,7 +144,8 @@ export class SystemBusinessDictionariesService {
     actorId: string,
   ): Promise<BusinessDictionaryItemResponse> {
     const type = await this.requireTypeByCode(typeCode);
-    const code = this.itemCode(typeCode, input.code);
+    const { code } = input;
+    this.validateItemCode(typeCode, code);
     this.validateResourceTypes(typeCode, input.resourceTypes);
     await this.ensureItemCodeAvailable(type.id, code);
     const entity = this.dictionaryItems.create({
@@ -170,7 +171,8 @@ export class SystemBusinessDictionariesService {
     this.assertMatchingId(input.id, id);
     const type = await this.requireTypeByCode(typeCode);
     const entity = await this.requireItem(id, type.id);
-    const code = this.itemCode(typeCode, input.code);
+    const { code } = input;
+    this.validateItemCode(typeCode, code);
     this.validateResourceTypes(typeCode, input.resourceTypes);
     await this.ensureItemCodeAvailable(type.id, code, id);
     if (
@@ -275,22 +277,14 @@ export class SystemBusinessDictionariesService {
     return rows.map((row) => row.id);
   }
 
-  private itemCode(typeCode: string, code: string): string {
-    if (typeCode === 'vehicle-type') {
-      const canonical = code.replace(/^seat([1-9]\d*)$/, '$1_seat');
-      if (canonical.length <= 100 && /^[1-9]\d*_seat$/.test(canonical))
-        return canonical;
-    } else if (/^[A-Za-z][A-Za-z0-9-]*$/.test(code)) {
-      return code;
+  private validateItemCode(typeCode: string, code: string): void {
+    if (typeCode !== 'vehicle-type' && !/^[A-Za-z][A-Za-z0-9-]*$/.test(code)) {
+      throw new BusinessException({
+        code: ErrorCode.VALIDATION_ERROR,
+        message: '分类项编码须以字母开头，仅限字母、数字和连字符',
+        status: HttpStatus.BAD_REQUEST,
+      });
     }
-    throw new BusinessException({
-      code: ErrorCode.VALIDATION_ERROR,
-      message:
-        typeCode === 'vehicle-type'
-          ? '车型编码须使用座位数加 _seat，例如 38_seat'
-          : '分类项编码须以字母开头，仅限字母、数字和连字符',
-      status: HttpStatus.BAD_REQUEST,
-    });
   }
 
   private validateResourceTypes(typeCode: string, resourceTypes: string[]) {
