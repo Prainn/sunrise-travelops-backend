@@ -69,6 +69,7 @@ import {
 import { quotedHotelDays } from './website-nightly-pricing';
 import { loadWebsiteDetails, saveWebsiteDetails } from './website.persistence';
 import { sameServiceDates, websiteDayDate } from './website-service-dates';
+import { planWithSeatCodes, vehicleWithSeatCode } from './website-vehicle-code';
 import { WEBSITE_LOG_ACTIONS } from './website.types';
 import { websiteLogChanges } from './website-log-changes';
 import { captureLogNames, presentWebsiteLogs } from './website-log-history';
@@ -410,7 +411,9 @@ export class WebsiteService {
       ), matches AS (
         SELECT item,ordinality FROM snapshot,
           jsonb_array_elements(config->($3::text)) WITH ORDINALITY AS entry(item,ordinality)
-        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code',CASE WHEN $3='routes' THEN concat_ws(' ',item->>'mode',item->>'vehicleOptions') END,
+        WHERE ($4::text IS NULL OR strpos(lower(concat_ws(' ',item->>'nameZh',item->>'nameEn',item->>'name',item->>'code',CASE WHEN $3='routes' THEN concat_ws(' ',item->>'mode',item->>'vehicleOptions',
+          (SELECT string_agg(split_part(o->>'vehicleType','_',1)||'座',' ') FROM jsonb_array_elements(item->'vehicleOptions') o
+            WHERE o->>'vehicleType' ~ '^[1-9][0-9]*_seat$')) END,
           CASE WHEN $3='routes' THEN (SELECT string_agg(concat_ws(' ',c->>'nameZh',c->>'nameEn'),' ') FROM jsonb_array_elements(config->'cities') c WHERE c->>'id' IN (item->>'fromCityId',item->>'toCityId')) END)),lower($4))>0)
           AND ($5::text IS NULL OR item->>'cityId'=$5)
           AND ($6::text IS NULL OR item->>'id'<>$6)
@@ -559,7 +562,6 @@ export class WebsiteService {
         if (action === 'delete') records.splice(index, 1);
         else records.splice(index, 1, record!);
       }
-      validateWebsiteConfig(next);
       const saved = await this.writeConfig(
         manager,
         next,
@@ -694,7 +696,6 @@ export class WebsiteService {
   ) {
     this.permission(user, 'website:config:update');
     const businessUnit = this.businessUnit(user, requested);
-    validateWebsiteConfig(input);
     return this.db.transaction(async (manager) => {
       await manager.query(
         'SELECT id FROM website_config_current WHERE business_unit=$1 FOR UPDATE',
@@ -715,6 +716,18 @@ export class WebsiteService {
     user: AuthenticatedUser,
     businessUnit: WebsiteBusinessUnit,
   ) {
+    input = {
+      ...input,
+      routes: input.routes.map((route) =>
+        route.vehicleOptions
+          ? {
+              ...route,
+              vehicleOptions: route.vehicleOptions.map(vehicleWithSeatCode),
+            }
+          : route,
+      ),
+    };
+    validateWebsiteConfig(input);
     const issues = await this.resourceIssues(
       manager,
       this.configReferences(input),
@@ -1381,6 +1394,7 @@ export class WebsiteService {
     old?: WebsiteItinerary,
     validate = false,
   ): Promise<WebsiteItineraryInput> {
+    if (old?.status !== 'quoted') input = planWithSeatCodes(input);
     const { businessUnit, destinations } = inquiry;
     const nightlyPrices = input.nightlyVehiclePrices ?? [];
     if (
@@ -1979,7 +1993,7 @@ export class WebsiteService {
       return this.insertItinerary(
         manager,
         inquiry.id,
-        clone,
+        planWithSeatCodes(clone, true),
         user,
         'itinerary_copied',
         {
