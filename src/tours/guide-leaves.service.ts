@@ -85,7 +85,7 @@ export class GuideLeavesService {
     if (busy.length)
       fail(
         ErrorCode.CONFLICT,
-        '请假日期与导游已有旅行团冲突',
+        '请假日期与导游已有成团记录冲突',
         HttpStatus.CONFLICT,
       );
   }

@@ -39,11 +39,11 @@ export function diagnoseGuide(
 ) {
   const reasons: GuideUnavailableReasonResponse[] = [];
   if (guide.status !== 'enabled')
-    reasons.push({ code: 'GUIDE_DISABLED', message: '该导游已停用' });
+    reasons.push({ code: 'GUIDE_DISABLED', message: '该导游已禁用' });
   if (guide.language?.trim() !== query.language.trim())
     reasons.push({
       code: 'LANGUAGE_MISMATCH',
-      message: '该导游语种与本段要求不符',
+      message: '该导游语言与本段要求不符',
       expectedLanguage: query.language.trim(),
       actualLanguage: guide.language,
     });

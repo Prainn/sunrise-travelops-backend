@@ -1,4 +1,5 @@
 import type { WhatsappNotificationType } from '../whatsapp/whatsapp-notifications';
+import { NOTIFICATION_TYPES } from '../notifications/notification-settings';
 
 interface WhatsAppReminderData {
   type: WhatsappNotificationType;
@@ -43,13 +44,11 @@ export function formatWhatsAppReminder(
   const title =
     type === 'whatsapp_assignment'
       ? previous_owner_id
-        ? '改派提醒'
-        : '分配提醒'
-      : type === 'whatsapp_unassigned'
-        ? '待分配'
-        : '新消息待回复';
+        ? 'WhatsApp 改派提醒'
+        : 'WhatsApp 分配提醒'
+      : NOTIFICATION_TYPES[type];
   return [
-    `【WhatsApp ${title}】`,
+    `【${title}】`,
     `客户：${notificationSummary(name, 'text')}`,
     ...(message_count ? [`新增消息：${message_count}条`] : []),
     ...(kind ? [`最新消息：${notificationSummary(text ?? '', kind)}`] : []),
@@ -61,7 +60,7 @@ export function formatWhatsAppReminder(
     type === 'whatsapp_unassigned'
       ? '请进入系统分配负责人。'
       : type === 'whatsapp_assignment'
-        ? '咨询已分配给你，请查看并跟进。'
+        ? '会话已分配给你，请查看并跟进。'
         : '客户有新消息，请查看并回复。',
     ...(conversationUrl ? [`查看会话：${conversationUrl}`] : []),
   ].join('\n');

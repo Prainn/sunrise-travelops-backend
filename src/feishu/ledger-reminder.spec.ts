@@ -31,7 +31,7 @@ describe('ledger reminders', () => {
       '【独立站】操作台账',
     );
     for (const line of [
-      '业务部门：独立站',
+      '业务部：独立站',
       '台账编号：WEB-123',
       '收客计调：收客甲',
       '来源：来源客户',
@@ -46,7 +46,7 @@ describe('ledger reminders', () => {
       ...row,
       businessUnit: 'linxi',
     });
-    expect(operate).toContain('业务部门：霖熹');
+    expect(operate).toContain('业务部：霖熹');
     expect(operate.split('\n')[0]).toBe('【霖熹】操作台账');
     expect(operate).not.toContain('亏损');
   });

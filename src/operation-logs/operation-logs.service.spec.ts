@@ -16,6 +16,9 @@ class QueryDataSource extends DataSource {
 }
 
 describe('Operation log filters', () => {
+  const snapshotAt = '2026-11-25T04:00:00.000Z';
+  beforeAll(() => jest.useFakeTimers({ now: new Date(snapshotAt) }));
+  afterAll(() => jest.useRealTimers());
   const db = new QueryDataSource({
     type: 'postgres',
     entities: [OperationLogEntity],
@@ -55,6 +58,9 @@ describe('Operation log filters', () => {
       { category: 'ledger', scope: null, action: '编辑霖熹/独立站台账' },
       { category: 'ledger', scope: 'website', action: '新增独立站台账' },
       { category: 'inquiry', scope: 'linxi', action: '新增霖熹/独立站台账' },
+      { category: 'tour', scope: 'headquarters', action: '编辑旅行团' },
+      { category: 'resource', scope: 'shengxu', action: '停用旅行社' },
+      { category: 'quotation', scope: 'website', action: '冻结独立站报价' },
     ].map((row) => Object.assign(new OperationLogEntity(), row));
     findAndCount.mockResolvedValue([rows, rows.length]);
     const result = await service.page(1, 20);
@@ -65,6 +71,9 @@ describe('Operation log filters', () => {
       '编辑霖熹/独立站台账',
       '新增独立站台账',
       '新增霖熹/独立站台账',
+      '编辑成团记录',
+      '禁用组团社',
+      '确认独立站报价',
     ]);
     expect(rows[0].action).toBe('新增霖熹/独立站台账');
     expect(result.total).toBe(rows.length);
@@ -84,6 +93,7 @@ describe('Operation log filters', () => {
     expect(await controller.list(query)).toEqual({
       list: [],
       total: 0,
+      snapshotAt,
       page: 2,
       pageSize: 10,
     });
@@ -104,6 +114,7 @@ describe('Operation log filters', () => {
       '%A\\%\\_\\\\lice%',
       '2026-10-25T00:00:00+08:00',
       '2026-10-26T00:00:00+08:00',
+      snapshotAt,
     ]);
   });
 
@@ -122,6 +133,7 @@ describe('Operation log filters', () => {
     expect(parameters).toEqual([
       '2026-10-26T00:00:00+08:00',
       '2026-10-26T00:00:00+08:00',
+      snapshotAt,
     ]);
   });
 
@@ -135,7 +147,7 @@ describe('Operation log filters', () => {
       expect(sql).toContain(
         field === 'start' ? '"log"."time" >= $1' : '"log"."time" < $1',
       );
-      expect(parameters).toEqual(['2026-10-26T00:00:00+08:00']);
+      expect(parameters).toEqual(['2026-10-26T00:00:00+08:00', snapshotAt]);
     },
   );
 
@@ -144,8 +156,8 @@ describe('Operation log filters', () => {
       plainToInstance(OperationLogQueryDto, { actorName: '   ' }),
     );
     const [sql, parameters] = querySql();
-    expect(sql).not.toContain('WHERE');
-    expect(parameters).toEqual([]);
+    expect(sql).toContain('WHERE');
+    expect(parameters).toEqual([snapshotAt]);
   });
 
   it('rejects reversed dates before accessing the repository', async () => {

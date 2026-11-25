@@ -34,7 +34,7 @@ export function chatPermission(
 }
 export function mutableChat(c: Conversation) {
   if (c.state === 'archived')
-    chatFail('CONFLICT', '旧咨询已归档，只读；请进入当前咨询', 409);
+    chatFail('CONFLICT', '历史会话已归档，只读；请进入当前会话', 409);
 }
 export function chatVersion(c: Conversation, version: number) {
   if (c.version !== version)

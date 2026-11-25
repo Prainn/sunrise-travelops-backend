@@ -1,3 +1,4 @@
+import { userActionIp } from '../operation-logs/operation-routes';
 import {
   LinkedAccountResponse,
   SwitchAccountDto,
@@ -5,6 +6,7 @@ import {
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import type { Request } from 'express';
+import type { AuditRequest } from '../operation-logs/operation-log.interceptor';
 import {
   Body,
   Controller,
@@ -50,7 +52,7 @@ export class AuthController {
   @Throttle({ default: { limit: 150, ttl: 60_000 } })
   @ApiOperation({ summary: 'Log in with username and password' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
-  login(@Body() input: LoginDto, @Req() request: Request) {
+  login(@Body() input: LoginDto, @Req() request: AuditRequest) {
     return this.auth.login(
       input.username,
       input.password,
@@ -59,6 +61,9 @@ export class AuthController {
         userAgent: request.get('user-agent') ?? '',
       },
       input.scope,
+      (actor) => {
+        request.auditActor = actor;
+      },
     );
   }
 
@@ -154,7 +159,7 @@ export class AuthController {
     @Body() input: SwitchAccountDto,
     @Req() req: Request,
   ) {
-    return this.auth.switchAccount(user, input.targetUserId, req.ip ?? '');
+    return this.auth.switchAccount(user, input.targetUserId, userActionIp(req));
   }
 
   @Get('me')

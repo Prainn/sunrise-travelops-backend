@@ -219,7 +219,7 @@ export class SystemBusinessDictionariesService {
       if (used[0]?.exists)
         throw new BusinessException({
           code: ErrorCode.CONFLICT,
-          message: '该交通方式已被行程使用，请停用或先调整引用。',
+          message: '该交通方式已被行程使用，请禁用或先调整引用。',
           status: HttpStatus.CONFLICT,
         });
     }
@@ -334,7 +334,7 @@ export class SystemBusinessDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.BUSINESS_DICTIONARY_ITEM_NOT_FOUND,
-        message: '业务分类项目不存在，请刷新后重新选择。',
+        message: '业务分类选项不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
       });
     }

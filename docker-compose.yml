@@ -43,6 +43,8 @@ services:
 
   api:
     build: .
+    volumes:
+      - operation_log_retry:/var/lib/sunrise/operation-log-retry
     environment: *api-environment
     ports:
       - "127.0.0.1:4000:4000"
@@ -81,5 +83,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  operation_log_retry:
   postgres_data:
   dozzle_data:

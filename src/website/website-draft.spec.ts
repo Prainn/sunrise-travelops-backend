@@ -300,6 +300,86 @@ describe('website draft save and explicit validation', () => {
     ).toBe(true);
     expect(save).not.toHaveBeenCalled();
   });
+  it('returns one actionable preview issue per leg with stale route cities', async () => {
+    const { service, plan, config, save } = setup();
+    config.cities = ['kunming', 'dali', 'lijiang'].map((id) => ({
+      id,
+      nameZh: id,
+      nameEn: id,
+      resourceId: null,
+      status: 'enabled',
+    }));
+    config.routes = [
+      {
+        id: 'old-route',
+        fromCityId: 'dali',
+        toCityId: 'lijiang',
+        nameZh: '大理 → 丽江',
+        nameEn: 'Dali → Lijiang',
+        mode: 'private_vehicle',
+        status: 'enabled',
+        feeState: 'INCLUDED',
+        vehicleOptions: [],
+      },
+      {
+        id: 'rail-route',
+        fromCityId: 'kunming',
+        toCityId: 'dali',
+        nameZh: '昆明 → 大理',
+        nameEn: 'Kunming → Dali',
+        mode: 'hsr',
+        status: 'enabled',
+        feeState: 'INCLUDED',
+      },
+    ];
+    plan.duration = 3;
+    plan.reorderDraft = null;
+    const blankDay = plan.days[0];
+    plan.days = [1, 2, 3].map((dayNumber) => ({
+      ...blankDay,
+      id: `day-${dayNumber}`,
+      dayNumber,
+      departCityId: 'kunming',
+      endCityId: 'dali',
+    }));
+    const day = plan.days[2];
+    day.legs = ['first-leg', 'second-leg'].map((id) => ({
+      id,
+      routeId: 'old-route',
+      fromCityId: 'kunming',
+      toCityId: 'dali',
+      mode: 'hsr',
+      nameZh: '昆明 → 大理',
+      nameEn: 'Kunming → Dali',
+      feeState: 'INCLUDED',
+      vehicleType: null,
+      distanceKm: null,
+      durationMinutes: null,
+      showInMileage: false,
+    }));
+    const message = '交通段城市与所选路线不一致';
+    const expected = day.legs.map(({ id }) => ({
+      code: 'ITINERARY_INVALID',
+      severity: 'ERROR',
+      message,
+      dayNumber: 3,
+      target: { kind: 'event', id },
+    }));
+    const preview = await service.preview(plan.id, user);
+    const validation = await service.validateItinerary(plan.id, plan, user);
+    for (const result of [preview, validation])
+      expect(
+        result.issues.filter((issue) => issue.message === message),
+      ).toEqual(expected);
+
+    day.legs[0].routeId = 'rail-route';
+    day.legs[1].routeId = null;
+    const repaired = await service.preview(plan.id, user);
+    expect(repaired.issues.some((issue) => issue.message === message)).toBe(
+      false,
+    );
+    expect(save).not.toHaveBeenCalled();
+  });
   it('rejects old page payloads only after nightly pricing has been configured', async () => {
     const { service, plan, save } = setup();
     const legacy = plainToInstance(WebsiteUpdateItineraryDto, {

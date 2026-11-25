@@ -76,7 +76,7 @@ const conflict = (message: string): never =>
 const forbidden = (): never =>
   fail(ErrorCode.AUTH_FORBIDDEN, '', HttpStatus.FORBIDDEN);
 const notFound = (): never =>
-  fail(ErrorCode.NOT_FOUND, '旅行团不存在', HttpStatus.NOT_FOUND);
+  fail(ErrorCode.NOT_FOUND, '成团记录不存在', HttpStatus.NOT_FOUND);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -899,7 +899,7 @@ export class ToursService {
       itineraryCode: string;
     },
   ): Resolved {
-    if (!q) conflict('询盘没有已冻结报价');
+    if (!q) conflict('询盘没有已确认报价');
     return {
       module,
       isSeries: i.is_series === true,
@@ -1045,10 +1045,10 @@ export class ToursService {
         `SELECT 1 FROM tours WHERE source_module = $1 AND inquiry_id = $2 AND status = 'active'`,
         [src.module, src.inquiryId],
       );
-      if (active.length && !src.isSeries) conflict('询盘已有有效旅行团');
+      if (active.length && !src.isSeries) conflict('询盘已有有效成团记录');
       if (src.quoteId !== input.quoteId)
-        conflict('只能选择该询盘最新的已冻结报价');
-      if (!src.downloaded) conflict('最新冻结报价尚未点击下载');
+        conflict('只能选择该询盘最新的已确认报价');
+      if (!src.downloaded) conflict('最新已确认报价尚未点击下载');
     }
     if (src.isSeries) {
       if (!input.seriesStartDate) invalid('请填写系列团本次出发日期');
@@ -1060,7 +1060,7 @@ export class ToursService {
     if (!src.countryItemId || !src.countryCode)
       invalid('询盘缺少国家和地区，请先补齐');
     if (!Number.isInteger(src.days) || src.days < 1 || src.days > 365)
-      invalid('行程天数无效');
+      invalid('服务天数须为 1–365 之间的整数');
     const creator = await manager.query<{ tour_code: string | null }[]>(
       'SELECT tour_code FROM users WHERE id = $1',
       [user.id],
@@ -1225,7 +1225,7 @@ export class ToursService {
     await this.db.transaction(async (manager) => {
       const tour = await this.lockTour(manager, id, user);
       if (!this.canManage(user, tour)) forbidden();
-      if (tour.status !== 'active') conflict('已撤销的旅行团不能修改');
+      if (tour.status !== 'active') conflict('已撤销的成团记录不能修改');
       this.versionCheck(tour.version, input.version);
       if (input.seriesStartDate !== undefined && !tour.is_series_source)
         invalid('普通成团不能覆盖来源行程日期');
@@ -1322,7 +1322,7 @@ export class ToursService {
     await this.db.transaction(async (manager) => {
       const tour = await this.lockTour(manager, id, user);
       if (!this.canManage(user, tour)) forbidden();
-      if (tour.status !== 'active') conflict('旅行团已撤销');
+      if (tour.status !== 'active') conflict('成团记录已撤销');
       this.versionCheck(tour.version, input.version);
       const guides = await manager.query<{ guide_id: string }[]>(
         'SELECT guide_id FROM tour_guide_services WHERE tour_id=$1',
@@ -1438,7 +1438,7 @@ export class ToursService {
         user.scope === tour.business_unit;
       const root = isHeadquartersBusinessAdmin(user);
       if (!own && !manages && !root) forbidden();
-      if (tour.status !== 'active') conflict('已撤销的旅行团不能修改评分');
+      if (tour.status !== 'active') conflict('已撤销的成团记录不能修改评分');
       const associated = await manager.query<unknown[]>(
         'SELECT 1 FROM tour_guide_services WHERE tour_id=$1 AND guide_id=$2 LIMIT 1',
         [id, guideId],
