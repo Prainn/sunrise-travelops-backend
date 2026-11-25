@@ -284,21 +284,25 @@ describe('manual tour contract and scope', () => {
       inquiryId: other,
       quoteId: other,
     };
-    const source = { id: other, business_unit: user.scope, owner_id: user.id };
-    query.mockResolvedValueOnce([source]).mockResolvedValueOnce([]);
-    await expect(service.create(linked, user)).rejects.toMatchObject({
-      status: 409,
-      response: { message: '询盘没有已确认报价' },
-    });
-    query.mockResolvedValueOnce([source]).mockResolvedValueOnce([
-      {
-        id: other,
-        snapshot: { itinerary: { startDate: '2026-10-25', days: 3 } },
-      },
-    ]);
     await expect(service.create(linked, user)).rejects.toMatchObject({
       status: 400,
-      response: { message: '此关联来源须选择接送航班' },
+      response: { message: '关联来源不能提交手工资料或手填时间' },
+    });
+    expect(query).not.toHaveBeenCalled();
+
+    const source = { id: other, business_unit: user.scope, owner_id: user.id };
+    query.mockResolvedValueOnce([source]).mockResolvedValueOnce([]);
+    const flight: CreateTourDto = {
+      ...linked,
+      scheduleMode: 'flight',
+      pickupAt: undefined,
+      dropAt: undefined,
+      pickupFlightId: actor,
+      dropFlightId: other,
+    };
+    await expect(service.create(flight, user)).rejects.toMatchObject({
+      status: 409,
+      response: { message: '询盘没有已确认报价' },
     });
   });
   it('keeps source unit and country immutable when editing', async () => {
