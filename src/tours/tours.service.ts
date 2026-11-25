@@ -1056,7 +1056,7 @@ export class ToursService {
     if (!src.countryItemId || !src.countryCode)
       invalid('询盘缺少国家和地区，请先补齐');
     if (!Number.isInteger(src.days) || src.days < 1 || src.days > 365)
-      invalid('行程天数无效');
+      invalid('服务天数须为 1–365 之间的整数');
     const creator = await manager.query<{ tour_code: string | null }[]>(
       'SELECT tour_code FROM users WHERE id = $1',
       [user.id],

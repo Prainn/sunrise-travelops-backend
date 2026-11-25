@@ -391,9 +391,13 @@ export function buildWebsitePreview(
     itinerary.days.length !== itinerary.duration ||
     itinerary.days.some((day, index) => day.dayNumber !== index + 1)
   )
-    issue('VAL-E01', 'ERROR', '行程日数及顺序必须与计划天数一致', undefined, {
-      kind: 'reorder',
-    });
+    issue(
+      'VAL-E01',
+      'ERROR',
+      '行程日数量须与计划天数一致，且须从第 1 天起连续编号',
+      undefined,
+      { kind: 'reorder' },
+    );
   for (const day of accommodation?.missingDays ?? [])
     issue(
       'VAL-E06',

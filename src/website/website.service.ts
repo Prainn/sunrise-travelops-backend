@@ -1476,7 +1476,7 @@ export class WebsiteService {
       duplicate(input.days.map((d) => String(d.dayNumber))) ||
       duplicate(input.vehiclePrices.map(quotationPriceKey))
     )
-      invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
+      invalid('行程明细 ID、行程日序号、车型与酒店档次组合不能重复');
     this.assertDestinationScope(destinations, allDays, old?.days ?? [], config);
     const retainedCities = referencedCityIds(old?.days ?? []);
     const configCities = new Map(config.cities.map((row) => [row.id, row]));

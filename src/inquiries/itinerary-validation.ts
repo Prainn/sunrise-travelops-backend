@@ -193,7 +193,7 @@ export class ItineraryValidation {
 
     await this.assertUniqueResources(manager, plan);
     if (!previous && plan.dailyPlans.length !== plannedDays)
-      invalid('新增行程的天数必须与询盘服务天数一致');
+      invalid('新增行程与询盘的服务天数须一致');
     plannedDays = plan.dailyPlans.length;
     if (previous)
       previous = {
