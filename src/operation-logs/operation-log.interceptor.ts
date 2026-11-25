@@ -48,8 +48,8 @@ const resources: Record<string, string> = {
   RestaurantsController: '餐厅',
   AttractionsController: '景点',
   TransportsController: '车型',
-  GuidesController: '导游服务价格',
-  GuidePeopleController: '导游人员',
+  GuidesController: '导游价格',
+  GuidePeopleController: '导游',
   FlightsController: '航班信息',
 };
 
@@ -70,13 +70,13 @@ function actionFor(
           create: '上传OSS资源',
           update: '编辑OSS资源',
           remove: '删除OSS资源',
-          retry: '重试OSS媒体保存',
+          retry: '重新归档媒体文件',
         } as Record<string, string>
       )[handler],
       resultId: handler === 'create',
     };
   if (controller === 'WhatsappController' && handler === 'retryEvent')
-    return { category: 'system-category', label: '重试WhatsApp接收事件' };
+    return { category: 'system-category', label: '重新处理接收事件' };
   if (
     controller === 'WhatsappController' &&
     (handler === 'uploadImage' || handler === 'uploadDocument')
@@ -148,7 +148,7 @@ function actionFor(
     if (handler === 'create')
       return {
         category: 'website-visit',
-        label: '访问记录生成询盘',
+        label: '从访问记录新增询盘',
         parentKey: 'id',
         resultId: true,
       };
@@ -188,7 +188,7 @@ function actionFor(
         parentKey: 'id',
         resultId: true,
       },
-      confirm: { category: 'quotation', label: '冻结报价' },
+      confirm: { category: 'quotation', label: '确认报价' },
       downloadClick: { category: 'quotation', label: '报价下载点击' },
     };
     return actions[handler] ?? null;
@@ -214,21 +214,21 @@ function actionFor(
         resultId: true,
       },
       generate: { category: 'itinerary', label: '生成独立站行程' },
-      confirm: { category: 'quotation', label: '冻结独立站报价' },
+      confirm: { category: 'quotation', label: '确认独立站报价' },
       downloadClick: { category: 'quotation', label: '独立站报价下载点击' },
-      saveConfig: { category: 'website-config', label: '保存独立站配置' },
+      saveConfig: { category: 'website-config', label: '保存独立站资源' },
       createConfigRecord: {
         category: 'website-config',
-        label: '新增独立站配置',
+        label: '新增独立站资源',
         resultId: true,
       },
       updateConfigRecord: {
         category: 'website-config',
-        label: '编辑独立站配置',
+        label: '编辑独立站资源',
       },
       deleteConfigRecord: {
         category: 'website-config',
-        label: '删除独立站配置',
+        label: '删除独立站资源',
       },
     };
     return actions[handler] ?? null;
@@ -237,9 +237,9 @@ function actionFor(
     if (handler === 'saveRating')
       return { category: 'guide-rating', label: '保存导游评分' };
     const labels: Record<string, string> = {
-      create: '新增旅行团',
-      update: '编辑旅行团',
-      cancel: '撤销旅行团',
+      create: '新增成团记录',
+      update: '编辑成团记录',
+      cancel: '撤销成团记录',
     };
     return labels[handler]
       ? { category: 'tour', label: labels[handler] }
@@ -321,7 +321,7 @@ function actionFor(
     'status' in body &&
     Object.keys(body).every((key) => ['status', 'version'].includes(key));
   const label = statusOnly
-    ? `${body.status === 'enabled' || body.status === 1 ? '启用' : '停用'}${resource}`
+    ? `${body.status === 'enabled' || body.status === 1 ? '启用' : '禁用'}${resource}`
     : `${verb}${resource}${suffix}`;
   const parentKey =
     suffix === '价格'

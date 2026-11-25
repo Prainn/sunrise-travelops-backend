@@ -46,6 +46,39 @@ export const OPERATION_RESULTS = [
 export type OperationResult = (typeof OPERATION_RESULTS)[number];
 export type OperationScope = LoginScope | 'unknown';
 
+const renamedActions = new Map([
+  ['quotation/冻结报价', '确认报价'],
+  ['quotation/冻结独立站报价', '确认独立站报价'],
+  ['system-category/重试OSS媒体保存', '重新归档媒体文件'],
+  ['system-category/重试WhatsApp接收事件', '重新处理接收事件'],
+  ['website-visit/访问记录生成询盘', '从访问记录新增询盘'],
+  ['whatsapp/WhatsApp会话 / 开启新咨询', 'WhatsApp会话 / 开启新会话'],
+  ['whatsapp/WhatsApp会话 / 从会话生成询盘', 'WhatsApp会话 / 从会话新增询盘'],
+]);
+
+/** 仅转换系统生成的动作名称，历史审计原文及人员输入的详情均保留。 */
+function displayAction({ category, action, scope }: OperationLogEntity) {
+  if (category === 'tour')
+    return action.replace(/^(新增|编辑|撤销)旅行团$/, '$1成团记录');
+  if (category === 'website-config')
+    return action.replace(/^(新增|编辑|删除|保存)独立站配置$/, '$1独立站资源');
+  if (category === 'resource') {
+    return action
+      .replace(/^(新增|编辑|删除|启用|停用)旅行社(联系人)?$/, '$1组团社$2')
+      .replace(/^(新增|编辑|删除|启用|停用)导游服务价格$/, '$1导游价格')
+      .replace(/^(新增|编辑|删除|启用|停用)导游人员$/, '$1导游')
+      .replace(/^停用/, '禁用');
+  }
+  // 总部历史记录没有目标业务，不从操作人推断台账归属。
+  if (category === 'ledger' && (scope === 'linxi' || scope === 'website')) {
+    return action.replace(
+      /^(新增|编辑|删除|审核|保存)霖熹\/独立站台账(操作信息)?$/,
+      `$1${scope === 'linxi' ? '霖熹' : '独立站'}台账$2`,
+    );
+  }
+  return renamedActions.get(`${category}/${action}`) ?? action;
+}
+
 export type OperationEntry = Pick<
   OperationLogEntity,
   | 'category'
@@ -176,38 +209,11 @@ export class OperationLogsService implements OnModuleInit, OnModuleDestroy {
       take: pageSize,
     });
     return {
-      list: list.map((row) => {
-        const entry = {
-          ...row,
-          result: row.result ?? (row.success ? 'success' : 'failure'),
-        };
-        if (
-          entry.category === 'resource' &&
-          /^(新增|编辑|删除|启用|停用)旅行社(联系人)?$/.test(entry.action)
-        ) {
-          return {
-            ...entry,
-            action: entry.action.replace('旅行社', '组团社'),
-          };
-        }
-        // 历史业务身份只能写本业务台账；总部历史事件缺少目标业务时保留原文。
-        if (
-          entry.category === 'ledger' &&
-          (entry.scope === 'linxi' || entry.scope === 'website') &&
-          /^(新增|编辑|删除|审核|保存)霖熹\/独立站台账(操作信息)?$/.test(
-            entry.action,
-          )
-        ) {
-          return {
-            ...entry,
-            action: entry.action.replace(
-              '霖熹/独立站台账',
-              entry.scope === 'linxi' ? '霖熹台账' : '独立站台账',
-            ),
-          };
-        }
-        return entry;
-      }),
+      list: list.map((row) => ({
+        ...row,
+        action: displayAction(row),
+        result: row.result ?? (row.success ? 'success' : 'failure'),
+      })),
       total,
       snapshotAt,
       page,

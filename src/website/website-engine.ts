@@ -34,11 +34,11 @@ import type {
 } from './website.types';
 
 export const WEBSITE_VEHICLES = {
-  '5_seat': { seats: 5, en: '5-seat vehicle', zh: '5座车' },
-  '7_seat': { seats: 7, en: '7-seat vehicle', zh: '7座车' },
-  '9_seat': { seats: 9, en: '9-seat vehicle', zh: '9座车' },
-  '14_seat': { seats: 14, en: '14-seat vehicle', zh: '14座车' },
-  '18_seat': { seats: 18, en: '18-seat vehicle', zh: '18座车' },
+  '5_seat': { seats: 5, en: '5-seat vehicle', zh: '5座' },
+  '7_seat': { seats: 7, en: '7-seat vehicle', zh: '7座' },
+  '9_seat': { seats: 9, en: '9-seat vehicle', zh: '9座' },
+  '14_seat': { seats: 14, en: '14-seat vehicle', zh: '14座' },
+  '18_seat': { seats: 18, en: '18-seat vehicle', zh: '18座' },
 } as const;
 
 /** Preserve authored custom vehicle names; translate only established vehicle codes. */
@@ -216,12 +216,12 @@ export function generateWebsiteDraft(
   );
   if (!skeleton) invalid('请选择启用的城市骨架');
   if (skeleton.days.length !== input.duration)
-    invalid('城市骨架天数必须与行程天数一致');
+    invalid('城市骨架天数必须与计划天数一致');
   const cities = new Map(config.cities.map((item) => [item.id, item]));
   const days: WebsiteDay[] = [];
   for (const [index, definition] of skeleton.days.entries()) {
     if (cities.get(definition.cityId)?.status !== 'enabled')
-      invalid('城市骨架引用的城市已停用');
+      invalid('城市骨架引用的城市已禁用');
     const first =
       index === 0 || !consecutiveServiceDays(input.serviceDates, index + 1);
     const last =
@@ -233,7 +233,7 @@ export function generateWebsiteDraft(
             item.id === definition.patternId && item.status === 'enabled',
         )
       : undefined;
-    if (definition.patternId && !pattern) invalid('单日行程模板已停用');
+    if (definition.patternId && !pattern) invalid('单日行程模板已禁用');
     const departCityId = first
       ? definition.cityId
       : skeleton.days[index - 1].cityId;
@@ -250,7 +250,7 @@ export function generateWebsiteDraft(
         const attraction = config.attractions.find(
           (item) => item.id === attractionId && item.status === 'enabled',
         );
-        if (!attraction) invalid('单日行程模板引用的景点或组件已停用');
+        if (!attraction) invalid('单日行程模板引用的景点或组件已禁用');
         items.push({
           id: randomUUID(),
           attractionId,
@@ -650,6 +650,16 @@ export function buildWebsitePreview(
           { kind: 'event', id: entry.id },
         );
     }
+    for (const service of day.services) {
+      if (service.appears && (!service.nameZh.trim() || !service.nameEn.trim()))
+        issue(
+          'CONFIG_NOT_READY',
+          'ERROR',
+          '请补齐在每日游览栏显示的其他服务的中英文名称',
+          day.dayNumber,
+          { kind: 'event', id: service.id },
+        );
+    }
     for (const item of day.items) {
       if (!item.appears) continue;
       const identity = item.attractionId ?? item.nameEn.trim().toLowerCase();
@@ -773,6 +783,7 @@ export function buildWebsitePreview(
           [entry.code, entry.name, entry.englishName].includes(text) ||
           Boolean(fixedVehicle && entry.code === `seat${fixedVehicle.seats}`),
       );
+      if (fixedVehicle && language === 'zh') return fixedVehicle.zh;
       if (item) return language === 'en' ? item.englishName : item.name;
       if (fixedVehicle) return fixedVehicle[language];
       if (language === 'en' && /[\u3400-\u9fff]/u.test(text)) {
@@ -839,14 +850,14 @@ export function buildWebsitePreview(
       const date = websiteDayDate(itinerary, day.dayNumber);
       const selectedDate = itinerary.serviceDates ? date : null;
       const stayDate = nightly ? date : selectedDate;
-      const attractionsById = new Map<string, string>();
+      const dailyDescriptions = new Map<string, string>();
       for (const item of day.items) {
         const name = language === 'en' ? item.nameEn : item.nameZh;
         if (item.appears) {
           const attraction = item.attractionId
             ? attractions.get(item.attractionId)
             : undefined;
-          attractionsById.set(
+          dailyDescriptions.set(
             item.id,
             attraction
               ? interpolate(
@@ -1010,14 +1021,22 @@ export function buildWebsitePreview(
             ? { breakfast: 'B', lunch: 'L', dinner: 'D' }[slot]
             : mealLabels[slot],
         );
+      for (const service of day.services) {
+        if (service.appears) {
+          dailyDescriptions.set(
+            service.id,
+            language === 'en' ? service.nameEn : service.nameZh,
+          );
+        }
+      }
       const orderedDescriptions = (day.eventOrder ?? []).flatMap((id) => {
-        const description = attractionsById.get(id);
-        attractionsById.delete(id);
+        const description = dailyDescriptions.get(id);
+        dailyDescriptions.delete(id);
         return description ? [description] : [];
       });
       const sightseeing = [
         ...orderedDescriptions,
-        ...attractionsById.values(),
+        ...dailyDescriptions.values(),
       ].filter(Boolean);
       if (inquiry.businessUnit === 'website') {
         const pickup =

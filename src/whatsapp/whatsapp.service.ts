@@ -326,7 +326,7 @@ export class WhatsappService {
       where = [this.scope(user, params)];
     if (query.view === 'unassigned') {
       if (!chatManager(user))
-        chatFail('AUTH_FORBIDDEN', '只有主管可查看未分配会话', 403);
+        chatFail('AUTH_FORBIDDEN', '只有主管可查看待分配会话', 403);
       where.push('c.owner_id IS NULL');
     }
     if (query.view === 'mine')
@@ -714,7 +714,7 @@ export class WhatsappService {
       chatVersion(c, version);
       const related = await this.related(manager, c);
       if (!related.tours.some((t) => t.conversationId === id))
-        chatFail('CONFLICT', '当前咨询尚无成团记录，请继续使用当前咨询', 409);
+        chatFail('CONFLICT', '当前会话尚无成团记录，请继续使用当前会话', 409);
       const [pending] = await manager.query<{ id: string }[]>(
         `SELECT id FROM whatsapp_messages WHERE conversation_id=$1 AND status IN ('queued','sending','unknown') LIMIT 1`,
         [id],
@@ -722,7 +722,7 @@ export class WhatsappService {
       if (pending)
         chatFail(
           'CONFLICT',
-          '当前咨询存在待发送或结果未知的消息，请先核实',
+          '当前会话存在待发送或结果未知的消息，请先核实',
           409,
         );
       await manager.query(

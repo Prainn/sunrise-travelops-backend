@@ -58,6 +58,9 @@ describe('Operation log filters', () => {
       { category: 'ledger', scope: null, action: '编辑霖熹/独立站台账' },
       { category: 'ledger', scope: 'website', action: '新增独立站台账' },
       { category: 'inquiry', scope: 'linxi', action: '新增霖熹/独立站台账' },
+      { category: 'tour', scope: 'headquarters', action: '编辑旅行团' },
+      { category: 'resource', scope: 'shengxu', action: '停用旅行社' },
+      { category: 'quotation', scope: 'website', action: '冻结独立站报价' },
     ].map((row) => Object.assign(new OperationLogEntity(), row));
     findAndCount.mockResolvedValue([rows, rows.length]);
     const result = await service.page(1, 20);
@@ -68,6 +71,9 @@ describe('Operation log filters', () => {
       '编辑霖熹/独立站台账',
       '新增独立站台账',
       '新增霖熹/独立站台账',
+      '编辑成团记录',
+      '禁用组团社',
+      '确认独立站报价',
     ]);
     expect(rows[0].action).toBe('新增霖熹/独立站台账');
     expect(result.total).toBe(rows.length);

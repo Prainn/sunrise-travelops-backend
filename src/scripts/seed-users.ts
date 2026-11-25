@@ -29,7 +29,7 @@ const roleDefinitions = Object.entries(ROLE_PERMISSIONS).map(
         ROOT: '超级管理员',
         ADMIN: '系统管理员',
         EXECUTIVE: '总经办',
-        BUSINESS_MANAGER: '业务部门负责人',
+        BUSINESS_MANAGER: '业务部负责人',
         COORDINATOR: '计调',
         RESOURCE_MANAGER: '资源管理员',
       } as Record<string, string>
@@ -40,7 +40,7 @@ const roleDefinitions = Object.entries(ROLE_PERMISSIONS).map(
 const permissionDefinitions = {
   ...PERMISSION_DEFINITIONS,
   'inquiry:transfer': '询盘转交',
-  'itinerary:download': '下载已有冻结报价',
+  'itinerary:download': '下载已确认报价',
 };
 
 const seedUsers: SeedUser[] = [

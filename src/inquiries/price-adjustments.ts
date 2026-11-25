@@ -77,7 +77,7 @@ function prices(data: ItineraryInput) {
         .map((p) => ({
           key: `vehicle:${v.tier}:${p.pax}`,
           type: 'vehicle',
-          name: `${v.tier === 'vip' ? 'VIP' : '标准'}车辆全程总价 · ${p.pax} PAX`,
+          name: `${v.tier === 'vip' ? 'VIP车辆' : '普通车型'}全程总价 · ${p.pax} PAX`,
           source: `${v.tier}:${p.pax}:${p.pricingMode}:${p.segmentTotal}`,
           price: p.totalPrice!,
           referencePrice: p.segmentTotal,

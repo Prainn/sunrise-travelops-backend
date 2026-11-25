@@ -8,6 +8,7 @@ import {
   SCOPE_NAMES,
 } from '../users/user-identity.entity';
 import { effectiveAccountPermissions } from './identity-permissions';
+import { PERMISSION_DEFINITIONS } from './permissions';
 import { UserLoginRecordEntity } from './user-login-record.entity';
 import { DEPARTMENT_OPTIONS } from '../users/user-management.constants';
 import {
@@ -428,7 +429,10 @@ export class AuthService {
     });
     return {
       roles: roles.map(({ code, name }) => ({ code, name })),
-      permissions: permissions.map(({ code, name }) => ({ code, name })),
+      permissions: permissions.map(({ code, name }) => ({
+        code,
+        name: PERMISSION_DEFINITIONS[code] ?? name,
+      })),
       recentLogins: records.map(({ id, time, ip, userAgent }) => ({
         id,
         time: time.toISOString(),

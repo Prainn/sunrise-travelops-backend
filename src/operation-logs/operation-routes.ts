@@ -20,8 +20,8 @@ const whatsappCommands: Record<string, string> = {
   saveCustomerNotes: '保存客户备注',
   assign: '分配会话',
   state: '变更会话状态',
-  newConsultation: '开启新咨询',
-  inquiry: '从会话生成询盘',
+  newConsultation: '开启新会话',
+  inquiry: '从会话新增询盘',
   documentDownload: '获取文件下载链接',
 };
 const accountCommands: Record<string, string> = {

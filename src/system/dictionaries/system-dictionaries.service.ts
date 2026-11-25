@@ -351,7 +351,7 @@ export class SystemDictionariesService {
     if (!entity) {
       throw new BusinessException({
         code: ErrorCode.DICTIONARY_ITEM_NOT_FOUND,
-        message: '系统分类项目不存在，请刷新后重新选择。',
+        message: '系统分类选项不存在，请刷新后重新选择。',
         status: HttpStatus.NOT_FOUND,
         details: { id },
       });

@@ -25,7 +25,7 @@ export function formatLedgerReminder(
 ): string {
   return [
     `【${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}】${kind === 'review' ? '审核' : '操作'}台账`,
-    `业务部门：${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}`,
+    `业务部：${row.businessUnit === 'linxi' ? '霖熹' : '独立站'}`,
     `台账编号：${summary(row.orderNo)}`,
     `收客计调：${summary(row.creatorName)}`,
     `来源：${summary(row.source)}`,
@@ -36,9 +36,7 @@ export function formatLedgerReminder(
           `亏损备注：${summary(row.lossNote)}`,
         ]
       : []),
-    kind === 'review'
-      ? '请审核并确认亏损台账。'
-      : '已发送方案且已成团，请处理。',
+    kind === 'review' ? '请审核这条亏损台账。' : '已发送方案且已成团，请处理。',
     ...(ledgerUrl ? [`打开台账：${ledgerUrl}`] : []),
   ].join('\n');
 }

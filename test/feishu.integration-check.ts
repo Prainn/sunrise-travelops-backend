@@ -228,7 +228,7 @@ async function main() {
     assert.equal(sent.length, 1);
     assert.equal(sent[0].openId, `ou_website_${manager.id}`);
     assert(sent[0].text.includes(row.orderNo));
-    assert(sent[0].text.includes('业务部门：独立站'));
+    assert(sent[0].text.includes('业务部：独立站'));
     assert(sent[0].text.includes(`收客计调：${row.creatorName}`));
     assert(sent[0].text.includes('来源：fixture'));
     assert(sent[0].text.includes('接单账号：独立站'));
@@ -425,8 +425,8 @@ async function main() {
         (SELECT count(*) FROM inquiry_follow_up_reminders) AS follow_ups`);
     const countBefore = await countQueued();
     for (const [template, title] of [
-      ['whatsapp_unassigned', '【WhatsApp 待分配】'],
-      ['whatsapp_message', '【WhatsApp 新消息待回复】'],
+      ['whatsapp_unassigned', '【WhatsApp待分配】'],
+      ['whatsapp_message', '【WhatsApp新消息】'],
       ['whatsapp_assignment', '【WhatsApp 分配提醒】'],
       ['linxi_ledger_review', '【霖熹】审核台账'],
       ['linxi_ledger_operate', '【霖熹】操作台账'],

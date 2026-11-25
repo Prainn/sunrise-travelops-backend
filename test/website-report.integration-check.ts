@@ -303,7 +303,7 @@ async function main() {
       'GET',
       '/website/config/routes/options?keyword=商务车',
     );
-    assert.match(vehicleOptions.list[0].label, /5座车.*7座车.*商务车/);
+    assert.match(vehicleOptions.list[0].label, /5座.*7座.*商务车/);
     for (const vehicleOptions of [
       [
         { vehicleType: '5_seat', durationMinutes: 180 },

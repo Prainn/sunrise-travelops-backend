@@ -1450,11 +1450,27 @@ describe('compact bilingual customer itinerary', () => {
         appears: true,
         feeState: 'INCLUDED',
       },
+      {
+        id: randomUUID(),
+        nameZh: '内部交接',
+        nameEn: 'Internal handover',
+        appears: false,
+        feeState: 'INCLUDED',
+      },
+      {
+        id: randomUUID(),
+        nameZh: '送行',
+        nameEn: 'Farewell',
+        appears: true,
+        feeState: 'SELF_PAY',
+      },
     ];
     day.guideLanguage = 'English';
     day.eventOrder = [
       day.legs[2].id,
       day.items[1].id,
+      day.services[0].id,
+      day.services[1].id,
       day.hotels[0].id,
       day.legs[0].id,
       day.meals[0].id,
@@ -1465,13 +1481,13 @@ describe('compact bilingual customer itinerary', () => {
     expect(preview.english.itinerary[0]).toMatchObject({
       transportation: 'Flight\nHigh-speed train',
       sightseeing:
-        'Second attraction description.\nFirst attraction description.',
+        'Second attraction description.\nReception\nFirst attraction description.\nFarewell',
       hotel: 'Kunming',
       meal: 'B',
     });
     expect(preview.chinese.itinerary[0]).toMatchObject({
       transportation: '航班\n高铁',
-      sightseeing: '景点2描述\n景点1描述',
+      sightseeing: '景点2描述\n接待\n景点1描述\n送行',
       hotel: '昆明',
       meal: '早餐',
     });
@@ -1513,6 +1529,21 @@ describe('compact bilingual customer itinerary', () => {
       meal: '',
     });
     expect(itinerary).toEqual(before);
+    day.services[0].nameEn = '';
+    day.services[1].nameZh = '';
+    const issues = buildWebsitePreview(inquiry, itinerary, config).issues;
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        target: { kind: 'event', id: day.services[0].id },
+      }),
+    );
+    expect(
+      issues.some(
+        (issue) =>
+          issue.target?.kind === 'event' &&
+          issue.target.id === day.services[1].id,
+      ),
+    ).toBe(false);
   });
 
   it('shows breakfast for any included hotel breakfast and lists only included meals in meal order', () => {

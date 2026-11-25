@@ -321,7 +321,7 @@ const uniqueConflicts: ReadonlyMap<string, readonly [ErrorCodeValue, string]> =
       'UQ_identity_login',
       [
         ErrorCode.USERNAME_ALREADY_EXISTS,
-        '该登录范围内已存在此用户名，请更换用户名。',
+        '该业务范围内已存在此用户名，请更换用户名。',
       ],
     ],
     [
@@ -355,7 +355,7 @@ const uniqueConflicts: ReadonlyMap<string, readonly [ErrorCodeValue, string]> =
     ],
     [
       'UQ_resource_agency_contacts_agency_name_key',
-      [ErrorCode.AGENCY_CONTACT_NAME_EXISTS, '该旅行社下已存在同名联系人'],
+      [ErrorCode.AGENCY_CONTACT_NAME_EXISTS, '该组团社下已存在同名联系人'],
     ],
   ]);
 

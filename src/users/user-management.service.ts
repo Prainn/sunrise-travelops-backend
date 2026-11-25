@@ -225,7 +225,7 @@ export class UserManagementService {
     if (!actor.permissions.includes('sys:user:update')) denied();
     const user = await this.requireUser(id, actor);
     if (user.status !== UserStatus.Enabled || !user.feishuOpenId)
-      assignmentInvalid('请选择已启用且已接入飞书的账号');
+      assignmentInvalid('请选择状态正常且已接入飞书的账号');
     return this.feishu.sendText(
       user.feishuOpenId,
       formatFeishuTestReminder(template),
@@ -275,7 +275,7 @@ export class UserManagementService {
     if (input.length !== 1)
       throw new BusinessException({
         code: 'VALIDATION_ERROR',
-        message: '一个账号只能有一个登录范围和部门',
+        message: '一个账号只能有一个业务范围和部门',
         status: HttpStatus.BAD_REQUEST,
       });
     const result: Array<{ input: IdentityInput; roles: RoleEntity[] }> = [];
@@ -285,7 +285,7 @@ export class UserManagementService {
       const dept = DEPARTMENT_OPTIONS.find(
         (d) => d.value === identity.deptId && d.scope === identity.scope,
       );
-      if (!dept) denied('请选择该登录范围的职能部门');
+      if (!dept) denied('请选择该业务范围的职能部门');
       const roles = await manager.findBy(RoleEntity, {
         id: In(identity.roleIds),
         isEnabled: true,
@@ -350,7 +350,7 @@ export class UserManagementService {
       const user = await this.requireUser(id, actor, manager, true);
       this.assertUserVersion(user, input.version);
       if (user.identities.length !== 1)
-        assignmentInvalid('请先明确账号的唯一登录范围');
+        assignmentInvalid('请先明确账号的唯一业务范围');
       const identity = user.identities[0];
       if (identity.scope === 'shengxu')
         assignmentInvalid('盛旭账号不设置计调分工');
@@ -484,7 +484,7 @@ export class UserManagementService {
     return this.dataSource.transaction(async (manager) => {
       await lockAccountLinks(manager);
       const user = await this.requireUser(id, actor, manager, true);
-      if (id === actor.id && input.status === 0) denied('不能停用当前账号');
+      if (id === actor.id && input.status === 0) denied('不能禁用当前账号');
       if (
         user.accountLinkId &&
         (input.identities.length !== 1 ||
@@ -576,7 +576,7 @@ export class UserManagementService {
               identity.roles.some((role) => role.code === 'BUSINESS_MANAGER'),
           )
         )
-          denied('业务负责人不能删除其他业务负责人');
+          denied('业务部负责人不能删除其他业务部负责人');
         if (user.accountLinkId)
           linkError(
             '请先解除账号关联，再删除账号',

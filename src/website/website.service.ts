@@ -204,7 +204,7 @@ export class WebsiteService {
   ): WebsiteBusinessUnit {
     if (user.scope === 'headquarters') {
       if (!requested)
-        fail('VALIDATION_ERROR', '请选择所属业务部', HttpStatus.BAD_REQUEST);
+        fail('VALIDATION_ERROR', '请选择业务部', HttpStatus.BAD_REQUEST);
       return requested;
     }
     if (
@@ -355,7 +355,7 @@ export class WebsiteService {
       version === undefined ? [businessUnit] : [businessUnit, version],
     );
     if (!rows[0])
-      fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND, {
+      fail('NOT_FOUND', '独立站资源版本不存在', HttpStatus.NOT_FOUND, {
         configVersion: version,
       });
     return rows[0].config;
@@ -440,7 +440,7 @@ export class WebsiteService {
       ],
     );
     if (!result)
-      fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND);
+      fail('NOT_FOUND', '独立站资源版本不存在', HttpStatus.NOT_FOUND);
     return { ...result, page: query.page, pageSize: query.pageSize };
   }
   async configOptions(
@@ -873,7 +873,7 @@ export class WebsiteService {
         !city ||
         (city.status !== 'enabled' && !old?.destinations.includes(id))
       )
-        invalid('询盘目的地不是可用的独立站配置城市', { cityId: id });
+        invalid('询盘目的地不是可用的独立站资源城市', { cityId: id });
     }
   }
   private async log(
@@ -2258,7 +2258,8 @@ export class WebsiteService {
     const { inquiry, itinerary } = await this.itinerary(id, user);
     if (itinerary.status === 'quoted') {
       const frozen = await this.frozen(this.db.manager, id);
-      if (!frozen) fail('PDF_NOT_READY', '冻结报价不存在', HttpStatus.CONFLICT);
+      if (!frozen)
+        fail('PDF_NOT_READY', '已确认报价不存在', HttpStatus.CONFLICT);
       return frozen;
     }
     return this.previewData(this.db.manager, inquiry, itinerary);
