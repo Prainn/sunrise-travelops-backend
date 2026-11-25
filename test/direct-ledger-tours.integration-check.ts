@@ -1,3 +1,4 @@
+import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 /** Real HTTP/guards/transactions; only IsolationHarness's fresh local PostgreSQL database. */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -311,7 +312,11 @@ async function main() {
       sender.sendText = () => {
         throw new Error('test must never contact Feishu');
       };
-      const notifications = new LedgerNotificationsService(h.db, sender);
+      const notifications = new LedgerNotificationsService(
+        h.db,
+        sender,
+        h.get(OperationLogsService),
+      );
       const service = new DirectLedgersService(
         h.db,
         notifications,
@@ -357,6 +362,7 @@ async function main() {
       const rollbackNotifications = new LedgerNotificationsService(
         h.db,
         sender,
+        h.get(OperationLogsService),
       );
       const enqueue = rollbackNotifications.enqueue.bind(rollbackNotifications);
       rollbackNotifications.enqueue = async (...args) => {

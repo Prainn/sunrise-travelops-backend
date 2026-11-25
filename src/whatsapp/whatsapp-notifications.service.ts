@@ -1,9 +1,5 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
+import { OperationLogsService } from '../operation-logs/operation-logs.service';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { FeishuSendException, FeishuService } from '../feishu/feishu.service';
 import { formatWhatsAppReminder } from '../feishu/whatsapp-reminder';
@@ -41,16 +37,23 @@ export class WhatsappNotificationsService
 {
   private timer?: ReturnType<typeof setInterval>;
   private running?: Promise<void>;
-  private readonly logger = new Logger(WhatsappNotificationsService.name);
   constructor(
     private readonly db: DataSource,
     private readonly feishu: FeishuService,
+    private readonly audit: OperationLogsService,
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => {
       if (!this.running)
         this.running = this.drain()
-          .catch(() => this.logger.error('WhatsApp notification worker failed'))
+          .catch(() =>
+            this.audit.workerFailure(
+              'whatsapp',
+              '处理WhatsApp提醒',
+              'website',
+              'whatsapp-notifications',
+            ),
+          )
           .finally(() => {
             this.running = undefined;
           });

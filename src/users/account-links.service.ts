@@ -295,6 +295,7 @@ export class AccountLinksService {
         category: 'user',
         action: remove ? '解除账号关联' : id ? '调整账号关联' : '建立账号关联',
         success: true,
+        result: 'success',
         actorId: actor.id,
         actorName: actor.username,
         scope: actor.scope,

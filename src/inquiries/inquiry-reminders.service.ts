@@ -1,10 +1,6 @@
+import { OperationLogsService } from '../operation-logs/operation-logs.service';
 import { notificationEnabled } from '../notifications/notification-settings';
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { FeishuService } from '../feishu/feishu.service';
 import { formatInquiryFollowUpReminder } from '../feishu/inquiry-follow-up-reminder';
@@ -25,16 +21,23 @@ interface Recipient {
 export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private running?: Promise<void>;
-  private readonly logger = new Logger(InquiryRemindersService.name);
   constructor(
     private readonly db: DataSource,
     private readonly feishu: FeishuService,
+    private readonly audit: OperationLogsService,
   ) {}
   onModuleInit() {
     this.timer = setInterval(() => {
       if (!this.running)
         this.running = this.drain()
-          .catch(() => this.logger.error('Inquiry reminder worker failed'))
+          .catch(() =>
+            this.audit.workerFailure(
+              'inquiry',
+              '处理跟进提醒',
+              'system',
+              'inquiry-reminders',
+            ),
+          )
           .finally(() => {
             this.running = undefined;
           });

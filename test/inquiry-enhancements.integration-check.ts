@@ -3,7 +3,12 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { DataSource } from 'typeorm';
-import { IsolationHarness, type Page } from './business-isolation.harness';
+import {
+  applyIsolationMigrations,
+  IsolationHarness,
+  type Page,
+} from './business-isolation.harness';
+import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 import { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import type { FeishuService } from '../src/feishu/feishu.service';
 import type { ItineraryInput } from '../src/inquiries/inquiry.dto';
@@ -139,38 +144,33 @@ async function upgrade() {
   try {
     await admin.query(`CREATE DATABASE "${name}"`);
     await db.initialize();
-    const added = db.migrations.filter(
-      (m) => m.name?.includes('179608320') || m.name?.includes('1796256000000'),
-    );
-    assert.equal(added.length, 5);
-    db.migrations.splice(
-      0,
-      db.migrations.length,
-      ...db.migrations.filter((m) => !added.includes(m)),
-    );
-    await db.runMigrations();
-    const [u] = await db.query<{ id: string }[]>(
-      `INSERT INTO users(username,password_hash,nickname,english_name,tour_code) VALUES('old','fixture','Old','Old','OLD') RETURNING id`,
-    );
-    const [i] = await db.query<{ id: string }[]>(
-      `INSERT INTO inquiries(code,owner_id,owner,status,creator,business_unit,agency_id,contact_id,agency_code,agency_name,contact_name,email,phone,country_or_region,source_channel,original_message,internal_remark,planned_days,next_follow_up_at,lost_reason)
-      VALUES('INQ-OLD',$1,'Old','new','old','shengxu',$2,$3,'A','Agency','Contact','','','China','old','request','historical note',1,'2030-01-01T08:00:00.000Z','') RETURNING id`,
-      [u.id, randomUUID(), randomUUID()],
-    );
-    const before = await db.query<Record<string, unknown>[]>(
-      'SELECT * FROM inquiries WHERE id=$1',
-      [i.id],
-    );
-    db.migrations.push(...added);
-    assert.equal((await db.runMigrations()).length, 5);
+    const id = randomUUID();
+    let before!: Record<string, unknown>;
+    await applyIsolationMigrations(db, {
+      from: 1796083200000,
+      seed: async () => {
+        const [u] = await db.query<{ id: string }[]>(
+          `INSERT INTO users(username,password_hash,nickname,english_name,tour_code) VALUES('old','fixture','Old','Old','OLD') RETURNING id`,
+        );
+        await db.query(
+          `INSERT INTO inquiries(id,code,owner_id,owner,status,creator,business_unit,agency_id,contact_id,agency_code,agency_name,contact_name,email,phone,country_or_region,source_channel,original_message,internal_remark,planned_days,next_follow_up_at,lost_reason)
+          VALUES($1,'INQ-OLD',$2,'Old','new','old','shengxu',$3,$4,'A','Agency','Contact','','','China','old','request','historical note',1,'2030-01-01T08:00:00.000Z','')`,
+          [id, u.id, randomUUID(), randomUUID()],
+        );
+        [before] = await db.query<Record<string, unknown>[]>(
+          'SELECT * FROM inquiries WHERE id=$1',
+          [id],
+        );
+      },
+    });
     assert.equal((await db.runMigrations()).length, 0);
     const [after] = await db.query<Record<string, unknown>[]>(
       'SELECT * FROM inquiries WHERE id=$1',
-      [i.id],
+      [id],
     );
     const { is_series, ...preserved } = after;
     assert.equal(is_series, false);
-    assert.deepEqual(preserved, before[0]);
+    assert.deepEqual(preserved, before);
     const [history] = await db.query<
       {
         remark: string;
@@ -178,7 +178,7 @@ async function upgrade() {
         followed_at: null;
         followed_by: null;
       }[]
-    >('SELECT * FROM inquiry_follow_ups WHERE inquiry_id=$1', [i.id]);
+    >('SELECT * FROM inquiry_follow_ups WHERE inquiry_id=$1', [id]);
     assert.equal(history.remark, 'historical note');
     assert(history.legacy);
     assert.equal(history.followed_at, null);
@@ -328,13 +328,13 @@ async function main() {
       missing,
       201,
     );
-    await h.call(
+    const missingEnglish = await h.call<CurrentPdfData>(
       owner,
       'GET',
       `/itineraries/${missingPlan.id}/pdf-data?language=en`,
-      undefined,
-      400,
-      'PDF_NOT_READY',
+    );
+    assert(
+      missingEnglish.customerPresentation?.missingEnglish.includes('titleEn'),
     );
     await h.call(owner, 'GET', `/itineraries/${missingPlan.id}/pdf-data`);
     inquiry = await h.call<Inquiry>(owner, 'GET', `/inquiries/${inquiry.id}`);
@@ -499,13 +499,17 @@ async function main() {
       201,
     );
     const sent: string[] = [];
-    const worker = new InquiryRemindersService(h.db, {
-      configured: true,
-      sendText: (openId: string) => {
-        sent.push(openId);
-        return Promise.resolve({ messageId: 'mock-message' });
-      },
-    } as unknown as FeishuService);
+    const worker = new InquiryRemindersService(
+      h.db,
+      {
+        configured: true,
+        sendText: (openId: string) => {
+          sent.push(openId);
+          return Promise.resolve({ messageId: 'mock-message' });
+        },
+      } as unknown as FeishuService,
+      h.get(OperationLogsService),
+    );
     await h.db.query(
       `UPDATE inquiry_follow_up_reminders SET due_at=now()-interval '1 second' WHERE follow_up_id=$1`,
       [latest],

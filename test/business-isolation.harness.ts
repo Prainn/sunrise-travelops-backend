@@ -34,6 +34,8 @@ import { createValidationException } from '../src/common/validation/validation-e
 import { InquiriesModule } from '../src/inquiries/inquiries.module';
 import { LedgersModule } from '../src/ledgers/ledgers.module';
 import { ToursModule } from '../src/tours/tours.module';
+import { OperationLogInterceptor } from '../src/operation-logs/operation-log.interceptor';
+import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 import { OperationLogsModule } from '../src/operation-logs/operation-logs.module';
 import { SystemModule } from '../src/system/system.module';
 import { WebsiteModule } from '../src/website/website.module';
@@ -59,6 +61,37 @@ export interface Page<T = RecordRef> {
   pageSize: number;
 }
 
+interface HistoricalUpgrade {
+  from: number;
+  seed: () => Promise<void>;
+}
+
+// Apply a real chronological prefix so later triggers always find their referenced tables.
+export async function applyIsolationMigrations(
+  db: DataSource,
+  upgrade?: HistoricalUpgrade,
+) {
+  const all = [...db.migrations];
+  assert(all.length > 0, 'Migration discovery must not be empty');
+  let applied = 0;
+  if (upgrade) {
+    const baseline = all.filter((migration) => {
+      const name = migration.name ?? migration.constructor.name;
+      return Number(name.slice(-13)) < upgrade.from;
+    });
+    assert(baseline.length > 0 && baseline.length < all.length);
+    db.migrations.splice(0, all.length, ...baseline);
+    try {
+      applied = (await db.runMigrations()).length;
+      assert.equal(applied, baseline.length);
+      await upgrade.seed();
+    } finally {
+      db.migrations.splice(0, baseline.length, ...all);
+    }
+  }
+  assert.equal((await db.runMigrations()).length, all.length - applied);
+}
+
 export class IsolationHarness {
   private readonly database = `travelops_isolation_${process.pid}_${randomUUID().replaceAll('-', '')}`;
   private admin: DataSource;
@@ -74,6 +107,7 @@ export class IsolationHarness {
     private readonly extraConfig: Record<string, string> = {},
     private readonly options: {
       lynx?: boolean;
+      operationAudit?: boolean;
       httpsOptions?: NestApplicationOptions['httpsOptions'];
     } = {},
   ) {
@@ -106,20 +140,13 @@ export class IsolationHarness {
     return this.base;
   }
 
-  async start() {
+  async start(upgrade?: HistoricalUpgrade) {
     await this.admin.initialize();
     assert.match(this.database, /^travelops_isolation_\d+_[a-f0-9]{32}$/);
     await this.admin.query(`CREATE DATABASE "${this.database}"`);
     this.created = true;
     await this.db.initialize();
-    assert(
-      this.db.migrations.length > 0,
-      'Migration discovery must not be empty',
-    );
-    assert.equal(
-      (await this.db.runMigrations()).length,
-      this.db.migrations.length,
-    );
+    await applyIsolationMigrations(this.db, upgrade);
     // Passport's registry is process-global; name each app's real JWT strategy.
     const strategyName = this.database;
     class AppJwtGuard extends AuthGuard(strategyName) {
@@ -171,6 +198,16 @@ export class IsolationHarness {
         ...(this.options.lynx ? [LynxModule] : []),
       ],
       providers: [
+        ...(this.options.operationAudit
+          ? [
+              OperationLogInterceptor,
+              { provide: APP_GUARD, useExisting: OperationLogInterceptor },
+              {
+                provide: APP_INTERCEPTOR,
+                useExisting: OperationLogInterceptor,
+              },
+            ]
+          : []),
         {
           provide: APP_GUARD,
           inject: [Reflector],
@@ -198,7 +235,13 @@ export class IsolationHarness {
         exceptionFactory: createValidationException,
       }),
     );
-    this.app.useGlobalFilters(new ApiExceptionFilter());
+    this.app.useGlobalFilters(
+      new ApiExceptionFilter(
+        this.options.operationAudit
+          ? module.get(OperationLogsService)
+          : undefined,
+      ),
+    );
     await this.app.listen(0, '127.0.0.1');
     this.base = `${await this.app.getUrl()}/api`;
     this.passwordHash = await argon2.hash('isolation-fixture-password');

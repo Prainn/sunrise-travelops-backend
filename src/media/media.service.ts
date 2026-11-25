@@ -1,9 +1,5 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-} from '@nestjs/common';
+import { OperationLogsService } from '../operation-logs/operation-logs.service';
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { AuthenticatedUser } from '../auth/auth.types';
@@ -53,12 +49,12 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   private stopped = false;
   private processing = 0;
   private nextDraftCleanupAt = 0;
-  private readonly logger = new Logger(MediaService.name);
   constructor(
     private readonly db: DataSource,
     readonly config: MediaConfig,
     private readonly storage: MediaStorage,
     private readonly documentArchive: WhatsappDocumentArchive,
+    private readonly audit: OperationLogsService,
   ) {}
   onModuleInit() {
     if (!this.config.enabled) return;
@@ -66,11 +62,21 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     const tick = () => {
       this.current = this.processOne()
         .catch(() => {
-          this.logger.warn('Media worker failed (details suppressed)');
+          return this.audit.workerFailure(
+            'resource',
+            '处理OSS媒体资源',
+            'system',
+            'media-storage',
+          );
         })
         .then(() => this.documentArchive.processOne())
         .catch(() =>
-          this.logger.warn('WhatsApp document archive worker failed'),
+          this.audit.workerFailure(
+            'whatsapp',
+            '归档WhatsApp文件',
+            'website',
+            'document-archive',
+          ),
         )
         .then(async () => {
           if (this.stopped || Date.now() < this.nextDraftCleanupAt) return;
@@ -78,7 +84,12 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
           try {
             if (await this.cleanupExpiredDraft()) this.nextDraftCleanupAt = 0;
           } catch {
-            this.logger.warn('WhatsApp draft cleanup failed; will retry');
+            await this.audit.workerFailure(
+              'whatsapp',
+              '清理WhatsApp图片草稿',
+              'website',
+              'image-cleanup',
+            );
           }
         })
         .finally(() => {

@@ -1,12 +1,10 @@
-import { ToursService } from '../src/tours/tours.service';
 /** Disposable PostgreSQL only; fake sender never contacts Feishu. */
 import assert from 'node:assert/strict';
-import { readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { IsolationHarness } from './business-isolation.harness';
-import { AddFeishuNotifications1794009600000 } from '../src/migrations/1794009600000-AddFeishuNotifications';
+import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
+import { ToursService } from '../src/tours/tours.service';
 import { FeishuService } from '../src/feishu/feishu.service';
 import { LedgerNotificationsService } from '../src/ledgers/ledger-notifications.service';
 import { DirectLedgersService } from '../src/ledgers/direct-ledgers.service';
@@ -37,29 +35,23 @@ sender.sendText = (openId, text, uuid) => {
 };
 async function main() {
   // Apply the existing chain first, create representative old rows, then upgrade.
-  const directory = resolve(__dirname, '../src/migrations');
-  h.db.setOptions({
-    migrations: readdirSync(directory)
-      .filter(
-        (name) =>
-          name.endsWith('.ts') && !name.includes('AddFeishuNotifications'),
-      )
-      .map((name) => resolve(directory, name)),
-  });
-  await h.start();
+  const oldUser = randomUUID();
+  let oldLedger!: { id: string; order_no: string };
   try {
-    const oldUser = randomUUID();
-    await h.db.query(
-      `INSERT INTO users(id,username,nickname,english_name,password_hash) VALUES($1,'feishu_old','Old','Old','fixture')`,
-      [oldUser],
-    );
-    const [oldLedger] = await h.db.query<{ id: string; order_no: string }[]>(
-      `INSERT INTO direct_ledgers(business_unit,received_date,source,creator_id,creator_name,operator_id,operator_name,receiving_account_name,updated_by)
-      VALUES('website','2026-10-26','old source',$1,'Old',$1,'Old','独立站',$1) RETURNING id,order_no`,
-      [oldUser],
-    );
-    h.db.migrations.push(new AddFeishuNotifications1794009600000());
-    assert.equal((await h.db.runMigrations()).length, 1);
+    await h.start({
+      from: 1794009600000,
+      seed: async () => {
+        await h.db.query(
+          `INSERT INTO users(id,username,nickname,english_name,password_hash) VALUES($1,'feishu_old','Old','Old','fixture')`,
+          [oldUser],
+        );
+        [oldLedger] = await h.db.query<{ id: string; order_no: string }[]>(
+          `INSERT INTO direct_ledgers(business_unit,received_date,source,creator_id,creator_name,operator_id,operator_name,receiving_account_name,updated_by)
+          VALUES('website','2026-10-26','old source',$1,'Old',$1,'Old','独立站',$1) RETURNING id,order_no`,
+          [oldUser],
+        );
+      },
+    });
     assert.equal((await h.db.runMigrations()).length, 0);
     assert.equal(
       (
@@ -182,7 +174,11 @@ async function main() {
       ).feishuOpenId,
       '',
     );
-    const notifications = new LedgerNotificationsService(h.db, sender);
+    const notifications = new LedgerNotificationsService(
+      h.db,
+      sender,
+      h.get(OperationLogsService),
+    );
     const ledgers = new DirectLedgersService(
       h.db,
       notifications,
@@ -232,7 +228,11 @@ async function main() {
     // Two consumers share row claims; send each job once.
     await Promise.all([
       notifications.drain(),
-      new LedgerNotificationsService(h.db, sender).drain(),
+      new LedgerNotificationsService(
+        h.db,
+        sender,
+        h.get(OperationLogsService),
+      ).drain(),
     ]);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].openId, `ou_website_${manager.id}`);
@@ -339,7 +339,11 @@ async function main() {
     assert.equal((await ledgers.get(failing.id, actor)).loss, true);
     fail = false;
     // Queue and ledger transaction roll back together even if failure occurs after enqueue.
-    const rollbackQueue = new LedgerNotificationsService(h.db, sender);
+    const rollbackQueue = new LedgerNotificationsService(
+      h.db,
+      sender,
+      h.get(OperationLogsService),
+    );
     const enqueue = rollbackQueue.enqueue.bind(rollbackQueue);
     rollbackQueue.enqueue = async (...args) => {
       await enqueue(...args);

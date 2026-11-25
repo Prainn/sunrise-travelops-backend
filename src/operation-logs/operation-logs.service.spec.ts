@@ -16,6 +16,9 @@ class QueryDataSource extends DataSource {
 }
 
 describe('Operation log filters', () => {
+  const snapshotAt = '2026-11-25T04:00:00.000Z';
+  beforeAll(() => jest.useFakeTimers({ now: new Date(snapshotAt) }));
+  afterAll(() => jest.useRealTimers());
   const db = new QueryDataSource({
     type: 'postgres',
     entities: [OperationLogEntity],
@@ -84,6 +87,7 @@ describe('Operation log filters', () => {
     expect(await controller.list(query)).toEqual({
       list: [],
       total: 0,
+      snapshotAt,
       page: 2,
       pageSize: 10,
     });
@@ -104,6 +108,7 @@ describe('Operation log filters', () => {
       '%A\\%\\_\\\\lice%',
       '2026-10-25T00:00:00+08:00',
       '2026-10-26T00:00:00+08:00',
+      snapshotAt,
     ]);
   });
 
@@ -122,6 +127,7 @@ describe('Operation log filters', () => {
     expect(parameters).toEqual([
       '2026-10-26T00:00:00+08:00',
       '2026-10-26T00:00:00+08:00',
+      snapshotAt,
     ]);
   });
 
@@ -135,7 +141,7 @@ describe('Operation log filters', () => {
       expect(sql).toContain(
         field === 'start' ? '"log"."time" >= $1' : '"log"."time" < $1',
       );
-      expect(parameters).toEqual(['2026-10-26T00:00:00+08:00']);
+      expect(parameters).toEqual(['2026-10-26T00:00:00+08:00', snapshotAt]);
     },
   );
 
@@ -144,8 +150,8 @@ describe('Operation log filters', () => {
       plainToInstance(OperationLogQueryDto, { actorName: '   ' }),
     );
     const [sql, parameters] = querySql();
-    expect(sql).not.toContain('WHERE');
-    expect(parameters).toEqual([]);
+    expect(sql).toContain('WHERE');
+    expect(parameters).toEqual([snapshotAt]);
   });
 
   it('rejects reversed dates before accessing the repository', async () => {

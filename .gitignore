@@ -11,3 +11,4 @@ whatsapp-receive.env
 .vscode/
 postgres-tls/
 acme/
+/.operation-log-retry/

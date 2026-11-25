@@ -2,7 +2,6 @@ import {
   CallHandler,
   ExecutionContext,
   HttpStatus,
-  Logger,
   StreamableFile,
 } from '@nestjs/common';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -39,10 +38,17 @@ function operationRoutes(): [string, string][] {
             const expression = decorator.expression;
             if (!ts.isCallExpression(expression)) return false;
             const verb = expression.expression.getText(source);
-            return (
-              ['Post', 'Put', 'Patch', 'Delete'].includes(verb) ||
-              (verb === 'Get' && handler === 'export')
-            );
+            return [
+              'Get',
+              'Post',
+              'Put',
+              'Patch',
+              'Delete',
+              'Head',
+              'Options',
+              'All',
+              'Sse',
+            ].includes(verb);
           })
         )
           routes.push([statement.name.text, handler]);
@@ -75,42 +81,20 @@ describe('OperationLogInterceptor', () => {
   const interceptor = new OperationLogInterceptor(
     logs as unknown as OperationLogsService,
   );
-  const actor = { id: 'actor-id', username: 'sunrise', scope: 'headquarters' };
+  const actor = {
+    id: 'b1faa09c-3773-5e00-be0e-30151cd7fa13',
+    username: 'sunrise',
+    scope: 'headquarters',
+  };
 
   beforeEach(() => {
     entries.length = 0;
     logs.append.mockClear();
   });
 
-  it('covers mutations and exports not audited within their business transaction', async () => {
+  it('records every registered HTTP endpoint once except successes written directly by the owner', async () => {
     const excluded = new Set([
-      // Provider callbacks persist events/source attribution, without an internal actor.
-      'WhatsappIngressController.inbound',
-      'WhatsappIngressController.status',
-      'WhatsappIngressController.source',
-      // Read cursors retain their reader and timestamp in whatsapp_reads.
-      'WhatsappController.read',
-      // These mutations persist whatsapp_actions in the business transaction.
-      'WhatsappController.saveCustomerNotes',
-      'WhatsappController.assign',
-      'WhatsappController.state',
-      'WhatsappController.newConsultation',
-      'WhatsappController.inquiry',
-      'WhatsappController.send',
-      'WhatsappController.sendImage',
-      'WhatsappController.sendImageBatch',
-      'WhatsappController.sendDocument',
-      'WhatsappController.react',
-      'WhatsappController.retry',
-      'WhatsappController.confirmFailed',
-      'AuthController.refresh', // Token renewal is not a user operation.
-      'ToursController.availableGuides', // POST body is a read-only scheduling query.
-      'WebsiteController.validateItinerary', // Read-only validation does not record operation logs.
-      'LynxController.register', // Public attribution collection, not an internal page.
-      // Dedicated machine GET API has no business actor; the caller's business export is audited locally.
-      'WebsiteVisitsApiController.export',
-      // These services save audit rows in their transaction; account-links.integration-check
-      // verifies the committed audit alongside relation/session changes.
+      'OperationLogsController.clientEvent',
       'AuthController.switchAccount',
       'AccountLinksController.create',
       'AccountLinksController.update',
@@ -124,20 +108,28 @@ describe('OperationLogInterceptor', () => {
         interceptor.intercept(
           context(controller, handler, {
             user: actor,
-            params: { id: 'target-id' },
-            query: { ids: 'target-id' },
+            params: { id: 'c814ce1a-1158-5655-a718-6cfced8dd96b' },
+            query: { ids: 'c814ce1a-1158-5655-a718-6cfced8dd96b' },
             body: {},
           }),
-          { handle: () => of({ id: 'result-id' }) },
+          { handle: () => of({ id: '66b58007-9b79-5f8d-afb4-d59693a183c1' }) },
         ),
       );
-      if (entries.length === before) missing.push(`${controller}.${handler}`);
+      if (
+        entries.length !== before + 1 ||
+        !entries[before].actorName ||
+        !entries[before].scope ||
+        !Object.keys(
+          JSON.parse(entries[before].detail) as Record<string, unknown>,
+        ).length
+      )
+        missing.push(`${controller}.${handler}`);
     }
     expect(missing).toEqual([]);
   });
 
   it.each(['list', 'export', 'row'])(
-    'does not write user operation logs for machine visit source %s',
+    'identifies the service for machine visit source %s',
     async (handler) => {
       await firstValueFrom(
         interceptor.intercept(
@@ -148,7 +140,10 @@ describe('OperationLogInterceptor', () => {
           { handle: () => of({}) },
         ),
       );
-      expect(logs.append).not.toHaveBeenCalled();
+      expect(entries[0]).toMatchObject({
+        actorName: '访问记录服务',
+        scope: 'website',
+      });
     },
   );
 
@@ -160,7 +155,7 @@ describe('OperationLogInterceptor', () => {
     async (controller, action) => {
       const request = {
         user: actor,
-        params: { id: 'inquiry-id' },
+        params: { id: 'aa321860-25da-5d9f-831f-de9b3cf8c185' },
         body: { version: 2 },
         query: {},
       };
@@ -174,7 +169,9 @@ describe('OperationLogInterceptor', () => {
         category: 'inquiry',
         action,
         success: true,
-        detail: JSON.stringify({ recordId: 'inquiry-id' }),
+        detail: JSON.stringify({
+          recordId: 'aa321860-25da-5d9f-831f-de9b3cf8c185',
+        }),
       });
       const failure = new BusinessException({
         code: ErrorCode.INQUIRY_VERSION_CONFLICT,
@@ -199,7 +196,7 @@ describe('OperationLogInterceptor', () => {
   it('records service segment pointers and the composite rating target without request payloads', async () => {
     const change = {
       serviceIds: ['segment-a'],
-      guideIds: ['guide-a'],
+      guideIds: ['fa399b9a-929a-5c74-b15e-88dfe7c08e23'],
       removedServiceIds: ['segment-b'],
       removedGuideIds: ['guide-b'],
     };
@@ -207,30 +204,39 @@ describe('OperationLogInterceptor', () => {
       interceptor.intercept(
         context('ToursController', 'update', {
           user: actor,
-          params: { id: 'tour-a' },
+          params: { id: '04c340a2-a001-58a0-a342-300950553793' },
           body: { remark: 'private' },
           tourGuideServiceChange: change,
         }),
-        { handle: () => of({ id: 'tour-a' }) },
+        { handle: () => of({ id: '04c340a2-a001-58a0-a342-300950553793' }) },
       ),
     );
     expect(JSON.parse(entries[0].detail)).toEqual({
-      recordId: 'tour-a',
+      recordId: '04c340a2-a001-58a0-a342-300950553793',
       ...change,
     });
     await firstValueFrom(
       interceptor.intercept(
         context('ToursController', 'saveRating', {
           user: actor,
-          params: { id: 'tour-a', guideId: 'guide-a' },
+          params: {
+            id: '04c340a2-a001-58a0-a342-300950553793',
+            guideId: 'fa399b9a-929a-5c74-b15e-88dfe7c08e23',
+          },
           body: { selfScore: 50 },
         }),
-        { handle: () => of({ tourId: 'tour-a', guideId: 'guide-a' }) },
+        {
+          handle: () =>
+            of({
+              tourId: '04c340a2-a001-58a0-a342-300950553793',
+              guideId: 'fa399b9a-929a-5c74-b15e-88dfe7c08e23',
+            }),
+        },
       ),
     );
     expect(JSON.parse(entries[1].detail)).toEqual({
-      recordId: 'tour-a',
-      guideId: 'guide-a',
+      recordId: '04c340a2-a001-58a0-a342-300950553793',
+      guideId: 'fa399b9a-929a-5c74-b15e-88dfe7c08e23',
     });
     expect(JSON.stringify(entries)).not.toContain('private');
   });
@@ -239,7 +245,7 @@ describe('OperationLogInterceptor', () => {
     ['ToursController', 'availableGuides'],
     ['WebsiteController', 'validateItinerary'],
   ])(
-    'does not audit read-only POST %s.%s, including failures',
+    'audits read-only POST %s.%s, including failures',
     async (controller, handler) => {
       const request = { user: actor, params: {}, body: {} };
       await firstValueFrom(
@@ -255,7 +261,7 @@ describe('OperationLogInterceptor', () => {
           }),
         ),
       ).rejects.toBe(failure);
-      expect(entries).toHaveLength(0);
+      expect(entries.map((row) => row.success)).toEqual([true, false]);
     },
   );
 
@@ -273,14 +279,21 @@ describe('OperationLogInterceptor', () => {
     async (controller, handler, action) => {
       const request = {
         user: { ...actor, scope: 'linxi' },
-        params: handler === 'create' ? {} : { id: 'ledger-id' },
+        params:
+          handler === 'create'
+            ? {}
+            : { id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8' },
         query: {},
         body: { contact: 'private-contact', amount: 'private-amount' },
       };
       await firstValueFrom(
         interceptor.intercept(context(controller, handler, request), {
           handle: () =>
-            of(handler === 'delete' ? undefined : { id: 'ledger-id' }),
+            of(
+              handler === 'delete'
+                ? undefined
+                : { id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8' },
+            ),
         }),
       );
       const failure = new BusinessException({
@@ -299,9 +312,13 @@ describe('OperationLogInterceptor', () => {
         { category: 'ledger', action, success: true, scope: 'linxi' },
         { category: 'ledger', action, success: false, scope: 'linxi' },
       ]);
-      expect(JSON.parse(entries[0].detail)).toEqual({ recordId: 'ledger-id' });
+      expect(JSON.parse(entries[0].detail)).toEqual({
+        recordId: 'ca750926-c850-554b-9ca0-4adcab6b2ed8',
+      });
       expect(JSON.parse(entries[1].detail)).toEqual({
-        ...(handler === 'create' ? {} : { recordId: 'ledger-id' }),
+        ...(handler === 'create'
+          ? {}
+          : { recordId: 'ca750926-c850-554b-9ca0-4adcab6b2ed8' }),
         statusCode: 409,
         errorCode: ErrorCode.CONFLICT,
       });
@@ -316,7 +333,7 @@ describe('OperationLogInterceptor', () => {
         interceptor.intercept(
           context('DirectLedgersController', handler, {
             user: { ...actor, scope: 'website' },
-            params: { id: 'ledger-id' },
+            params: { id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8' },
             query: {},
             body: {},
           }),
@@ -340,7 +357,10 @@ describe('OperationLogInterceptor', () => {
       await firstValueFrom(
         interceptor.intercept(
           context('DirectLedgersController', 'create', request),
-          { handle: () => of({ id: 'ledger-id', businessUnit }) },
+          {
+            handle: () =>
+              of({ id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8', businessUnit }),
+          },
         ),
       );
       const failure = new Error('failed');
@@ -371,14 +391,20 @@ describe('OperationLogInterceptor', () => {
   it('uses the returned ledger business and does not trust an update body to classify a rejected headquarters action', async () => {
     const request = {
       user: actor,
-      params: { id: 'ledger-id' },
+      params: { id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8' },
       query: {},
       body: { businessUnit: 'linxi' },
     };
     await firstValueFrom(
       interceptor.intercept(
         context('DirectLedgersController', 'create', request),
-        { handle: () => of({ id: 'ledger-id', businessUnit: 'website' }) },
+        {
+          handle: () =>
+            of({
+              id: 'ca750926-c850-554b-9ca0-4adcab6b2ed8',
+              businessUnit: 'website',
+            }),
+        },
       ),
     );
     expect(entries[0].action).toBe('新增独立站台账');
@@ -401,11 +427,14 @@ describe('OperationLogInterceptor', () => {
   it('records a conversion once with the new inquiry and source visit, including failed source', async () => {
     const request = {
       user: actor,
-      params: { id: 'visit-id' },
+      params: { id: 'cddd6ae9-ab0e-594f-9c9a-d95402c0a72a' },
       query: {},
       body: { contact: 'private-contact' },
     };
-    const result = { id: 'inquiry-id', customer: 'private-customer' };
+    const result = {
+      id: 'aa321860-25da-5d9f-831f-de9b3cf8c185',
+      customer: 'private-customer',
+    };
     const value = await firstValueFrom(
       interceptor.intercept(
         context('WebsiteVisitsController', 'create', request),
@@ -421,8 +450,8 @@ describe('OperationLogInterceptor', () => {
       success: true,
     });
     expect(JSON.parse(entries[0].detail)).toEqual({
-      recordId: 'inquiry-id',
-      parentId: 'visit-id',
+      recordId: 'aa321860-25da-5d9f-831f-de9b3cf8c185',
+      parentId: 'cddd6ae9-ab0e-594f-9c9a-d95402c0a72a',
     });
     const failure = new Error('private-error');
     await expect(
@@ -436,7 +465,7 @@ describe('OperationLogInterceptor', () => {
       ),
     ).rejects.toBe(failure);
     expect(JSON.parse(entries[1].detail)).toEqual({
-      parentId: 'visit-id',
+      parentId: 'cddd6ae9-ab0e-594f-9c9a-d95402c0a72a',
       statusCode: 500,
     });
     expect(JSON.stringify(entries)).not.toContain('private-');
@@ -471,7 +500,14 @@ describe('OperationLogInterceptor', () => {
       ),
     ).rejects.toBe(failure);
     expect(entries).toMatchObject([
-      { category: 'website-visit', success: true, detail: '{}' },
+      {
+        category: 'website-visit',
+        success: true,
+        detail: JSON.stringify({
+          stage: 'stream_started',
+          operation: 'WebsiteVisitsController.export',
+        }),
+      },
       {
         category: 'website-visit',
         success: false,
@@ -502,8 +538,10 @@ describe('OperationLogInterceptor', () => {
     const request = {
       user: actor,
       body: {},
-      params: { restaurantId: 'parent-id' },
-      query: { ids: 'price-1,price-2' },
+      params: { restaurantId: '65182725-0c03-52bd-8e62-f8e0274d124f' },
+      query: {
+        ids: '56d6533f-c396-53d3-bf91-f6853b47b9d7,3af3787e-92c9-5978-95a3-b70df213592a',
+      },
       ip: '127.0.0.1',
     };
     await firstValueFrom(
@@ -513,8 +551,14 @@ describe('OperationLogInterceptor', () => {
       ),
     );
     expect(entries.map((entry) => [entry.action, entry.detail])).toEqual([
-      ['删除餐厅价格', '{"recordId":"price-1","parentId":"parent-id"}'],
-      ['删除餐厅价格', '{"recordId":"price-2","parentId":"parent-id"}'],
+      [
+        '删除餐厅价格',
+        '{"recordId":"56d6533f-c396-53d3-bf91-f6853b47b9d7","parentId":"65182725-0c03-52bd-8e62-f8e0274d124f"}',
+      ],
+      [
+        '删除餐厅价格',
+        '{"recordId":"3af3787e-92c9-5978-95a3-b70df213592a","parentId":"65182725-0c03-52bd-8e62-f8e0274d124f"}',
+      ],
     ]);
   });
 
@@ -550,7 +594,7 @@ describe('OperationLogInterceptor', () => {
         identityNumber: 'private-document',
         password: 'private-password',
       },
-      params: { id: 'resource-id' },
+      params: { id: '8738df05-8013-5798-b8c3-95de6b21b8f7' },
       query: {},
       ip: '127.0.0.1',
     };
@@ -569,7 +613,7 @@ describe('OperationLogInterceptor', () => {
     ).rejects.toBe(failure);
     expect(entries).toMatchObject([{ category: 'resource', success: false }]);
     expect(JSON.parse(entries[0].detail)).toEqual({
-      recordId: 'resource-id',
+      recordId: '8738df05-8013-5798-b8c3-95de6b21b8f7',
       statusCode: 409,
       errorCode: ErrorCode.RESOURCE_VERSION_CONFLICT,
     });
@@ -584,11 +628,14 @@ describe('OperationLogInterceptor', () => {
   ])(
     'records the new object and source for %s.%s',
     async (controller, handler, category, action) => {
-      const result = { id: 'new-itinerary', title: 'private-title' };
+      const result = {
+        id: '223328f4-3aa1-58ce-aeee-b43ab08bd585',
+        title: 'private-title',
+      };
       const request = {
         user: actor,
         body: { version: 1 },
-        params: { id: 'source-id' },
+        params: { id: '0680cf78-efce-52c0-a01c-09b451833155' },
         query: {},
       };
       const value = await firstValueFrom(
@@ -599,8 +646,8 @@ describe('OperationLogInterceptor', () => {
       expect(value).toBe(result);
       expect(entries).toMatchObject([{ category, action, success: true }]);
       expect(JSON.parse(entries[0].detail)).toEqual({
-        recordId: 'new-itinerary',
-        parentId: 'source-id',
+        recordId: '223328f4-3aa1-58ce-aeee-b43ab08bd585',
+        parentId: '0680cf78-efce-52c0-a01c-09b451833155',
       });
       expect(JSON.stringify(entries)).not.toContain('private-title');
     },
@@ -628,14 +675,18 @@ describe('OperationLogInterceptor', () => {
     async (controller, handler, category) => {
       const result =
         handler === 'createConfigRecord'
-          ? { id: 'object-id', group: 'hotels', version: 2 }
+          ? {
+              id: '3934eb38-e923-5ec5-b5d3-6267e7dd4775',
+              group: 'hotels',
+              version: 2,
+            }
           : { quotation: { customer: 'private-customer' } };
       const request = {
         user: actor,
         params:
           handler === 'createConfigRecord'
             ? { group: 'hotels' }
-            : { id: 'object-id' },
+            : { id: '3934eb38-e923-5ec5-b5d3-6267e7dd4775' },
         query: {},
         body: { comment: 'private-comment' },
       };
@@ -646,9 +697,12 @@ describe('OperationLogInterceptor', () => {
       );
       expect(entries).toMatchObject([{ category, success: true }]);
       expect(JSON.parse(entries[0].detail)).toEqual(
-        handler === 'createConfigRecord'
-          ? { recordId: 'object-id', group: 'hotels' }
-          : { recordId: 'object-id' },
+        handler === 'downloadClick'
+          ? {
+              recordId: '3934eb38-e923-5ec5-b5d3-6267e7dd4775',
+              stage: 'download_requested',
+            }
+          : { recordId: '3934eb38-e923-5ec5-b5d3-6267e7dd4775' },
       );
       expect(JSON.stringify(entries)).not.toContain('private-');
     },
@@ -665,7 +719,12 @@ describe('OperationLogInterceptor', () => {
       interceptor.intercept(
         context('WebsiteController', 'createConfigRecord', request),
         {
-          handle: () => of({ id: 'created-id', version: 2, group: 'routes' }),
+          handle: () =>
+            of({
+              id: '8a161131-b8aa-5895-ae24-a35fab30bddd',
+              version: 2,
+              group: 'routes',
+            }),
         } as CallHandler,
       ),
     );
@@ -673,7 +732,7 @@ describe('OperationLogInterceptor', () => {
       { category: 'website-config', success: true },
     ]);
     expect(JSON.parse(entries[0].detail)).toEqual({
-      recordId: 'created-id',
+      recordId: '8a161131-b8aa-5895-ae24-a35fab30bddd',
       group: 'routes',
     });
     expect(JSON.stringify(entries)).not.toContain('private-name');
@@ -684,7 +743,12 @@ describe('OperationLogInterceptor', () => {
     const request = {
       user: actor,
       params: {},
-      query: { ids: ['leave-1', 'leave-2'] },
+      query: {
+        ids: [
+          '54ea1f3a-1ff0-58d8-8d4f-599fc272846b',
+          '0595bcce-f971-5f69-8994-85831a6a1964',
+        ],
+      },
       body: {},
     };
     await expect(
@@ -703,15 +767,15 @@ describe('OperationLogInterceptor', () => {
         return [entry.success, detail.recordId];
       }),
     ).toEqual([
-      [false, 'leave-1'],
-      [false, 'leave-2'],
+      [false, '54ea1f3a-1ff0-58d8-8d4f-599fc272846b'],
+      [false, '0595bcce-f971-5f69-8994-85831a6a1964'],
     ]);
   });
 
-  it('leaves ordinary reads and token refresh unlogged', async () => {
+  it('records ordinary reads, attribution and token refresh', async () => {
     const request = {
       user: actor,
-      params: { id: 'object-id' },
+      params: { id: '3934eb38-e923-5ec5-b5d3-6267e7dd4775' },
       query: {},
       body: {},
     };
@@ -731,31 +795,54 @@ describe('OperationLogInterceptor', () => {
         } as CallHandler),
       );
     }
-    expect(entries).toEqual([]);
+    expect(entries).toHaveLength(8);
+    expect(entries.every((row) => row.result === 'success')).toBe(true);
   });
 
-  it('preserves a successful response when log persistence fails', async () => {
-    const logger = jest
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => {});
-    logs.append.mockRejectedValueOnce(new Error('log storage unavailable'));
-    const result = { id: 'inquiry-id' };
-    try {
-      const value = await firstValueFrom(
+  it.each([
+    [['queued', 'accepted'], 'pending'],
+    [['sent', 'delivered'], 'success'],
+    [['sent', 'failed'], 'failure'],
+    [['unknown', 'queued'], 'unknown'],
+  ] as const)(
+    'records the returned status of an idempotent WhatsApp submission %j',
+    async (states, outcome) => {
+      const response = {
+        messages: states.map((status) => ({ status, text: 'private-text' })),
+      };
+      await firstValueFrom(
         interceptor.intercept(
-          context('InquiriesController', 'create', {
+          context('WhatsappController', 'sendImageBatch', {
             user: actor,
             params: {},
             query: {},
             body: {},
           }),
-          { handle: () => of(result) } as CallHandler,
+          { handle: () => of(response) },
         ),
       );
-      expect(value).toBe(result);
-      expect(logger).toHaveBeenCalled();
-    } finally {
-      logger.mockRestore();
-    }
+      expect(entries[0].result).toBe(outcome);
+      expect(entries[0].detail).not.toContain('private-text');
+    },
+  );
+
+  it('reports unavailable audit persistence without recording a second business outcome', async () => {
+    logs.append.mockRejectedValueOnce(
+      new Error('both audit stores unavailable'),
+    );
+    await expect(
+      firstValueFrom(
+        interceptor.intercept(
+          context('InquiriesController', 'create', {
+            user: actor,
+            params: {},
+            body: {},
+            query: {},
+          }),
+          { handle: () => of({ id: 'aa321860-25da-5d9f-831f-de9b3cf8c185' }) },
+        ),
+      ),
+    ).rejects.toThrow('both audit stores unavailable');
+    expect(logs.append).toHaveBeenCalledTimes(1);
   });
 });

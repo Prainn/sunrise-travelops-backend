@@ -1,3 +1,4 @@
+import { OperationLogsModule } from '../operation-logs/operation-logs.module';
 import { AuthModule } from '../auth/auth.module';
 import { MediaModule } from '../media/media.module';
 import { WhatsappStreamService } from './whatsapp-stream.service';
@@ -21,7 +22,13 @@ import {
   WhatsappQuickRepliesController,
 } from './whatsapp-quick-replies.controller';
 @Module({
-  imports: [WebsiteModule, FeishuModule, AuthModule, MediaModule],
+  imports: [
+    OperationLogsModule,
+    WebsiteModule,
+    FeishuModule,
+    AuthModule,
+    MediaModule,
+  ],
   controllers: [
     WhatsappController,
     WhatsappDocumentTransferController,

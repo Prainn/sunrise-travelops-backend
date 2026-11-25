@@ -25,6 +25,7 @@ import { PermissionEntity } from '../roles/permission.entity';
 import { ErrorCode } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
 import { UserEntity, UserStatus } from '../users/user.entity';
+import type { AuditActor } from '../operation-logs/operation-log.interceptor';
 import { AuthenticatedUser, AuthTokens, JwtPayload } from './auth.types';
 import { MenuPermissionsService } from '../roles/menu-permissions.service';
 import { allowedMenuKeys, validMenuSnapshot } from '../roles/menu-definitions';
@@ -48,6 +49,7 @@ export class AuthService {
     password: string,
     client: { ip: string; userAgent: string },
     scope: LoginScope,
+    onAuthenticated?: (actor: AuditActor) => void,
   ): Promise<AuthTokens> {
     const identity = await this.users.manager.findOne(UserIdentityEntity, {
       where: { username, scope },
@@ -94,10 +96,18 @@ export class AuthService {
         userAgent: client.userAgent.slice(0, 512),
       }),
     );
+    onAuthenticated?.({
+      id: user.id,
+      username: identity.username,
+      scope: identity.scope,
+    });
     return tokens;
   }
 
-  async refresh(refreshToken: string): Promise<AuthTokens> {
+  async refresh(
+    refreshToken: string,
+    onAuthenticated?: (actor: AuditActor) => void,
+  ): Promise<AuthTokens> {
     let payload: JwtPayload;
     try {
       payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
@@ -135,6 +145,11 @@ export class AuthService {
         !(await argon2.verify(session.refreshTokenHash, refreshToken))
       )
         throw this.invalidRefreshToken();
+      onAuthenticated?.({
+        id: identity.user.id,
+        username: identity.username,
+        scope: identity.scope,
+      });
       return this.issueTokens(
         identity.user,
         identity,
@@ -202,6 +217,7 @@ export class AuthService {
         category: 'login',
         action: '切换账号',
         success: true,
+        result: 'success',
         actorId: actor.id,
         actorName: actor.username,
         scope: actor.scope,

@@ -33,7 +33,8 @@ RUN case "$SUNRISE_BUILD_CHECKS" in \
 FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
-RUN addgroup -S nodejs && adduser -S nestjs -G nodejs
+ENV OPERATION_LOG_RETRY_DIR=/var/lib/sunrise/operation-log-retry
+RUN addgroup -S nodejs && adduser -S nestjs -G nodejs && mkdir -p "$OPERATION_LOG_RETRY_DIR" && chown nestjs:nodejs "$OPERATION_LOG_RETRY_DIR" && chmod 700 "$OPERATION_LOG_RETRY_DIR"
 COPY --from=production-dependencies --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=build --chown=nestjs:nodejs /app/package.json ./package.json
