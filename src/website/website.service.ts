@@ -1494,6 +1494,23 @@ export class WebsiteService {
     };
     const normalized = allDays.map((day, index) => {
       const saved = savedDays.get(day.id);
+      if (businessUnit === 'website' && saved && day.eventOrder?.length) {
+        // Remove only references to cards deleted from this same day.
+        const removed = new Set(
+          [...saved.meals, ...saved.legs, ...saved.hotels].map(
+            (card) => card.id,
+          ),
+        );
+        for (const card of [
+          ...day.meals,
+          ...day.legs,
+          ...day.hotels,
+          ...day.items,
+          ...day.services,
+        ])
+          removed.delete(card.id);
+        day.eventOrder = day.eventOrder.filter((id) => !removed.has(id));
+      }
       const internalRemark = day.internalRemark ?? saved?.internalRemark ?? '';
       if (internalRemark && businessUnit !== 'website')
         invalid('行程日内部备注仅适用于独立站询盘');
