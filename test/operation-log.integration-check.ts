@@ -148,6 +148,29 @@ async function main() {
     const post = base + '/client-events';
     const rows = () =>
       h.db.query<AuditRow[]>('SELECT * FROM operation_logs ORDER BY time,id');
+    const root = await h.actor('headquarters', 'ROOT');
+    const menuPath = '/system/menu-permissions';
+    const catalog = await h.call<{
+      roles: { code: string; version: number; menuKeys: string[] }[];
+    }>(root, 'GET', menuPath);
+    const config = catalog.roles.find((role) => role.code === 'COORDINATOR')!;
+    const updated = await h.call<{ version: number }>(
+      root,
+      'PUT',
+      menuPath + '/COORDINATOR',
+      { version: config.version, menuKeys: config.menuKeys },
+      200,
+      'SUCCESS',
+      false,
+    );
+    await h.call(root, 'PUT', menuPath + '/COORDINATOR', {
+      version: updated.version,
+      menuKeys: config.menuKeys,
+    });
+    const menuLogs = (await rows()).filter((r) => r.action === '配置菜单权限');
+    assert.equal(menuLogs.length, 1);
+    assert.equal(menuLogs[0].actor_id, root.id);
+    assert.equal(detail(menuLogs[0]).roleCode, 'COORDINATOR');
     await h.call(user, 'GET', '/auth/me');
     await h.call(undefined, 'GET', base, undefined, 401, 'AUTH_TOKEN_INVALID');
     await h.call(user, 'GET', base, undefined, 403, 'AUTH_FORBIDDEN');
