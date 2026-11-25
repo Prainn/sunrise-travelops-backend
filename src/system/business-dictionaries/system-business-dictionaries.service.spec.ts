@@ -39,15 +39,16 @@ describe('built-in business category', () => {
 
   beforeEach(() => transaction.mockClear());
 
-  it('accepts canonical seat codes only for the vehicle dictionary and saves the same code for legacy input', async () => {
+  it('stores each vehicle code as entered and keeps other dictionary format rules', async () => {
     const input = plainToInstance(BusinessDictionaryItemInputDto, {
       code: '38_seat',
       name: '38座',
       englishName: '38-seat vehicle',
     });
     expect(validateSync(input)).toHaveLength(0);
+    const findItem = jest.fn().mockResolvedValue(null);
     const items = {
-      findOne: jest.fn().mockResolvedValue(null),
+      findOne: findItem,
       create: (row: Partial<BusinessDictionaryItemEntity>) => row,
       save: (row: BusinessDictionaryItemEntity) => Promise.resolve(row),
     } as unknown as Repository<BusinessDictionaryItemEntity>;
@@ -56,24 +57,33 @@ describe('built-in business category', () => {
       items,
       {} as DataSource,
     );
-    for (const code of ['38_seat', 'seat38'])
+    for (const code of ['13_seat', 'seat13', '13', '车型_甲']) {
+      expect(
+        validateSync(
+          plainToInstance(BusinessDictionaryItemInputDto, { ...input, code }),
+        ),
+      ).toHaveLength(0);
       await expect(
         catalog.createDictionaryItem(
           'vehicle-type',
           { ...input, code },
           'actor-id',
         ),
-      ).resolves.toMatchObject({ code: '38_seat' });
+      ).resolves.toMatchObject({ code });
+    }
     await expect(
       catalog.createDictionaryItem('guide-language', input, 'actor-id'),
     ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_ERROR });
+    findItem.mockResolvedValueOnce({ code: 'seat13' });
     await expect(
       catalog.createDictionaryItem(
         'vehicle-type',
-        { ...input, code: '0_seat' },
+        { ...input, code: 'seat13' },
         'actor-id',
       ),
-    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_ERROR });
+    ).rejects.toMatchObject({
+      code: ErrorCode.BUSINESS_DICTIONARY_ITEM_CODE_EXISTS,
+    });
   });
 
   it('persists the selected built-in flag when creating a category', async () => {

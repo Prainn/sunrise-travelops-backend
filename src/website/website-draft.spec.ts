@@ -172,6 +172,41 @@ describe('website draft save and explicit validation', () => {
       );
     return { service, plan, save, config, query };
   }
+  it('saves distinct vehicle codes and their respective prices without rewriting them', async () => {
+    const { service, plan, save } = setup();
+    const codes = ['seat13', '13_seat', '13座', '38'];
+    plan.days[0].legs = codes.map((vehicleType, i) => ({
+      id: 'leg-' + i,
+      distanceKm: null,
+      durationMinutes: null,
+      showInMileage: false,
+      routeId: null,
+      fromCityId: '',
+      toCityId: '',
+      mode: 'private_vehicle',
+      vehicleType,
+      nameZh: '专车',
+      nameEn: 'Private vehicle',
+      feeState: 'INCLUDED',
+    }));
+    plan.vehiclePrices = codes.map((vehicleType, i) => ({
+      vehicleType,
+      hotelTier: null,
+      unitPrice: String(100 + i),
+      priceComponents: hotelOnlyComponents(String(100 + i)),
+      includesDriver: true,
+      includesGuide: false,
+    }));
+    await service.saveItinerary(plan.id, plan, user);
+    const saved = save.mock.calls[0][2];
+    expect(saved.days[0].legs.map((leg) => leg.vehicleType)).toEqual(codes);
+    expect(
+      saved.vehiclePrices.map((price) => [
+        price.vehicleType,
+        Number(price.unitPrice),
+      ]),
+    ).toEqual(codes.map((code, i) => [code, 100 + i]));
+  });
   it('keeps omitted remarks with their day across recycling and restoration, and accepts an explicit clear', async () => {
     const { service, plan } = setup();
     const original = plan.days[0];
