@@ -12,6 +12,7 @@ import type { OperationEntry } from './operation-logs.service';
 
 export const CLIENT_ACTIONS = {
   navigate: '打开页面',
+  refresh: '手动刷新',
   retry: '重试本地操作',
   filter: '调整筛选',
   sort: '调整排序',

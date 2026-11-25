@@ -104,10 +104,7 @@ export class AuthService {
     return tokens;
   }
 
-  async refresh(
-    refreshToken: string,
-    onAuthenticated?: (actor: AuditActor) => void,
-  ): Promise<AuthTokens> {
+  async refresh(refreshToken: string): Promise<AuthTokens> {
     let payload: JwtPayload;
     try {
       payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
@@ -145,11 +142,6 @@ export class AuthService {
         !(await argon2.verify(session.refreshTokenHash, refreshToken))
       )
         throw this.invalidRefreshToken();
-      onAuthenticated?.({
-        id: identity.user.id,
-        username: identity.username,
-        scope: identity.scope,
-      });
       return this.issueTokens(
         identity.user,
         identity,
@@ -191,7 +183,7 @@ export class AuthService {
   async switchAccount(
     actor: AuthenticatedUser,
     targetUserId: string,
-    ip: string,
+    ip: string | undefined,
   ): Promise<AuthTokens> {
     return this.users.manager.transaction(async (manager) => {
       await lockAccountLinks(manager);
@@ -213,24 +205,25 @@ export class AuthService {
         manager,
         { id: actor.sessionId!, version: actor.sessionVersion! + 1 },
       );
-      await manager.insert(OperationLogEntity, {
-        category: 'login',
-        action: '切换账号',
-        success: true,
-        result: 'success',
-        actorId: actor.id,
-        actorName: actor.username,
-        scope: actor.scope,
-        ip: ip.slice(0, 64),
-        detail: JSON.stringify({
-          sessionId: actor.sessionId,
-          fromUserId: actor.id,
-          fromIdentityId: actor.identityId,
-          toUserId: target.userId,
-          toIdentityId: target.id,
-          toScope: target.scope,
-        }),
-      });
+      if (ip !== undefined)
+        await manager.insert(OperationLogEntity, {
+          category: 'login',
+          action: '切换账号',
+          success: true,
+          result: 'success',
+          actorId: actor.id,
+          actorName: actor.username,
+          scope: actor.scope,
+          ip: ip.slice(0, 64),
+          detail: JSON.stringify({
+            sessionId: actor.sessionId,
+            fromUserId: actor.id,
+            fromIdentityId: actor.identityId,
+            toUserId: target.userId,
+            toIdentityId: target.id,
+            toScope: target.scope,
+          }),
+        });
       return tokens;
     });
   }

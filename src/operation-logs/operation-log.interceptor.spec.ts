@@ -15,7 +15,7 @@ import { BusinessException } from '../common/exceptions/business.exception';
 import { ErrorCode } from '../common/constants/error-code';
 import { OperationLogQueryDto } from './operation-logs.controller';
 
-// Discover real routes so a new background write endpoint cannot silently skip audit.
+// Exercise every registered route with an authenticated automatic caller.
 function operationRoutes(): [string, string][] {
   const root = join(__dirname, '..');
   const routes: [string, string][] = [];
@@ -63,6 +63,7 @@ function context(
   handler: string,
   request: Record<string, unknown>,
 ): ExecutionContext {
+  request.headers ??= { 'x-operation-origin': 'user' };
   return {
     getClass: () => ({ name: controller }),
     getHandler: () => ({ name: handler }),
@@ -92,60 +93,22 @@ describe('OperationLogInterceptor', () => {
     logs.append.mockClear();
   });
 
-  it('records every registered HTTP endpoint once except successes written directly by the owner', async () => {
-    const excluded = new Set([
-      'OperationLogsController.clientEvent',
-      'AuthController.switchAccount',
-      'AccountLinksController.create',
-      'AccountLinksController.update',
-      'AccountLinksController.delete',
-    ]);
-    const missing: string[] = [];
+  it('skips every unmarked route, including requests carrying a logged-in user', async () => {
     for (const [controller, handler] of operationRoutes()) {
-      if (excluded.has(`${controller}.${handler}`)) continue;
-      const before = entries.length;
       await firstValueFrom(
         interceptor.intercept(
           context(controller, handler, {
+            headers: {},
             user: actor,
-            params: { id: 'c814ce1a-1158-5655-a718-6cfced8dd96b' },
-            query: { ids: 'c814ce1a-1158-5655-a718-6cfced8dd96b' },
-            body: {},
-          }),
-          { handle: () => of({ id: '66b58007-9b79-5f8d-afb4-d59693a183c1' }) },
-        ),
-      );
-      if (
-        entries.length !== before + 1 ||
-        !entries[before].actorName ||
-        !entries[before].scope ||
-        !Object.keys(
-          JSON.parse(entries[before].detail) as Record<string, unknown>,
-        ).length
-      )
-        missing.push(`${controller}.${handler}`);
-    }
-    expect(missing).toEqual([]);
-  });
-
-  it.each(['list', 'export', 'row'])(
-    'identifies the service for machine visit source %s',
-    async (handler) => {
-      await firstValueFrom(
-        interceptor.intercept(
-          context('WebsiteVisitsApiController', handler, {
             params: {},
-            query: {},
+            body: {},
           }),
           { handle: () => of({}) },
         ),
       );
-      expect(entries[0]).toMatchObject({
-        actorName: '访问记录服务',
-        scope: 'website',
-      });
-    },
-  );
+    }
+    expect(entries).toEqual([]);
+  });
 
   it.each([
     ['InquiriesController', '删除询盘'],
@@ -245,7 +208,7 @@ describe('OperationLogInterceptor', () => {
     ['ToursController', 'availableGuides'],
     ['WebsiteController', 'validateItinerary'],
   ])(
-    'audits read-only POST %s.%s, including failures',
+    'skips read-only POST %s.%s, including failures',
     async (controller, handler) => {
       const request = { user: actor, params: {}, body: {} };
       await firstValueFrom(
@@ -261,7 +224,7 @@ describe('OperationLogInterceptor', () => {
           }),
         ),
       ).rejects.toBe(failure);
-      expect(entries.map((row) => row.success)).toEqual([true, false]);
+      expect(entries).toEqual([]);
     },
   );
 
@@ -660,7 +623,6 @@ describe('OperationLogInterceptor', () => {
     ['InquiriesController', 'transfer', 'inquiry'],
     ['InquiriesController', 'archive', 'inquiry'],
     ['ItinerariesController', 'confirm', 'quotation'],
-    ['ItinerariesController', 'previewQuote', 'quotation'],
     ['ItinerariesController', 'downloadClick', 'quotation'],
     ['WebsiteController', 'generate', 'itinerary'],
     ['WebsiteController', 'saveConfig', 'website-config'],
@@ -772,7 +734,7 @@ describe('OperationLogInterceptor', () => {
     ]);
   });
 
-  it('records ordinary reads, attribution and token refresh', async () => {
+  it('ignores reads, health, polling and token refresh even with a user marker', async () => {
     const request = {
       user: actor,
       params: { id: '3934eb38-e923-5ec5-b5d3-6267e7dd4775' },
@@ -784,6 +746,10 @@ describe('OperationLogInterceptor', () => {
       ['WebsiteController', 'quotation'],
       ['ToursController', 'list'],
       ['AuthController', 'refresh'],
+      ['WhatsappController', 'summary'],
+      ['WhatsappController', 'read'],
+      ['HealthController', 'check'],
+      ['ItinerariesController', 'previewQuote'],
       ['LynxController', 'register'],
       ['ShengxuLedgersController', 'list'],
       ['DirectLedgersController', 'get'],
@@ -795,8 +761,7 @@ describe('OperationLogInterceptor', () => {
         } as CallHandler),
       );
     }
-    expect(entries).toHaveLength(8);
-    expect(entries.every((row) => row.result === 'success')).toBe(true);
+    expect(entries).toEqual([]);
   });
 
   it.each([

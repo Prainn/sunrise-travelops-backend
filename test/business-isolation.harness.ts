@@ -35,7 +35,6 @@ import { InquiriesModule } from '../src/inquiries/inquiries.module';
 import { LedgersModule } from '../src/ledgers/ledgers.module';
 import { ToursModule } from '../src/tours/tours.module';
 import { OperationLogInterceptor } from '../src/operation-logs/operation-log.interceptor';
-import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 import { OperationLogsModule } from '../src/operation-logs/operation-logs.module';
 import { SystemModule } from '../src/system/system.module';
 import { WebsiteModule } from '../src/website/website.module';
@@ -235,13 +234,7 @@ export class IsolationHarness {
         exceptionFactory: createValidationException,
       }),
     );
-    this.app.useGlobalFilters(
-      new ApiExceptionFilter(
-        this.options.operationAudit
-          ? module.get(OperationLogsService)
-          : undefined,
-      ),
-    );
+    this.app.useGlobalFilters(new ApiExceptionFilter());
     await this.app.listen(0, '127.0.0.1');
     this.base = `${await this.app.getUrl()}/api`;
     this.passwordHash = await argon2.hash('isolation-fixture-password');
@@ -326,10 +319,12 @@ export class IsolationHarness {
     body?: unknown,
     status = 200,
     code: string | number = 'SUCCESS',
+    userInitiated = true,
   ): Promise<T> {
     const response = await fetch(`${this.base}${path}`, {
       method,
       headers: {
+        ...(userInitiated ? { 'x-operation-origin': 'user' } : {}),
         ...(body instanceof FormData
           ? {}
           : { 'content-type': 'application/json' }),

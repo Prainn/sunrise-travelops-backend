@@ -6,7 +6,6 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
-import { OperationLogsService } from './operation-logs/operation-logs.service';
 import { createCorsOptions } from './config/cors';
 import { ApiExceptionFilter } from './common/filters/api-exception.filter';
 import { createValidationException } from './common/validation/validation-exception.factory';
@@ -45,7 +44,7 @@ async function bootstrap(): Promise<void> {
       exceptionFactory: createValidationException,
     }),
   );
-  app.useGlobalFilters(new ApiExceptionFilter(app.get(OperationLogsService)));
+  app.useGlobalFilters(new ApiExceptionFilter());
   app.enableShutdownHooks();
 
   const swaggerConfig = new DocumentBuilder()

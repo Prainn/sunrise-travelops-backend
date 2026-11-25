@@ -1,3 +1,4 @@
+import { isUserAction } from './operation-routes';
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
@@ -40,7 +41,7 @@ import {
   OperationLogsService,
 } from './operation-logs.service';
 
-const AUDIT_SCOPES = [...LOGIN_SCOPES, 'system', 'unknown'];
+const AUDIT_SCOPES = [...LOGIN_SCOPES, 'unknown'];
 @Injectable()
 export class ClientEventIdentityGuard extends AuthGuard('jwt') {
   canActivate(context: ExecutionContext) {
@@ -147,6 +148,7 @@ export class OperationLogsController {
         ].includes(input.action))
     )
       throw new UnauthorizedException();
+    if (!isUserAction(request)) return;
     await this.logs.append([
       clientEntry(input, request.user, request.ip ?? ''),
     ]);

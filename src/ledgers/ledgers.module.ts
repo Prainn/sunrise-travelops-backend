@@ -1,4 +1,3 @@
-import { OperationLogsModule } from '../operation-logs/operation-logs.module';
 import { LedgerSummariesController } from './ledger-summaries.controller';
 import { LedgerSummariesService } from './ledger-summaries.service';
 import { FeishuModule } from '../feishu/feishu.module';
@@ -10,7 +9,7 @@ import { ShengxuLedgersService } from './shengxu-ledgers.service';
 import { DirectLedgersController } from './direct-ledgers.controller';
 import { DirectLedgersService } from './direct-ledgers.service';
 @Module({
-  imports: [OperationLogsModule, FeishuModule, ToursModule],
+  imports: [FeishuModule, ToursModule],
   controllers: [
     LedgerSummariesController,
     ShengxuLedgersController,

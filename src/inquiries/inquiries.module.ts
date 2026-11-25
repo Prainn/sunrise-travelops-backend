@@ -1,4 +1,3 @@
-import { OperationLogsModule } from '../operation-logs/operation-logs.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ResourcesModule } from '../resources/resources.module';
@@ -19,7 +18,6 @@ import { FeishuModule } from '../feishu/feishu.module';
 import { InquiryRemindersService } from './inquiry-reminders.service';
 @Module({
   imports: [
-    OperationLogsModule,
     ResourcesModule,
     FeishuModule,
     TypeOrmModule.forFeature([

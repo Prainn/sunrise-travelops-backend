@@ -8,7 +8,6 @@ import {
   IsolationHarness,
   type Page,
 } from './business-isolation.harness';
-import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 import { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import type { FeishuService } from '../src/feishu/feishu.service';
 import type { ItineraryInput } from '../src/inquiries/inquiry.dto';
@@ -499,17 +498,13 @@ async function main() {
       201,
     );
     const sent: string[] = [];
-    const worker = new InquiryRemindersService(
-      h.db,
-      {
-        configured: true,
-        sendText: (openId: string) => {
-          sent.push(openId);
-          return Promise.resolve({ messageId: 'mock-message' });
-        },
-      } as unknown as FeishuService,
-      h.get(OperationLogsService),
-    );
+    const worker = new InquiryRemindersService(h.db, {
+      configured: true,
+      sendText: (openId: string) => {
+        sent.push(openId);
+        return Promise.resolve({ messageId: 'mock-message' });
+      },
+    } as unknown as FeishuService);
     await h.db.query(
       `UPDATE inquiry_follow_up_reminders SET due_at=now()-interval '1 second' WHERE follow_up_id=$1`,
       [latest],

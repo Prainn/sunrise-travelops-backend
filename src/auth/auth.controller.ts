@@ -1,3 +1,4 @@
+import { userActionIp } from '../operation-logs/operation-routes';
 import {
   LinkedAccountResponse,
   SwitchAccountDto,
@@ -72,10 +73,8 @@ export class AuthController {
   @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @ApiOperation({ summary: 'Rotate access and refresh tokens' })
   @ApiSuccessResponse({ type: AuthTokensResponse })
-  refresh(@Body() input: RefreshTokenDto, @Req() request: AuditRequest) {
-    return this.auth.refresh(input.refreshToken, (actor) => {
-      request.auditActor = actor;
-    });
+  refresh(@Body() input: RefreshTokenDto) {
+    return this.auth.refresh(input.refreshToken);
   }
 
   @Post('logout')
@@ -160,7 +159,7 @@ export class AuthController {
     @Body() input: SwitchAccountDto,
     @Req() req: Request,
   ) {
-    return this.auth.switchAccount(user, input.targetUserId, req.ip ?? '');
+    return this.auth.switchAccount(user, input.targetUserId, userActionIp(req));
   }
 
   @Get('me')

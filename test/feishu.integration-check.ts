@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { IsolationHarness } from './business-isolation.harness';
-import { OperationLogsService } from '../src/operation-logs/operation-logs.service';
 import { ToursService } from '../src/tours/tours.service';
 import { FeishuService } from '../src/feishu/feishu.service';
 import { LedgerNotificationsService } from '../src/ledgers/ledger-notifications.service';
@@ -174,11 +173,7 @@ async function main() {
       ).feishuOpenId,
       '',
     );
-    const notifications = new LedgerNotificationsService(
-      h.db,
-      sender,
-      h.get(OperationLogsService),
-    );
+    const notifications = new LedgerNotificationsService(h.db, sender);
     const ledgers = new DirectLedgersService(
       h.db,
       notifications,
@@ -228,11 +223,7 @@ async function main() {
     // Two consumers share row claims; send each job once.
     await Promise.all([
       notifications.drain(),
-      new LedgerNotificationsService(
-        h.db,
-        sender,
-        h.get(OperationLogsService),
-      ).drain(),
+      new LedgerNotificationsService(h.db, sender).drain(),
     ]);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].openId, `ou_website_${manager.id}`);
@@ -339,11 +330,7 @@ async function main() {
     assert.equal((await ledgers.get(failing.id, actor)).loss, true);
     fail = false;
     // Queue and ledger transaction roll back together even if failure occurs after enqueue.
-    const rollbackQueue = new LedgerNotificationsService(
-      h.db,
-      sender,
-      h.get(OperationLogsService),
-    );
+    const rollbackQueue = new LedgerNotificationsService(h.db, sender);
     const enqueue = rollbackQueue.enqueue.bind(rollbackQueue);
     rollbackQueue.enqueue = async (...args) => {
       await enqueue(...args);

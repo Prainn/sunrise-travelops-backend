@@ -1,6 +1,6 @@
-import { OperationLogsService } from '../operation-logs/operation-logs.service';
 import {
   Injectable,
+  Logger,
   OnModuleDestroy,
   OnModuleInit,
   StreamableFile,
@@ -44,12 +44,12 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private cleanup?: Promise<void>;
   private uploading = false;
+  private readonly logger = new Logger(WhatsappDocuments.name);
 
   constructor(
     private readonly db: DataSource,
     private readonly config: MediaConfig,
     private readonly storage: MediaStorage,
-    private readonly audit: OperationLogsService,
   ) {}
 
   get enabled() {
@@ -62,12 +62,7 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
       if (this.cleanup) return;
       this.cleanup = this.collectExpired()
         .catch(() =>
-          this.audit.workerFailure(
-            'whatsapp',
-            '清理WhatsApp文件草稿',
-            'website',
-            'document-cleanup',
-          ),
+          this.logger.warn('WhatsApp document cleanup failed; will retry'),
         )
         .finally(() => {
           this.cleanup = undefined;

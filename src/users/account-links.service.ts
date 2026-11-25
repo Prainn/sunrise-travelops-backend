@@ -194,7 +194,7 @@ export class AccountLinksService {
   async save(
     input: CreateAccountLinkDto | UpdateAccountLinkDto | DeleteAccountLinkDto,
     actor: AuthenticatedUser,
-    ip: string,
+    ip: string | undefined,
     id?: string,
     remove = false,
   ) {
@@ -291,17 +291,22 @@ export class AccountLinksService {
           [id, actor.id],
         );
       const after = remove ? null : await this.get(groupId, actor, manager);
-      await manager.insert(OperationLogEntity, {
-        category: 'user',
-        action: remove ? '解除账号关联' : id ? '调整账号关联' : '建立账号关联',
-        success: true,
-        result: 'success',
-        actorId: actor.id,
-        actorName: actor.username,
-        scope: actor.scope,
-        ip: ip.slice(0, 64),
-        detail: JSON.stringify({ groupId, before, after, tourCodes: codes }),
-      });
+      if (ip !== undefined)
+        await manager.insert(OperationLogEntity, {
+          category: 'user',
+          action: remove
+            ? '解除账号关联'
+            : id
+              ? '调整账号关联'
+              : '建立账号关联',
+          success: true,
+          result: 'success',
+          actorId: actor.id,
+          actorName: actor.username,
+          scope: actor.scope,
+          ip: ip.slice(0, 64),
+          detail: JSON.stringify({ groupId, before, after, tourCodes: codes }),
+        });
       return after;
     });
   }

@@ -1,4 +1,3 @@
-import { OperationLogsService } from '../operation-logs/operation-logs.service';
 import { notificationEnabled } from '../notifications/notification-settings';
 import {
   Injectable,
@@ -42,7 +41,6 @@ export class LedgerNotificationsService
   constructor(
     private readonly db: DataSource,
     private readonly feishu: FeishuService,
-    private readonly audit: OperationLogsService,
   ) {}
 
   onModuleInit() {
@@ -50,12 +48,7 @@ export class LedgerNotificationsService
       if (!this.running && this.feishu.configured) {
         this.running = this.drain()
           .catch(() => {
-            return this.audit.workerFailure(
-              'ledger',
-              '处理台账提醒',
-              'system',
-              'ledger-notifications',
-            );
+            this.logger.error('Feishu notification worker failed');
           })
           .finally(() => {
             this.running = undefined;

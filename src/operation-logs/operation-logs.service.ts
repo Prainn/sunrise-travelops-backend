@@ -30,9 +30,7 @@ export const OPERATION_CATEGORIES = [
   'website-config',
   'ledger',
   'website-visit',
-  'dashboard',
   'whatsapp',
-  'system',
   'client',
 ] as const;
 export type OperationCategory = (typeof OPERATION_CATEGORIES)[number];
@@ -46,7 +44,7 @@ export const OPERATION_RESULTS = [
   'pending',
 ] as const;
 export type OperationResult = (typeof OPERATION_RESULTS)[number];
-export type OperationScope = LoginScope | 'unknown' | 'system';
+export type OperationScope = LoginScope | 'unknown';
 
 export type OperationEntry = Pick<
   OperationLogEntity,
@@ -125,32 +123,6 @@ export class OperationLogsService implements OnModuleInit, OnModuleDestroy {
           '操作结果无法可靠记录，请核对业务状态',
         );
       }
-    }
-  }
-
-  async workerFailure(
-    category: OperationCategory,
-    action: string,
-    scope: OperationScope,
-    task: string,
-  ) {
-    // The owner already handles the business retry. Losing the secondary journal must not stop its scheduler.
-    try {
-      await this.append([
-        {
-          category,
-          action,
-          scope,
-          actorName: '系统任务',
-          actorId: null,
-          success: false,
-          result: 'failure',
-          detail: JSON.stringify({ source: 'worker', task }),
-          ip: null,
-        },
-      ]);
-    } catch {
-      this.logger.error('Worker audit unavailable: ' + task);
     }
   }
 

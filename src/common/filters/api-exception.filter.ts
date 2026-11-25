@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
-import { OperationLogsService } from '../../operation-logs/operation-logs.service';
 import { BusinessException } from '../exceptions/business.exception';
 import { ErrorCode, ErrorCodeValue } from '../constants/error-code';
 import { ApiErrorResponse } from '../interfaces/api-error-response.interface';
@@ -30,7 +29,6 @@ interface NormalizedError {
 type RequestContext = Request & {
   id?: string | number;
   user?: { id?: unknown };
-  auditRouteEntered?: boolean;
   auditGuardFailure?: (status: number, code: string) => Promise<void>;
 };
 
@@ -45,8 +43,6 @@ interface ErrorDetails {
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
 
-  constructor(private readonly operationLogs?: OperationLogsService) {}
-
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const request = http.getRequest<RequestContext>();
@@ -57,35 +53,6 @@ export class ApiExceptionFilter implements ExceptionFilter {
       audit = request
         .auditGuardFailure(normalized.status, normalized.code)
         .catch(() => this.logger.error('Failed to persist guard rejection'));
-    } else if (
-      !request.auditRouteEntered &&
-      this.operationLogs &&
-      /^\/(?:api|v1)(?:\/|$)/.test(request.path)
-    ) {
-      audit = this.operationLogs
-        .append([
-          {
-            category: 'system',
-            action: '接口路由或请求解析失败',
-            success: false,
-            result: 'failure',
-            scope: 'unknown',
-            actorId: null,
-            actorName: '未认证访客',
-            ip: (request.ip ?? '').slice(0, 64),
-            detail: JSON.stringify({
-              stage: 'before_routing',
-              method: request.method,
-              statusCode: normalized.status,
-              errorCode: normalized.code,
-            }),
-          },
-        ])
-        .catch(() =>
-          this.logger.error(
-            'Failed to persist request parsing or routing error',
-          ),
-        );
     }
     const requestId = this.requestId(request);
     const userId =

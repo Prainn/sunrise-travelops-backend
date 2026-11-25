@@ -1,4 +1,3 @@
-import { OperationLogsService } from '../operation-logs/operation-logs.service';
 import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
@@ -64,9 +63,6 @@ describe('WhatsApp current-process worker diagnostics', () => {
       { processOne } as unknown as WhatsappEvents,
       service,
       {} as WhatsappQueueToken,
-      {
-        workerFailure: jest.fn().mockResolvedValue(undefined),
-      } as unknown as OperationLogsService,
     );
   });
   afterEach(async () => {

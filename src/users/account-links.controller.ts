@@ -1,3 +1,4 @@
+import { userActionIp } from '../operation-logs/operation-routes';
 import {
   Body,
   Controller,
@@ -80,7 +81,7 @@ export class AccountLinksController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    return this.links.save(input, actor, req.ip ?? '');
+    return this.links.save(input, actor, userActionIp(req));
   }
   @Put(':id')
   @Permissions('sys:account-link:manage')
@@ -91,7 +92,7 @@ export class AccountLinksController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    return this.links.save(input, actor, req.ip ?? '', id);
+    return this.links.save(input, actor, userActionIp(req), id);
   }
   @Delete(':id')
   @HttpCode(204)
@@ -103,6 +104,6 @@ export class AccountLinksController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: Request,
   ) {
-    await this.links.save(input, actor, req.ip ?? '', id, true);
+    await this.links.save(input, actor, userActionIp(req), id, true);
   }
 }

@@ -12,8 +12,8 @@ import {
 import { Observable, catchError, from, mergeMap, throwError } from 'rxjs';
 import { LOGIN_SCOPES } from '../users/user-identity.entity';
 import {
-  routeAction,
-  serviceActors,
+  additionalCommand,
+  isUserAction,
   writesOwnSuccess,
 } from './operation-routes';
 import { Request } from 'express';
@@ -29,7 +29,6 @@ import {
 export type AuditActor = Pick<AuthenticatedUser, 'id' | 'username' | 'scope'>;
 export type AuditRequest = Request & {
   auditActor?: AuditActor;
-  auditRouteEntered?: boolean;
   auditGuardFailure?: (status: number, code: string) => Promise<void>;
   user?: AuthenticatedUser;
   menuPermissionChange?: unknown;
@@ -76,8 +75,6 @@ function actionFor(
       )[handler],
       resultId: handler === 'create',
     };
-  if (controller === 'InspectionAlertController' && handler === 'report')
-    return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'WhatsappController' && handler === 'retryEvent')
     return { category: 'system-category', label: '重试WhatsApp接收事件' };
   if (
@@ -191,7 +188,6 @@ function actionFor(
         parentKey: 'id',
         resultId: true,
       },
-      previewQuote: { category: 'quotation', label: '报价试算' },
       confirm: { category: 'quotation', label: '冻结报价' },
       downloadClick: { category: 'quotation', label: '报价下载点击' },
     };
@@ -365,12 +361,7 @@ function safeCode(value: unknown) {
     : undefined;
 }
 
-function identity(
-  req: AuditRequest,
-  controller: string,
-  handler: string,
-  accepted: boolean,
-) {
+function identity(req: AuditRequest, controller: string, handler: string) {
   const actor = req.auditActor ?? req.user;
   if (actor)
     return { actorId: actor.id, actorName: actor.username, scope: actor.scope };
@@ -385,13 +376,10 @@ function identity(
       scope: LOGIN_SCOPES.find((scope) => scope === body.scope) ?? 'unknown',
     };
   }
-  if (accepted && controller === 'LynxController' && handler === 'register')
-    return { actorId: null, actorName: '独立站访客', scope: 'website' };
-  const machine = accepted ? serviceActors[controller] : undefined;
   return {
     actorId: null,
-    actorName: machine?.[0] ?? '未认证访客',
-    scope: machine?.[1] ?? 'unknown',
+    actorName: '未认证访客',
+    scope: 'unknown',
   };
 }
 
@@ -440,6 +428,7 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
   // Nest guards precede interceptors. The exception filter finishes this attempt if a guard rejects it.
   canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<AuditRequest>();
+    if (!isUserAction(req)) return true;
     req.auditGuardFailure = (status, code) =>
       this.record(context, undefined, { status, code, guard: true });
     return true;
@@ -448,7 +437,7 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<AuditRequest>();
     delete request.auditGuardFailure;
-    request.auditRouteEntered = true;
+    if (!isUserAction(request)) return next.handle();
     const direct = writesOwnSuccess(
       context.getClass().name,
       context.getHandler().name,
@@ -508,15 +497,11 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
           ? body.businessUnit
           : undefined
         : req.user?.scope);
-    const action: Action =
+    const action: Action | null =
       actionFor(controller, handler, body, unit) ??
-      routeAction(controller, handler);
-    const actor = identity(
-      req,
-      controller,
-      handler,
-      !error || (![401, 403].includes(error.status) && !error.guard),
-    );
+      additionalCommand(controller, handler);
+    if (!action) return;
+    const actor = identity(req, controller, handler);
     let result: OperationEntry['result'] = error
       ? [401, 403, 429].includes(error.status)
         ? 'denied'
@@ -575,14 +560,6 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
     }
     if (!error && handler === 'downloadClick')
       details.stage = 'download_requested';
-    if (
-      !error &&
-      controller === 'InspectionAlertController' &&
-      ['duplicate', 'sent', 'silent'].includes(String(item.result))
-    ) {
-      details.delivery = item.result;
-      details.eventId = safeId(body.eventId);
-    }
     if (error) {
       details.statusCode = error.status;
       if (error.code) details.errorCode = error.code;

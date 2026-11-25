@@ -1,3 +1,4 @@
+import { DisableAutomaticOperationLogs1796256019000 } from '../src/migrations/1796256019000-DisableAutomaticOperationLogs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -113,28 +114,7 @@ async function verifyOtherJobs(
     const rows = await manager.query<AuditRow[]>(
       "SELECT * FROM operation_logs WHERE actor_name='系统任务'",
     );
-    for (const [action, scope, result, state] of [
-      ['发送询盘跟进提醒', 'shengxu', 'unknown', 'failed'],
-      ['发送台账通知', 'website', 'cancelled', 'skipped'],
-      ['更新WhatsApp消息收发状态', 'website', 'success', 'received'],
-      ['处理WhatsApp通知批次', 'website', 'cancelled', 'cancelled'],
-      ['发送WhatsApp飞书通知', 'website', 'unknown', 'unknown'],
-      ['处理OSS媒体资源', 'system', 'success', 'deleted'],
-      ['处理WhatsApp文件草稿', 'website', 'success', 'deleted'],
-      ['归档WhatsApp文件', 'website', 'failure', 'failed'],
-    ]) {
-      assert(
-        rows.some(
-          (row) =>
-            row.action === action &&
-            row.scope === scope &&
-            row.result === result &&
-            detail(row).to === state,
-        ),
-        action,
-      );
-    }
-    assert(!JSON.stringify(rows).includes('isolated private input'));
+    assert.equal(rows.length, 0);
   });
 }
 
@@ -149,12 +129,15 @@ async function main() {
     const legacyId = randomUUID();
     try {
       await qr.startTransaction();
+      const humanOnly = new DisableAutomaticOperationLogs1796256019000();
+      await humanOnly.down(qr);
       await migration.down(qr);
       await qr.query(
         "INSERT INTO operation_logs(id,category,action,success,actor_name,scope) VALUES ($1,'user','历史操作',true,'',null)",
         [legacyId],
       );
       await migration.up(qr);
+      await humanOnly.up(qr);
       await qr.commitTransaction();
     } finally {
       await qr.release();
@@ -183,6 +166,15 @@ async function main() {
       result: 'cancelled',
       occurredAt: new Date().toISOString(),
     };
+    await h.call(
+      user,
+      'POST',
+      post,
+      { ...event, eventId: randomUUID() },
+      204,
+      'SUCCESS',
+      false,
+    );
     await Promise.all([
       h.call(user, 'POST', post, event, 204),
       h.call(user, 'POST', post, event, 204),
@@ -262,17 +254,10 @@ async function main() {
       ),
     );
     assert(
-      data.some((r) => r.action.includes('当前身份') && r.actor_id === user.id),
-    );
-    assert(
-      data.some(
-        (r) =>
-          r.result === 'denied' &&
-          r.actor_id === user.id &&
-          detail(r).stage === 'guard',
+      !data.some(
+        (r) => r.action.includes('当前身份') || r.action.includes('查看列表'),
       ),
     );
-    assert(data.some((r) => r.result === 'denied' && r.scope === 'unknown'));
     assert.equal(
       data.filter((r) => r.action === '切换账号' && r.result === 'denied')
         .length,
@@ -283,7 +268,7 @@ async function main() {
         .length,
       1,
     );
-    assert(data.some((r) => r.action === '接口路由或请求解析失败'));
+    assert(!data.some((r) => r.action === '接口路由或请求解析失败'));
     assert(!JSON.stringify(data).includes('audit-sensitive-test'));
     type Page = {
       list: { id: string; result: string }[];
@@ -303,7 +288,7 @@ async function main() {
     const legacy = await h.call<Page>(admin, 'GET', base + '?pageSize=100');
     assert.equal(legacy.list.find((r) => r.id === legacyId)?.result, 'success');
     assert.equal(data.find((r) => r.id === legacyId)?.scope, null);
-    // Actual job states are persisted by PostgreSQL even when the writer is not an HTTP handler.
+    // Real worker transitions still persist in their domain tables.
     const account = randomUUID(),
       id = randomUUID();
     await h.db.query(
@@ -338,11 +323,7 @@ async function main() {
     const jobs = (await rows()).filter(
       (r) => r.actor_name === '系统任务' && detail(r).recordId === id,
     );
-    assert.deepEqual(
-      jobs.map((r) => r.result),
-      ['pending', 'failure', 'success'],
-    );
-    assert(jobs.every((r) => r.scope === 'website'));
+    assert.equal(jobs.length, 0);
     await verifyOtherJobs(h, account, user);
     const durableId = randomUUID(),
       happenedAt = new Date('2026-11-01T12:00:00Z');
@@ -354,14 +335,14 @@ async function main() {
       {
         id: durableId,
         time: happenedAt,
-        category: 'system',
+        category: 'client',
         action: 'isolated-journal-test',
-        scope: 'system',
+        scope: 'shengxu',
         actorId: null,
-        actorName: '系统任务',
+        actorName: 'isolated-user',
         success: true,
         result: 'success',
-        detail: '{"source":"worker"}',
+        detail: '{"source":"client"}',
         ip: null,
       },
     ]);
@@ -378,7 +359,7 @@ async function main() {
       .findOneByOrFail({ id: durableId });
     assert.equal(restored.time.toISOString(), happenedAt.toISOString());
     process.stdout.write(
-      `PASS: isolated upgrade, ${h.requests + 2} HTTP calls, seven fields, deduplication, rejected requests, pagination, nine transactional worker tables and durable replay.\n`,
+      `PASS: isolated upgrade, ${h.requests + 2} HTTP calls, seven fields, deduplication, rejected requests, pagination, nine silent worker tables and durable replay.\n`,
     );
   } finally {
     await h.close();
