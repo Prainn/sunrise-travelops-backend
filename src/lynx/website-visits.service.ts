@@ -38,7 +38,7 @@ function denied(): never {
 function conflict(): never {
   throw new BusinessException({
     code: 'CONFLICT',
-    message: '该访问记录已生成询盘，请刷新列表',
+    message: '该访问记录已新增询盘，请刷新列表',
     status: HttpStatus.CONFLICT,
   });
 }

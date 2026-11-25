@@ -1,4 +1,3 @@
-import { BusinessException } from '../exceptions/business.exception';
 import {
   ArgumentsHost,
   Catch,
@@ -9,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
+import { BusinessException } from '../exceptions/business.exception';
 import { ErrorCode, ErrorCodeValue } from '../constants/error-code';
 import { ApiErrorResponse } from '../interfaces/api-error-response.interface';
 import { privateRequestPath } from '../http/private-request-path';
@@ -29,6 +29,7 @@ interface NormalizedError {
 type RequestContext = Request & {
   id?: string | number;
   user?: { id?: unknown };
+  auditGuardFailure?: (status: number, code: string) => Promise<void>;
 };
 
 interface ErrorDetails {
@@ -47,6 +48,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const request = http.getRequest<RequestContext>();
     const response = http.getResponse<Response>();
     const normalized = this.normalize(exception, request);
+    let audit: Promise<void> | undefined;
+    if (request.auditGuardFailure) {
+      audit = request
+        .auditGuardFailure(normalized.status, normalized.code)
+        .catch(() => this.logger.error('Failed to persist guard rejection'));
+    }
     const requestId = this.requestId(request);
     const userId =
       typeof request.user?.id === 'string' ? request.user.id : undefined;
@@ -91,7 +98,15 @@ export class ApiExceptionFilter implements ExceptionFilter {
       path: privateRequestPath(request.originalUrl),
       ...(requestId ? { requestId } : {}),
     };
-    response.status(normalized.status).json(body);
+    const send = () => {
+      if (response.headersSent) {
+        if (!response.writableEnded) response.end();
+        return;
+      }
+      response.status(normalized.status).json(body);
+    };
+    if (audit) void audit.then(send);
+    else send();
   }
 
   private normalize(exception: unknown, request: Request): NormalizedError {
@@ -306,7 +321,7 @@ const uniqueConflicts: ReadonlyMap<string, readonly [ErrorCodeValue, string]> =
       'UQ_identity_login',
       [
         ErrorCode.USERNAME_ALREADY_EXISTS,
-        '该登录范围内已存在此用户名，请更换用户名。',
+        '该业务范围内已存在此用户名，请更换用户名。',
       ],
     ],
     [
@@ -340,7 +355,7 @@ const uniqueConflicts: ReadonlyMap<string, readonly [ErrorCodeValue, string]> =
     ],
     [
       'UQ_resource_agency_contacts_agency_name_key',
-      [ErrorCode.AGENCY_CONTACT_NAME_EXISTS, '该旅行社下已存在同名联系人'],
+      [ErrorCode.AGENCY_CONTACT_NAME_EXISTS, '该组团社下已存在同名联系人'],
     ],
   ]);
 

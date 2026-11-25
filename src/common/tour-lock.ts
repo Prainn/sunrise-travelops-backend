@@ -21,7 +21,7 @@ export async function assertNoActiveTour(
   if (rows.length)
     throw new BusinessException({
       code: ErrorCode.INQUIRY_READ_ONLY,
-      message: '该询盘已关联有效旅行团，仅可查看。',
+      message: '该询盘已关联有效成团记录，仅可查看。',
       status: HttpStatus.CONFLICT,
     });
 }

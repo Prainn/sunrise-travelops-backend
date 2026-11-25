@@ -351,7 +351,7 @@ export class InquiriesService {
         input.plannedDays !== undefined ||
         input.sourceChannel !== undefined
       )
-        invalid('系列询盘不填写组团社、联系人、来源渠道和计划天数');
+        invalid('系列询盘不填写组团社、联系人、来源渠道和服务天数');
       const country =
         previous?.countryItemId === input.countryItemId
           ? {
@@ -1220,9 +1220,22 @@ export class InquiriesService {
   }
   async priceAdjustments(id: string, actor: Actor) {
     await this.pair(id, actor);
-    return this.db.manager.query<Record<string, unknown>[]>(
+    const rows = await this.db.manager.query<
+      { itemType: string; itemName: string }[]
+    >(
       'SELECT id,itinerary_id AS "itineraryId",item_key AS "itemKey",item_type AS "itemType",item_name AS "itemName",reference_basis AS "referenceBasis",reference_price AS "referencePrice",before_price AS "beforePrice",after_price AS "afterPrice",reason,action,operator_id AS "operatorId",operator_name AS "operatorName",occurred_at AS "occurredAt" FROM itinerary_price_adjustments WHERE itinerary_id=$1 ORDER BY occurred_at DESC,id DESC',
       [id],
+    );
+    return rows.map((row) =>
+      row.itemType === 'vehicle'
+        ? {
+            ...row,
+            itemName: row.itemName.replace(
+              /^标准车辆全程总价(?= · \d+ PAX$)/u,
+              '普通车型全程总价',
+            ),
+          }
+        : row,
     );
   }
   private async log(

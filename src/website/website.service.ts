@@ -204,7 +204,7 @@ export class WebsiteService {
   ): WebsiteBusinessUnit {
     if (user.scope === 'headquarters') {
       if (!requested)
-        fail('VALIDATION_ERROR', '请选择所属业务部', HttpStatus.BAD_REQUEST);
+        fail('VALIDATION_ERROR', '请选择业务部', HttpStatus.BAD_REQUEST);
       return requested;
     }
     if (
@@ -355,7 +355,7 @@ export class WebsiteService {
       version === undefined ? [businessUnit] : [businessUnit, version],
     );
     if (!rows[0])
-      fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND, {
+      fail('NOT_FOUND', '独立站资源版本不存在', HttpStatus.NOT_FOUND, {
         configVersion: version,
       });
     return rows[0].config;
@@ -442,7 +442,7 @@ export class WebsiteService {
       ],
     );
     if (!result)
-      fail('NOT_FOUND', '独立站配置版本不存在', HttpStatus.NOT_FOUND);
+      fail('NOT_FOUND', '独立站资源版本不存在', HttpStatus.NOT_FOUND);
     return { ...result, page: query.page, pageSize: query.pageSize };
   }
   async configOptions(
@@ -874,7 +874,7 @@ export class WebsiteService {
         !city ||
         (city.status !== 'enabled' && !old?.destinations.includes(id))
       )
-        invalid('询盘目的地不是可用的独立站配置城市', { cityId: id });
+        invalid('询盘目的地不是可用的独立站资源城市', { cityId: id });
     }
   }
   private async log(
@@ -1476,7 +1476,7 @@ export class WebsiteService {
       duplicate(input.days.map((d) => String(d.dayNumber))) ||
       duplicate(input.vehiclePrices.map(quotationPriceKey))
     )
-      invalid('行程明细ID、天数、车型与酒店档次组合不能重复');
+      invalid('行程明细 ID、行程日序号、车型与酒店档次组合不能重复');
     this.assertDestinationScope(destinations, allDays, old?.days ?? [], config);
     const retainedCities = referencedCityIds(old?.days ?? []);
     const configCities = new Map(config.cities.map((row) => [row.id, row]));
@@ -1494,6 +1494,23 @@ export class WebsiteService {
     };
     const normalized = allDays.map((day, index) => {
       const saved = savedDays.get(day.id);
+      if (businessUnit === 'website' && saved && day.eventOrder?.length) {
+        // Remove only references to cards deleted from this same day.
+        const removed = new Set(
+          [...saved.meals, ...saved.legs, ...saved.hotels].map(
+            (card) => card.id,
+          ),
+        );
+        for (const card of [
+          ...day.meals,
+          ...day.legs,
+          ...day.hotels,
+          ...day.items,
+          ...day.services,
+        ])
+          removed.delete(card.id);
+        day.eventOrder = day.eventOrder.filter((id) => !removed.has(id));
+      }
       const internalRemark = day.internalRemark ?? saved?.internalRemark ?? '';
       if (internalRemark && businessUnit !== 'website')
         invalid('行程日内部备注仅适用于独立站询盘');
@@ -1586,13 +1603,6 @@ export class WebsiteService {
               (!retainedRoutes.has(route.id) && route.status !== 'enabled'))
           )
             invalid('路线配置不可用', { routeId: leg.routeId });
-          if (
-            validate &&
-            route &&
-            (route.fromCityId !== leg.fromCityId ||
-              route.toCityId !== leg.toCityId)
-          )
-            invalid('交通段城市与所选路线不一致');
         }
       });
       const items = day.items.map((item) => {
@@ -2266,7 +2276,8 @@ export class WebsiteService {
     const { inquiry, itinerary } = await this.itinerary(id, user);
     if (itinerary.status === 'quoted') {
       const frozen = await this.frozen(this.db.manager, id);
-      if (!frozen) fail('PDF_NOT_READY', '冻结报价不存在', HttpStatus.CONFLICT);
+      if (!frozen)
+        fail('PDF_NOT_READY', '已确认报价不存在', HttpStatus.CONFLICT);
       return frozen;
     }
     return this.previewData(this.db.manager, inquiry, itinerary);

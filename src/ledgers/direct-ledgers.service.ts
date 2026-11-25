@@ -360,14 +360,14 @@ export class DirectLedgersService {
     this.access(actor, 'create');
     const unit = directUnit(actor, input.businessUnit);
     if (input.orderStatus === 'converted') {
-      if (!input.tour) invalid('已成团台账必须填写建团资料');
+      if (!input.tour) invalid('已成团台账必须填写成团资料');
       requirePermission(actor, 'tour:create');
       if (
         input.countryItemId &&
         input.countryItemId !== input.tour.countryItemId
       )
-        invalid('国家和地区与建团资料不一致');
-    } else if (input.tour !== undefined) invalid('未成团台账不能提交建团资料');
+        invalid('国家/地区与成团资料不一致');
+    } else if (input.tour !== undefined) invalid('未成团台账不能提交成团资料');
     const delegate = isHeadquartersBusinessAdmin(actor);
     if (!delegate && input.creatorId !== undefined) forbidden();
     if (delegate && !input.creatorId)
@@ -458,7 +458,7 @@ export class DirectLedgersService {
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, input.version);
       if (row.tours.some((tour) => tour.status === 'active'))
-        conflict(ErrorCode.CONFLICT, '台账已有有效旅行团');
+        conflict(ErrorCode.CONFLICT, '台账已有有效成团记录');
       const country = await this.createTour(manager, row, input.tour, actor);
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET country_item_id=$2,country_code=$3,country_name=$4,order_status='converted',
@@ -495,7 +495,7 @@ export class DirectLedgersService {
       if (row.reviewedAt)
         conflict(
           ErrorCode.DIRECT_LEDGER_REVIEWED_READ_ONLY,
-          '已确认台账不能修改普通字段',
+          '已审核台账不能修改普通字段',
         );
       if (row.operatedAt)
         conflict(
@@ -533,7 +533,7 @@ export class DirectLedgersService {
       if (!row.loss || row.reviewedAt || row.operated)
         conflict(
           ErrorCode.DIRECT_LEDGER_NOT_PENDING_CONFIRMATION,
-          '仅待确认的亏损台账需要负责人确认',
+          '仅待审核的亏损台账需要业务部负责人审核',
         );
       const [[saved]] = await manager.query<[DirectRow[], number]>(
         `UPDATE direct_ledgers SET reviewed_at=now(),reviewed_by=$2,updated_by=$2,updated_at=now(),version=version+1 WHERE id=$1 RETURNING ${SELECT}`,
@@ -579,7 +579,7 @@ export class DirectLedgersService {
       if (!this.manageable(row, actor)) forbidden();
       assertVersion(row.version, version);
       if (row.reviewedAt)
-        conflict(ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED, '已确认台账不能删除');
+        conflict(ErrorCode.DIRECT_LEDGER_DELETE_REVIEWED, '已审核台账不能删除');
       if (row.operatedAt)
         conflict(
           ErrorCode.DIRECT_LEDGER_DELETE_OPERATED,

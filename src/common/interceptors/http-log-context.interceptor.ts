@@ -23,6 +23,7 @@ export class HttpLogContextInterceptor implements NestInterceptor {
           : request.query,
         body: [
           'InspectionAlertController',
+          'OperationLogsController',
           'WhatsappController',
           'WhatsappIngressController',
         ].includes(context.getClass().name)

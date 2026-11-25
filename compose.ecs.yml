@@ -85,6 +85,7 @@ services:
     group_add:
       - "${WHATSAPP_SEND_GID:-1999}"
     volumes:
+      - operation_log_retry:/var/lib/sunrise/operation-log-retry
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
       - /run/sunrise-whatsapp-send:/run/sunrise-whatsapp-send:ro
@@ -136,6 +137,7 @@ networks:
     name: ${APP_NETWORK:?required}
 
 volumes:
+  operation_log_retry:
   postgres_data:
     external: true
     name: ${POSTGRES_VOLUME:?required}

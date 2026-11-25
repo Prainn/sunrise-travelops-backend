@@ -284,6 +284,9 @@ async function main() {
         method,
         headers: {
           'Content-Type': 'application/json',
+          ...(method === 'PUT' || path === '/auth/login'
+            ? { 'X-Operation-Origin': 'user' }
+            : {}),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -425,6 +428,7 @@ async function main() {
       roleCode: 'COORDINATOR',
       beforeMenuKeys: coordinatorConfig.menuKeys,
       afterMenuKeys: reducedKeys,
+      operation: 'MenuPermissionsController.save',
     });
     const noSnapshot = await jwt.signAsync(
       {

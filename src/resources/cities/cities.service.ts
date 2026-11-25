@@ -121,7 +121,7 @@ export class CitiesService {
       if (entity.name !== input.name)
         throw new BusinessException({
           code: ErrorCode.CONFLICT,
-          message: '城市名称创建后不可修改，请停用后新增城市',
+          message: '城市名称创建后不可修改，请禁用后新增城市',
           status: HttpStatus.CONFLICT,
         });
       input.code ??= entity.code;

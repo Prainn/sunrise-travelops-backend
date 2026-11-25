@@ -2,6 +2,7 @@ import { QueryFailedError } from 'typeorm';
 import { normalizeDatabaseError } from '../common/filters/api-exception.filter';
 import {
   CallHandler,
+  CanActivate,
   ExecutionContext,
   HttpException,
   Injectable,
@@ -9,16 +10,26 @@ import {
   NestInterceptor,
 } from '@nestjs/common';
 import { Observable, catchError, from, mergeMap, throwError } from 'rxjs';
+import { LOGIN_SCOPES } from '../users/user-identity.entity';
+import {
+  additionalCommand,
+  isUserAction,
+  writesOwnSuccess,
+} from './operation-routes';
 import { Request } from 'express';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { BusinessException } from '../common/exceptions/business.exception';
 import {
   OperationCategory,
   OperationEntry,
+  OperationResult,
   OperationLogsService,
 } from './operation-logs.service';
 
-type AuditRequest = Request & {
+export type AuditActor = Pick<AuthenticatedUser, 'id' | 'username' | 'scope'>;
+export type AuditRequest = Request & {
+  auditActor?: AuditActor;
+  auditGuardFailure?: (status: number, code: string) => Promise<void>;
   user?: AuthenticatedUser;
   menuPermissionChange?: unknown;
   tourGuideServiceChange?: unknown;
@@ -37,8 +48,8 @@ const resources: Record<string, string> = {
   RestaurantsController: '餐厅',
   AttractionsController: '景点',
   TransportsController: '车型',
-  GuidesController: '导游服务价格',
-  GuidePeopleController: '导游人员',
+  GuidesController: '导游价格',
+  GuidePeopleController: '导游',
   FlightsController: '航班信息',
 };
 
@@ -59,30 +70,13 @@ function actionFor(
           create: '上传OSS资源',
           update: '编辑OSS资源',
           remove: '删除OSS资源',
-          retry: '重试OSS媒体保存',
+          retry: '重新归档媒体文件',
         } as Record<string, string>
       )[handler],
       resultId: handler === 'create',
     };
-  if (controller === 'InspectionAlertController' && handler === 'report')
-    return { category: 'system-category', label: '报告巡检异常' };
   if (controller === 'WhatsappController' && handler === 'retryEvent')
-    return { category: 'system-category', label: '重试WhatsApp接收事件' };
-  if (
-    controller === 'WhatsappController' &&
-    (handler === 'uploadImage' || handler === 'uploadDocument')
-  )
-    return {
-      category: 'business-category',
-      label:
-        handler === 'uploadImage'
-          ? '上传WhatsApp图片草稿'
-          : '上传WhatsApp文件草稿',
-      resultId: true,
-      parentKey: 'id',
-    };
-  if (controller === 'WhatsappController' && handler === 'updateRuntime')
-    return { category: 'system-category', label: '修改WhatsApp收发开关' };
+    return { category: 'system-category', label: '重新处理接收事件' };
   if (
     controller === 'WhatsappController' &&
     (handler === 'uploadImage' || handler === 'uploadDocument')
@@ -154,7 +148,7 @@ function actionFor(
     if (handler === 'create')
       return {
         category: 'website-visit',
-        label: '访问记录生成询盘',
+        label: '从访问记录新增询盘',
         parentKey: 'id',
         resultId: true,
       };
@@ -194,8 +188,7 @@ function actionFor(
         parentKey: 'id',
         resultId: true,
       },
-      previewQuote: { category: 'quotation', label: '报价试算' },
-      confirm: { category: 'quotation', label: '冻结报价' },
+      confirm: { category: 'quotation', label: '确认报价' },
       downloadClick: { category: 'quotation', label: '报价下载点击' },
     };
     return actions[handler] ?? null;
@@ -221,21 +214,21 @@ function actionFor(
         resultId: true,
       },
       generate: { category: 'itinerary', label: '生成独立站行程' },
-      confirm: { category: 'quotation', label: '冻结独立站报价' },
+      confirm: { category: 'quotation', label: '确认独立站报价' },
       downloadClick: { category: 'quotation', label: '独立站报价下载点击' },
-      saveConfig: { category: 'website-config', label: '保存独立站配置' },
+      saveConfig: { category: 'website-config', label: '保存独立站资源' },
       createConfigRecord: {
         category: 'website-config',
-        label: '新增独立站配置',
+        label: '新增独立站资源',
         resultId: true,
       },
       updateConfigRecord: {
         category: 'website-config',
-        label: '编辑独立站配置',
+        label: '编辑独立站资源',
       },
       deleteConfigRecord: {
         category: 'website-config',
-        label: '删除独立站配置',
+        label: '删除独立站资源',
       },
     };
     return actions[handler] ?? null;
@@ -244,9 +237,9 @@ function actionFor(
     if (handler === 'saveRating')
       return { category: 'guide-rating', label: '保存导游评分' };
     const labels: Record<string, string> = {
-      create: '新增旅行团',
-      update: '编辑旅行团',
-      cancel: '撤销旅行团',
+      create: '新增成团记录',
+      update: '编辑成团记录',
+      cancel: '撤销成团记录',
     };
     return labels[handler]
       ? { category: 'tour', label: labels[handler] }
@@ -328,7 +321,7 @@ function actionFor(
     'status' in body &&
     Object.keys(body).every((key) => ['status', 'version'].includes(key));
   const label = statusOnly
-    ? `${body.status === 'enabled' || body.status === 1 ? '启用' : '停用'}${resource}`
+    ? `${body.status === 'enabled' || body.status === 1 ? '启用' : '禁用'}${resource}`
     : `${verb}${resource}${suffix}`;
   const parentKey =
     suffix === '价格'
@@ -351,167 +344,265 @@ function ids(value: unknown): string[] {
     : [];
 }
 
+function safeId(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const id = String(value);
+  return /^(?:[0-9]{1,16}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(
+    id,
+  )
+    ? id
+    : undefined;
+}
+
+function safeCode(value: unknown) {
+  return typeof value === 'string' &&
+    /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function identity(req: AuditRequest, controller: string, handler: string) {
+  const actor = req.auditActor ?? req.user;
+  if (actor)
+    return { actorId: actor.id, actorName: actor.username, scope: actor.scope };
+  if (controller === 'AuthController' && handler === 'login') {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    return {
+      actorId: null,
+      actorName:
+        typeof body.username === 'string' && body.username.trim()
+          ? body.username.trim().slice(0, 80)
+          : '未认证访客',
+      scope: LOGIN_SCOPES.find((scope) => scope === body.scope) ?? 'unknown',
+    };
+  }
+  return {
+    actorId: null,
+    actorName: '未认证访客',
+    scope: 'unknown',
+  };
+}
+
+function sendOutcome(item: Record<string, unknown>) {
+  const messages: unknown[] = Array.isArray(item.messages)
+    ? item.messages
+    : [item];
+  const states = new Set<string>();
+  const ids: string[] = [];
+  for (const message of messages) {
+    if (!message || typeof message !== 'object') continue;
+    const state = 'status' in message ? message.status : undefined;
+    if (
+      typeof state === 'string' &&
+      [
+        'queued',
+        'sending',
+        'accepted',
+        'sent',
+        'delivered',
+        'read',
+        'failed',
+        'unknown',
+      ].includes(state)
+    )
+      states.add(state);
+    const id = safeId('id' in message ? message.id : undefined);
+    if (id) ids.push(id);
+  }
+  let result: OperationResult = 'success';
+  if (states.has('failed')) result = 'failure';
+  else if (!states.size || states.has('unknown')) result = 'unknown';
+  else if (['queued', 'sending', 'accepted'].some((s) => states.has(s)))
+    result = 'pending';
+  return {
+    result,
+    detail: { stage: 'send_requested', states: [...states], messageIds: ids },
+  };
+}
+
 @Injectable()
-export class OperationLogInterceptor implements NestInterceptor {
+export class OperationLogInterceptor implements CanActivate, NestInterceptor {
   private readonly logger = new Logger(OperationLogInterceptor.name);
   constructor(private readonly logs: OperationLogsService) {}
 
+  // Nest guards precede interceptors. The exception filter finishes this attempt if a guard rejects it.
+  canActivate(context: ExecutionContext) {
+    const req = context.switchToHttp().getRequest<AuditRequest>();
+    if (!isUserAction(req)) return true;
+    req.auditGuardFailure = (status, code) =>
+      this.record(context, undefined, { status, code, guard: true });
+    return true;
+  }
+
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<AuditRequest>();
-    const body =
-      request.body && typeof request.body === 'object'
-        ? (request.body as Record<string, unknown>)
-        : {};
-    const controller = context.getClass().name;
-    const handler = context.getHandler().name;
-    const ledgerUnit =
-      request.user?.scope === 'headquarters'
-        ? handler === 'create'
-          ? body.businessUnit
-          : undefined
-        : request.user?.scope;
-    const action = actionFor(controller, handler, body, ledgerUnit);
-    if (!action) return next.handle();
-
-    const base = (
-      success: boolean,
-      item: Record<string, unknown> = {},
-    ): Omit<OperationEntry, 'detail'> => ({
-      category: action.category,
-      action:
-        controller === 'DirectLedgersController'
-          ? actionFor(
-              controller,
-              handler,
-              body,
-              item.businessUnit ?? ledgerUnit,
-            )!.label
-          : action.label,
-      success,
-      actorId: request.user?.id ?? null,
-      actorName: (
-        request.user?.username ??
-        (typeof body.username === 'string' ? body.username : '')
-      ).slice(0, 80),
-      scope:
-        (
-          request.user?.scope ??
-          (typeof body.scope === 'string' ? body.scope : null)
-        )?.slice(0, 32) ?? null,
-      ip: (request.ip ?? '').slice(0, 64),
-    });
-    const detail = (id: unknown, error?: unknown): string => {
-      const data: Record<string, string | number> = {};
-      if (
-        controller === 'NotificationSettingsController' &&
-        handler === 'update'
-      ) {
-        data.notificationType = String(request.params.type ?? '').slice(0, 100);
-        if (typeof body.enabled === 'boolean')
-          data.enabled = body.enabled ? 'true' : 'false';
-        if (typeof body.version === 'number') data.version = body.version;
-      }
-      if (request.menuPermissionChange)
-        return JSON.stringify(request.menuPermissionChange);
-      if (
-        controller === 'ToursController' &&
-        request.tourGuideServiceChange &&
-        error === undefined
-      )
-        return JSON.stringify({
-          recordId: id,
-          ...request.tourGuideServiceChange,
-        });
-      if (
-        controller === 'ToursController' &&
-        handler === 'saveRating' &&
-        typeof request.params.guideId === 'string'
-      )
-        data.guideId = request.params.guideId;
-      if (typeof id === 'string') data.recordId = id.slice(0, 100);
-      if (action.parentKey && request.params[action.parentKey] != null)
-        data.parentId = String(request.params[action.parentKey]).slice(0, 100);
-      if (
-        controller === 'WebsiteController' &&
-        handler === 'createConfigRecord'
-      )
-        data.group = String(request.params.group ?? '');
-      if (error !== undefined) {
-        data.statusCode =
+    delete request.auditGuardFailure;
+    if (!isUserAction(request)) return next.handle();
+    const direct = writesOwnSuccess(
+      context.getClass().name,
+      context.getHandler().name,
+    );
+    return next.handle().pipe(
+      catchError((error: unknown) => {
+        const dbError =
+          error instanceof QueryFailedError
+            ? normalizeDatabaseError(error.driverError)
+            : undefined;
+        const status =
           error instanceof HttpException
             ? error.getStatus()
-            : error instanceof QueryFailedError
-              ? normalizeDatabaseError(error.driverError).status
-              : 500;
-        if (error instanceof BusinessException) data.errorCode = error.code;
-        else if (error instanceof QueryFailedError)
-          data.errorCode = normalizeDatabaseError(error.driverError).code;
-      }
-      return JSON.stringify(data);
-    };
-    const targetIds = (item: Record<string, unknown> = {}): unknown[] => {
-      if (context.getHandler().name.startsWith('delete'))
-        return ids(request.params.id ?? request.query.ids);
-      const recordId = action.resultId
-        ? item.id
-        : (request.params.id ??
-          request.params.priceId ??
-          request.params.contactId ??
-          item.id);
-      return [
-        recordId ??
-          (context.getClass().name === 'AuthController'
-            ? request.user?.id
-            : null),
-      ];
-    };
-
-    return next.handle().pipe(
-      mergeMap((result: unknown) =>
-        from(
-          (async () => {
-            const value =
-              result && typeof result === 'object' && 'data' in result
-                ? result.data
-                : result;
-            const item =
-              value && typeof value === 'object'
-                ? (value as Record<string, unknown>)
-                : {};
-            const targets = targetIds(item);
-            const entries = (targets.length ? targets : [null]).map(
-              (id): OperationEntry => ({
-                ...base(true, item),
-                detail: detail(id),
-              }),
-            );
-            await this.write(entries);
-            return result;
-          })(),
-        ),
-      ),
-      catchError((error: unknown) => {
-        const targets = targetIds();
+            : (dbError?.status ?? 500);
+        const code =
+          error instanceof BusinessException ? error.code : dbError?.code;
+        // Preserve the original error, including when both audit stores are unavailable.
         return from(
-          this.write(
-            (targets.length ? targets : [null]).map((id) => ({
-              ...base(false),
-              detail: detail(id, error),
-            })),
+          this.record(context, undefined, { status, code }).catch(() =>
+            this.logger.error('Failed to persist the rejected operation'),
           ),
         ).pipe(mergeMap(() => throwError(() => error)));
       }),
+      mergeMap((result: unknown) =>
+        direct
+          ? [result]
+          : from(this.record(context, result).then(() => result)),
+      ),
     );
   }
 
-  private async write(entries: OperationEntry[]): Promise<void> {
-    try {
-      await this.logs.append(entries);
-    } catch (error) {
-      this.logger.error(
-        'Operation log write failed',
-        error instanceof Error ? error.stack : String(error),
-      );
+  private async record(
+    context: ExecutionContext,
+    response: unknown,
+    error?: { status: number; code?: string; guard?: boolean },
+  ) {
+    const req = context.switchToHttp().getRequest<AuditRequest>();
+    const controller = context.getClass().name;
+    const handler = context.getHandler().name;
+    const body = (
+      req.body && typeof req.body === 'object' ? req.body : {}
+    ) as Record<string, unknown>;
+    const params = req.params ?? {};
+    const query = req.query ?? {};
+    const value =
+      response && typeof response === 'object' && 'data' in response
+        ? response.data
+        : response;
+    const item = (value && typeof value === 'object' ? value : {}) as Record<
+      string,
+      unknown
+    >;
+    const unit =
+      item.businessUnit ??
+      (req.user?.scope === 'headquarters'
+        ? handler === 'create'
+          ? body.businessUnit
+          : undefined
+        : req.user?.scope);
+    const action: Action | null =
+      actionFor(controller, handler, body, unit) ??
+      additionalCommand(controller, handler);
+    if (!action) return;
+    const actor = identity(req, controller, handler);
+    let result: OperationEntry['result'] = error
+      ? [401, 403, 429].includes(error.status)
+        ? 'denied'
+        : 'failure'
+      : 'success';
+    const details: Record<string, unknown> = {};
+    const parent = action.parentKey ? params[action.parentKey] : undefined;
+    if (parent)
+      details.parentId = ['dictCode', 'typeCode'].includes(action.parentKey!)
+        ? safeCode(parent)
+        : safeId(parent);
+    if (
+      controller === 'NotificationSettingsController' &&
+      handler === 'update'
+    ) {
+      details.notificationType = safeCode(params.type);
+      if (typeof body.enabled === 'boolean')
+        details.enabled = String(body.enabled);
+      if (typeof body.version === 'number') details.version = body.version;
     }
+    if (req.menuPermissionChange && !error)
+      Object.assign(details, req.menuPermissionChange);
+    if (
+      controller === 'ToursController' &&
+      !error &&
+      req.tourGuideServiceChange
+    )
+      Object.assign(details, req.tourGuideServiceChange);
+    if (handler === 'saveRating') details.guideId = safeId(params.guideId);
+    if (controller === 'WebsiteController' && handler === 'createConfigRecord')
+      details.group = safeCode(params.group);
+    if (controller === 'WhatsappController' && params.messageId)
+      details.messageId = safeId(params.messageId);
+    if (controller === 'MenuPermissionsController' && error)
+      details.roleCode = safeCode(params.roleCode);
+    if (controller === 'WebsiteVisitsController' && handler === 'export') {
+      for (const key of ['start', 'end'])
+        if (
+          typeof query[key] === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(query[key])
+        )
+          details[key] = query[key];
+      if (!error) details.stage = 'stream_started';
+    }
+    if (!error && controller === 'WhatsappController') {
+      if (
+        ['send', 'sendDocument', 'sendImageBatch', 'retry', 'react'].includes(
+          handler,
+        )
+      ) {
+        const outcome = sendOutcome(item);
+        Object.assign(details, outcome.detail);
+        result = outcome.result;
+      }
+      if (handler === 'documentDownload') details.stage = 'link_issued';
+    }
+    if (!error && handler === 'downloadClick')
+      details.stage = 'download_requested';
+    if (error) {
+      details.statusCode = error.status;
+      if (error.code) details.errorCode = error.code;
+      if (error.guard) details.stage = 'guard';
+    }
+    const id = safeId(
+      action.resultId
+        ? item.id
+        : (params.id ??
+            params.priceId ??
+            params.contactId ??
+            params.messageId ??
+            item.id ??
+            (controller === 'AuthController' ? actor.actorId : undefined)),
+    );
+    const targets = handler.startsWith('delete')
+      ? [
+          ...new Set(
+            ids(params.id ?? query.ids)
+              .map(safeId)
+              .filter(Boolean),
+          ),
+        ]
+      : [];
+    const rows = (targets.length ? targets : [id]).map(
+      (recordId): OperationEntry => {
+        const data = { ...(recordId ? { recordId } : {}), ...details };
+        if (
+          !Object.values(data).some((v) => v !== undefined) ||
+          (!recordId && !error)
+        )
+          Object.assign(data, { operation: controller + '.' + handler });
+        return {
+          ...actor,
+          category: action.category,
+          action: action.label,
+          success: result === 'success',
+          result,
+          ip: (req.ip ?? '').slice(0, 64),
+          detail: JSON.stringify(data),
+        };
+      },
+    );
+    await this.logs.append(rows);
   }
 }

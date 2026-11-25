@@ -227,7 +227,7 @@ class UserEditableFieldsDto {
 
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(1, { message: '一个账号只能有一个登录范围和部门' })
+  @ArrayMaxSize(1, { message: '一个账号只能有一个业务范围和部门' })
   @ValidateNested({ each: true })
   @Type(() => IdentityInput)
   identities: IdentityInput[];

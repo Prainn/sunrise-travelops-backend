@@ -60,12 +60,14 @@ import { InspectionAlertModule } from './inspection-alert/inspection-alert.modul
     InspectionAlertModule,
   ],
   providers: [
+    OperationLogInterceptor,
+    { provide: APP_GUARD, useExisting: OperationLogInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: HttpLogContextInterceptor },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
-    { provide: APP_INTERCEPTOR, useClass: OperationLogInterceptor },
+    { provide: APP_INTERCEPTOR, useExisting: OperationLogInterceptor },
   ],
 })
 export class AppModule {}

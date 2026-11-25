@@ -269,23 +269,37 @@ describe('manual tour contract and scope', () => {
       'manualSource',
     );
   });
-  it('rejects flight IDs mixed with manual times and manual times on linked sources', async () => {
+  it('rejects flight IDs mixed with manual times', async () => {
     const { service } = setup();
     await expect(
       service.create({ ...input(), pickupFlightId: other }, user),
     ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      service.create(
-        {
-          ...input(),
-          sourceModule: 'standard',
-          manualSource: undefined,
-          inquiryId: other,
-          quoteId: other,
-        },
-        user,
-      ),
-    ).rejects.toMatchObject({ status: 400 });
+  });
+  it('requires a confirmed quote and rejects manual times on a linked standard inquiry', async () => {
+    const { service, query } = setup();
+    const linked: CreateTourDto = {
+      ...input(),
+      sourceModule: 'standard',
+      manualSource: undefined,
+      inquiryId: other,
+      quoteId: other,
+    };
+    const source = { id: other, business_unit: user.scope, owner_id: user.id };
+    query.mockResolvedValueOnce([source]).mockResolvedValueOnce([]);
+    await expect(service.create(linked, user)).rejects.toMatchObject({
+      status: 409,
+      response: { message: '询盘没有已确认报价' },
+    });
+    query.mockResolvedValueOnce([source]).mockResolvedValueOnce([
+      {
+        id: other,
+        snapshot: { itinerary: { startDate: '2026-10-25', days: 3 } },
+      },
+    ]);
+    await expect(service.create(linked, user)).rejects.toMatchObject({
+      status: 400,
+      response: { message: '此关联来源须选择接送航班' },
+    });
   });
   it('keeps source unit and country immutable when editing', async () => {
     const { service } = setup(savedTour());

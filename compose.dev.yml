@@ -20,6 +20,7 @@ services:
     group_add:
       - "2000"
     volumes: !override
+      - operation_log_retry:/var/lib/sunrise/operation-log-retry
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/share/ca-certificates:/usr/share/ca-certificates:ro
       - /run/sunrise-whatsapp-send-dev:/run/sunrise-whatsapp-send:ro
