@@ -109,6 +109,32 @@ describe('Feishu API transport', () => {
     },
   );
 
+  it.each([
+    [429, '', false],
+    [400, '{"code":230020}', false],
+    [502, '', true],
+  ])(
+    'handles message HTTP %i without retrying an ambiguous response',
+    async (status, body, unknown) => {
+      jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              code: 0,
+              tenant_access_token: 'token',
+              expire: 7200,
+            }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(String(body), { status: Number(status) }),
+        );
+      await expect(
+        sender().sendText('ou_test', 'text', 'uuid'),
+      ).rejects.toMatchObject({ deliveryUnknown: unknown });
+    },
+  );
   it('token failures are safe to retry because no message submission happened', async () => {
     const mock = jest
       .spyOn(globalThis, 'fetch')

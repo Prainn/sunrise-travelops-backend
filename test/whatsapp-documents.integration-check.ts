@@ -7,6 +7,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { MAX_DOCUMENT_BYTES } from '../src/media/media.document-format';
 import { MediaStorage } from '../src/media/media.storage';
 import { WhatsappDocuments } from '../src/media/media.whatsapp-documents';
+import type { MediaService } from '../src/media/media.service';
 import { AddWhatsappDocuments1796256007000 } from '../src/migrations/1796256007000-AddWhatsappDocuments';
 import { WhatsappEvents } from '../src/whatsapp/whatsapp.events';
 import { WhatsappProvider } from '../src/whatsapp/whatsapp.provider';
@@ -133,6 +134,14 @@ async function main() {
   await upload(Buffer.from('plain text'), 'spoof.pdf', 400);
   await upload(Buffer.alloc(MAX_DOCUMENT_BYTES + 1), 'oversize.pdf', 413);
   const draft = await upload();
+  const root = await h.actor('headquarters', 'ROOT', null, undefined, 'mango');
+  const catalog = () =>
+    h.call<Page<ReturnType<MediaService['present']>>>(
+      root,
+      'GET',
+      '/system/oss/resources?kind=pdf&state=ready',
+    );
+  assert.equal((await catalog()).total, 0);
   assert.equal(draft.fileName, '行程.PDF');
   assert.equal(draft.sizeBytes, pdf.length);
   assert(new Date(draft.expiresAt).getTime() > Date.now());
@@ -350,6 +359,18 @@ async function main() {
   );
   assert.equal(retried.kind, 'document');
   assert.equal(retried.attachment?.documentId, draft.id);
+  const files = await catalog();
+  assert.equal(files.total, 1);
+  const [file] = files.list;
+  assert.equal(file.id, draft.id);
+  assert.equal(file.name, draft.fileName);
+  assert.equal(file.source, 'upload');
+  assert.equal(file.referenceCount, 2);
+  assert.deepEqual(file.documentMessage, {
+    conversationId: id,
+    messageId: retried.id,
+  });
+  assert.equal(file.originalUrl, null);
   assert.equal(await service.cleanupExpiredDraft(), false);
   console.log(
     'WhatsApp documents: additive upgrade, authorization, draft validation/expiry, idempotency, private links and outbox; ' +

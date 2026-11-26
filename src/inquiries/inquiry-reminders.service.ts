@@ -1,4 +1,4 @@
-import { notificationEnabled } from '../notifications/notification-settings';
+import { notificationPolicy } from '../notifications/notification-settings';
 import {
   Injectable,
   Logger,
@@ -79,7 +79,7 @@ export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
     );
     for (let n = 0; n < 10; n++) {
       const candidate = await this.db.query<Job[]>(
-        `SELECT * FROM inquiry_follow_up_reminders WHERE status='pending' AND due_at<=now() ORDER BY due_at,id LIMIT 1`,
+        `SELECT * FROM inquiry_follow_up_reminders WHERE status='pending' AND digest_at IS NULL AND due_at<=now() ORDER BY due_at,id LIMIT 1`,
       );
       if (!candidate[0]) break;
       const job = candidate[0];
@@ -87,8 +87,8 @@ export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
         await manager.query('SELECT id FROM inquiries WHERE id=$1 FOR UPDATE', [
           job.inquiry_id,
         ]);
-        const rows = await manager.query<Job[]>(
-          `UPDATE inquiry_follow_up_reminders SET status='sending',claimed_at=now(),updated_at=now() WHERE id=$1 AND status='pending' RETURNING *`,
+        const [rows] = await manager.query<[Job[], number]>(
+          `UPDATE inquiry_follow_up_reminders SET status='sending',claimed_at=now(),updated_at=now() WHERE id=$1 AND status='pending' AND digest_at IS NULL RETURNING *`,
           [job.id],
         );
         return !!rows.length;
@@ -120,17 +120,22 @@ export class InquiryRemindersService implements OnModuleInit, OnModuleDestroy {
           );
           return;
         }
-        if (
-          !(await notificationEnabled(
-            manager,
-            'inquiry_follow_up',
-            true,
-            current.created_at,
-          ))
-        ) {
+        const policy = await notificationPolicy(
+          manager,
+          'inquiry_follow_up',
+          current.created_at,
+        );
+        if (!policy.enabled) {
           await manager.query(
             `UPDATE inquiry_follow_up_reminders SET status='cancelled',error_code='NOTIFICATION_DISABLED',updated_at=now() WHERE id=$1`,
             [job.id],
+          );
+          return;
+        }
+        if (policy.resume) {
+          await manager.query(
+            `UPDATE inquiry_follow_up_reminders SET status='pending',digest_at=$2,claimed_at=NULL WHERE id=$1`,
+            [job.id, policy.resume],
           );
           return;
         }

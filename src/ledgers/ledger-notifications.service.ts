@@ -1,4 +1,7 @@
-import { notificationEnabled } from '../notifications/notification-settings';
+import {
+  NotificationType,
+  notificationPolicy,
+} from '../notifications/notification-settings';
 import {
   Injectable,
   Logger,
@@ -24,11 +27,25 @@ export interface LedgerReminderRow extends LedgerReminderData {
 }
 
 export function reminderKind(
-  row?: LedgerReminderRow,
+  row?: Pick<
+    LedgerReminderRow,
+    'operated' | 'loss' | 'reviewedAt' | 'proposalSent' | 'orderStatus'
+  >,
 ): 'review' | 'operate' | null {
   if (!row || row.operated) return null;
   if (row.loss && !row.reviewedAt) return 'review';
   return row.proposalSent && row.orderStatus === 'converted' ? 'operate' : null;
+}
+
+export function eligibleLedgerRecipient(
+  unit: LedgerReminderRow['businessUnit'],
+  kind: 'review' | 'operate',
+  roles: string[],
+) {
+  return (
+    (kind !== 'review' || roles.includes('BUSINESS_MANAGER')) &&
+    effectivePermissions(unit, roles).includes(`ledger:direct:${kind}`)
+  );
 }
 
 @Injectable()
@@ -79,12 +96,8 @@ export class LedgerNotificationsService
        GROUP BY u.id,i.id`,
       [row.businessUnit, kind, row.operatorId],
     );
-    return users.filter(
-      (user) =>
-        (kind !== 'review' || user.roles.includes('BUSINESS_MANAGER')) &&
-        effectivePermissions(row.businessUnit, user.roles).includes(
-          `ledger:direct:${kind}`,
-        ),
+    return users.filter((user) =>
+      eligibleLedgerRecipient(row.businessUnit, kind, user.roles),
     );
   }
 
@@ -99,24 +112,22 @@ export class LedgerNotificationsService
       (kind !== 'operate' || previous?.operatorId === row.operatorId)
     )
       return;
+    const policy =
+      kind && this.feishu.configured
+        ? await notificationPolicy(
+            manager,
+            `${row.businessUnit}_ledger_${kind}`,
+          )
+        : null;
     await manager.query(
       `UPDATE feishu_ledger_notifications SET status='skipped' WHERE ledger_id=$1 AND status='pending'`,
       [row.id],
     );
-    if (
-      !kind ||
-      !this.feishu.configured ||
-      !(await notificationEnabled(
-        manager,
-        `${row.businessUnit}_ledger_${kind}`,
-        true,
-      ))
-    )
-      return;
+    if (!kind || !policy?.enabled) return;
     for (const recipient of await this.recipients(manager, row, kind)) {
       await manager.query(
-        `INSERT INTO feishu_ledger_notifications(ledger_id,ledger_version,kind,recipient_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-        [row.id, row.version, kind, recipient.id],
+        `INSERT INTO feishu_ledger_notifications(ledger_id,ledger_version,kind,recipient_id,digest_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+        [row.id, row.version, kind, recipient.id, policy.resume],
       );
     }
   }
@@ -126,6 +137,20 @@ export class LedgerNotificationsService
     // Each claim stays locked through delivery, so multiple API processes cannot send it concurrently.
     for (let count = 0; count < 10; count++) {
       const processed = await this.db.transaction(async (manager) => {
+        const [candidate] = await manager.query<
+          { id: string; type: NotificationType; created_at: Date }[]
+        >(
+          `SELECT j.id,l.business_unit||'_ledger_'||j.kind AS type,j.created_at
+           FROM feishu_ledger_notifications j JOIN direct_ledgers l ON l.id=j.ledger_id
+           WHERE j.status='pending' AND j.digest_at IS NULL AND j.next_attempt_at<=now()
+           ORDER BY j.next_attempt_at,j.id LIMIT 1`,
+        );
+        if (!candidate) return false;
+        const policy = await notificationPolicy(
+          manager,
+          candidate.type,
+          candidate.created_at,
+        );
         const [job] = await manager.query<
           {
             id: string;
@@ -136,10 +161,10 @@ export class LedgerNotificationsService
             created_at: Date;
           }[]
         >(
-          `SELECT * FROM feishu_ledger_notifications WHERE status='pending' AND next_attempt_at<=now()
-           ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`,
+          `SELECT * FROM feishu_ledger_notifications WHERE id=$1 AND status='pending' AND digest_at IS NULL AND next_attempt_at<=now() FOR UPDATE SKIP LOCKED`,
+          [candidate.id],
         );
-        if (!job) return false;
+        if (!job) return true;
         const [row] = await manager.query<LedgerReminderRow[]>(
           `SELECT id,version,business_unit AS "businessUnit",order_no AS "orderNo",creator_name AS "creatorName",
            source,receiving_account_name AS "receivingAccountName",loss_note AS "lossNote",
@@ -148,14 +173,7 @@ export class LedgerNotificationsService
           [job.ledger_id],
         );
         const recipient =
-          row &&
-          reminderKind(row) === job.kind &&
-          (await notificationEnabled(
-            manager,
-            `${row.businessUnit}_ledger_${job.kind}`,
-            true,
-            job.created_at,
-          ))
+          row && reminderKind(row) === job.kind && policy?.enabled
             ? (await this.recipients(manager, row, job.kind)).find(
                 (user) => user.id === job.recipient_id,
               )
@@ -164,6 +182,13 @@ export class LedgerNotificationsService
           await manager.query(
             `UPDATE feishu_ledger_notifications SET status='skipped' WHERE id=$1`,
             [job.id],
+          );
+          return true;
+        }
+        if (policy.resume) {
+          await manager.query(
+            'UPDATE feishu_ledger_notifications SET digest_at=$2 WHERE id=$1',
+            [job.id, policy.resume],
           );
           return true;
         }

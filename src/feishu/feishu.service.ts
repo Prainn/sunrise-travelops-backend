@@ -57,6 +57,13 @@ export class FeishuService {
     return url.toString();
   }
 
+  summaryUrl(whatsapp: boolean) {
+    return new URL(
+      whatsapp ? '/whatsapp/inbox' : '/',
+      this.config.getOrThrow<string>('FEISHU_WEB_BASE_URL'),
+    ).toString();
+  }
+
   conversationUrl(conversationId: string) {
     const url = new URL(
       '/whatsapp/inbox',
@@ -81,7 +88,18 @@ export class FeishuService {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) throw new Error('Feishu HTTP failure');
+    if (!response.ok) {
+      if (token && response.status === 429)
+        throw new FeishuSendException(false);
+      if (token && response.status >= 400 && response.status < 500) {
+        const rejection = (await response.json().catch(() => null)) as {
+          code?: unknown;
+        } | null;
+        if (typeof rejection?.code === 'number' && rejection.code !== 0)
+          throw new FeishuSendException(false);
+      }
+      throw new Error('Feishu HTTP failure');
+    }
     return (await response.json()) as T;
   }
 
@@ -146,7 +164,8 @@ export class FeishuService {
         throw new Error('Feishu message failure');
       }
       return { messageId: response.data.message_id };
-    } catch {
+    } catch (error) {
+      if (error instanceof FeishuSendException) throw error;
       throw new FeishuSendException(deliveryUnknown);
     }
   }
