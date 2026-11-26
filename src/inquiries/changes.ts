@@ -9,6 +9,7 @@ function key(value: unknown): string | undefined {
     value.id ??
     value.tier ??
     value.dayId ??
+    value.vehicleId ??
     value.destination ??
     (typeof value.pax === 'number' ? String(value.pax) : undefined);
   return typeof id === 'string' || typeof id === 'number'

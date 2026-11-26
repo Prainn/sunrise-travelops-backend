@@ -1,6 +1,7 @@
 import { requirePriceReason } from './price-adjustments';
 import {
   normalizeVehiclePaxPrices,
+  vehicleSeats,
   validateVehicleModeChange,
 } from './vehicle-pax-pricing';
 import { ResourceStatus } from '../resources/common/resource.constants';
@@ -217,7 +218,6 @@ export class ItineraryValidation {
         invalid('请选择已启用的行程目的地');
     }
     plan.paxTiers.sort((a, b) => a - b);
-    const guestCount = Math.max(...plan.paxTiers);
     unique(
       [
         ...plan.dailyPlans,
@@ -428,9 +428,17 @@ export class ItineraryValidation {
       if (!group.arrangements.length) group.totalPrice = null;
       if (group.totalPrice !== null)
         group.totalPrice = roundMoney(group.totalPrice);
+      const knownVehicles = new Map(
+        old?.arrangements.flatMap((range) =>
+          (range.paxPrices ?? []).flatMap((price) =>
+            (price.vehicles ?? []).map(
+              (vehicle) => [vehicle.vehicleId, vehicle] as const,
+            ),
+          ),
+        ),
+      );
       const assignedRanges: Array<{ startDate: string; endDate: string }> = [];
       for (const arrangement of group.arrangements) {
-        unique(arrangement.vehicles.map((v) => v.vehicleId));
         arrangement.totalPrice ??= null;
         if (arrangement.totalPrice !== null)
           arrangement.totalPrice = roundMoney(arrangement.totalPrice);
@@ -459,40 +467,52 @@ export class ItineraryValidation {
             invalid('同一档车型的用车日期重叠，请调整日期');
           assignedRanges.push(arrangement);
         }
-        for (const vehicle of arrangement.vehicles) {
-          const oldVehicle = previous?.vehiclePlans
-            .find((p) => p.tier === group.tier)
-            ?.arrangements.flatMap((a) => a.vehicles)
-            .find((v) => v.vehicleId === vehicle.vehicleId);
-          if (oldVehicle) {
-            vehicle.vehicleName = oldVehicle.vehicleName;
-            vehicle.seats = oldVehicle.seats;
-            continue;
-          }
-          const resource = await manager.findOneBy(TransportEntity, {
-            id: vehicle.vehicleId,
-          });
-          if (
-            !resource ||
-            resource.status !== ResourceStatus.Enabled ||
-            resource.serviceLevel !== group.tier
-          )
-            invalid('所选车型不可用，请重新选择');
-          Object.assign(vehicle, {
-            vehicleName: resource.name,
-            seats: resource.seats,
-          });
-        }
-        const seats = arrangement.vehicles.reduce(
-          (sum, v) => sum + v.seats * v.quantity,
-          0,
+        if (group.quotationMode !== 'itinerary') continue;
+        const oldRange = old?.arrangements.find(
+          (range) => range.id === arrangement.id,
         );
-        if (
-          hasStartDate &&
-          group.quotationMode === 'itinerary' &&
-          seats < guestCount
-        )
-          invalid('所选车辆总座位不足，请增加车辆或选择更大的车型');
+        for (const price of arrangement.paxPrices!) {
+          const previousPrice = oldRange?.paxPrices?.find(
+            (item) => item.pax === price.pax,
+          );
+          const vehicles = price.vehicles!;
+          unique(vehicles.map((v) => v.vehicleId));
+          for (const vehicle of vehicles) {
+            const known =
+              previousPrice?.vehicles?.find(
+                (v) => v.vehicleId === vehicle.vehicleId,
+              ) ?? knownVehicles.get(vehicle.vehicleId);
+            if (known) {
+              vehicle.vehicleName = known.vehicleName;
+              vehicle.seats = known.seats;
+            } else {
+              const resource = await manager.findOneBy(TransportEntity, {
+                id: vehicle.vehicleId,
+              });
+              if (
+                !resource ||
+                resource.status !== ResourceStatus.Enabled ||
+                resource.serviceLevel !== group.tier
+              )
+                invalid('所选车型不可用，请重新选择');
+              vehicle.vehicleName = resource.name;
+              vehicle.seats = resource.seats;
+              knownVehicles.set(vehicle.vehicleId, vehicle);
+            }
+          }
+          if (!hasStartDate || vehicleSeats(vehicles) >= price.pax) continue;
+          // Adding a PAX tier in the separate itinerary form creates an empty assignment.
+          // It can stay pending in a draft until the vehicle dialog supplies its fleet.
+          if (
+            !vehicles.length &&
+            oldRange?.startDate &&
+            !previousPrice?.vehicles?.length
+          )
+            continue;
+          invalid(
+            `${price.pax} 人档所选车辆总座位不足，请增加车辆或选择更大的车型`,
+          );
+        }
       }
     }
     for (const guide of plan.guidePlans) {
@@ -710,7 +730,13 @@ export class ItineraryValidation {
             (a) =>
               !a.startDate ||
               !a.endDate ||
-              (vehicle.quotationMode === 'itinerary' && !a.vehicles.length),
+              (vehicle.quotationMode === 'itinerary' &&
+                plan.paxTiers.some(
+                  (pax) =>
+                    vehicleSeats(
+                      a.paxPrices?.find((p) => p.pax === pax)?.vehicles ?? [],
+                    ) < pax,
+                )),
           ))
       )
         issues.push('vehicleDays');

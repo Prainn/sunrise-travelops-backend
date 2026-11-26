@@ -147,8 +147,11 @@ function hasLogValue(value: unknown): boolean {
 function requestLogDetails(
   source: HttpLogSource | undefined,
 ): Record<string, unknown> {
-  // Certificate searches are free text; field-name redaction alone cannot protect them.
-  if (source?.context === 'GuidePeopleController') {
+  // Free-text certificate searches and mail correspondence stay out of request logs.
+  if (
+    source?.context === 'GuidePeopleController' ||
+    source?.context === 'MailController'
+  ) {
     return {
       ...(hasLogValue(source.params)
         ? { params: sanitizeLogValue(source.params) }

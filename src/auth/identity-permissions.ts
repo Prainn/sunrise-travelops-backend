@@ -13,6 +13,7 @@ import {
   TOUR_PERMISSIONS,
   WEBSITE_PERMISSIONS,
   WHATSAPP_PERMISSIONS,
+  MAIL_PERMISSIONS,
 } from './permissions';
 import type { CoordinatorDuty } from '../users/coordinator-assignment';
 import { LoginScope } from '../users/user-identity.entity';
@@ -119,7 +120,10 @@ export function effectivePermissions(
 ): string[] {
   if (isHeadquartersBoss({ scope, roles }))
     return effectivePermissions(scope, ['ROOT'], coordinatorDuty).filter(
-      (p) => !p.startsWith('whatsapp:') && !BOSS_DENIED_PERMISSIONS.includes(p),
+      (p) =>
+        !p.startsWith('whatsapp:') &&
+        !p.startsWith('mail:') &&
+        !BOSS_DENIED_PERMISSIONS.includes(p),
     );
   const summaryPermissions = (
     scope === 'headquarters'
@@ -168,6 +172,7 @@ export function effectivePermissions(
     return [
       ...ROLE_PERMISSIONS.ROOT,
       ...WHATSAPP_PERMISSIONS,
+      ...MAIL_PERMISSIONS,
       ...WEBSITE_ROLE_PERMISSIONS.ROOT,
       ...summaryPermissions,
       ...ledgerPermissions,
@@ -182,6 +187,13 @@ export function effectivePermissions(
       ...visitPermissions,
     ];
   return [
+    ...(scope === 'website' &&
+    selected.some((role) => ['BUSINESS_MANAGER', 'COORDINATOR'].includes(role))
+      ? MAIL_PERMISSIONS.filter(
+          (p) =>
+            p !== 'mail:thread:assign' || selected.includes('BUSINESS_MANAGER'),
+        )
+      : []),
     ...(scope === 'website'
       ? selected.includes('BUSINESS_MANAGER')
         ? WHATSAPP_PERMISSIONS.filter(
@@ -242,6 +254,8 @@ export function effectiveAccountPermissions(
   if (isFullAdministrator({ scope, roles, username }))
     return Object.keys(PERMISSION_DEFINITIONS).sort();
   return effectivePermissions(scope, roles, coordinatorDuty).filter(
-    (p) => !p.startsWith('whatsapp:') || scope === 'website',
+    (p) =>
+      (!p.startsWith('whatsapp:') && !p.startsWith('mail:')) ||
+      scope === 'website',
   );
 }

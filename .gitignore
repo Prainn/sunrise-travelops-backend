@@ -5,6 +5,7 @@ coverage/
 .env
 .env.*
 whatsapp-receive.env
+alimail.env
 *.log
 .DS_Store
 .idea/

@@ -13,6 +13,8 @@ services:
       - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
   api:
     env_file:
+      - path: ./alimail.env
+        required: false
       - path: ./oss-media.env
         required: false
     environment:

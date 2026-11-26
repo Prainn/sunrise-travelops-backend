@@ -186,9 +186,15 @@ export async function saveFrozenDetails(
           range.totalPrice ?? null,
         ],
       );
-      for (const [order, selection] of range.vehicles.entries())
+      const selections = (range.paxPrices ?? []).flatMap((price) =>
+        (price.vehicles ?? []).map((selection) => ({
+          ...selection,
+          pax: price.pax,
+        })),
+      );
+      for (const [order, selection] of selections.entries())
         await manager.query(
-          'INSERT INTO quote_vehicles(quote_id,tier,range_id,position,vehicle_id,vehicle_name,seats,quantity) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+          'INSERT INTO quote_vehicles(quote_id,tier,range_id,position,vehicle_id,vehicle_name,seats,quantity,pax) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
           [
             id,
             vehicle.tier,
@@ -198,6 +204,7 @@ export async function saveFrozenDetails(
             selection.vehicleName,
             selection.seats,
             selection.quantity,
+            selection.pax,
           ],
         );
     }

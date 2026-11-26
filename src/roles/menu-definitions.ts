@@ -25,6 +25,13 @@ export const MENU_DEFINITIONS = [
     scopes: ['headquarters'],
   },
   {
+    key: 'mail-inbox',
+    title: 'mailInbox',
+    group: 'websiteInquiries',
+    permissions: ['mail:thread:list'],
+    scopes: ['website', 'headquarters'],
+  },
+  {
     key: 'whatsapp-inbox',
     title: 'whatsappInbox',
     group: 'whatsappWorkbench',
@@ -344,6 +351,7 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     title: 'websiteInquiries',
     routeName: 'WebsiteInquiries',
     children: [
+      menuItem('mail-inbox', 'MailInbox'),
       menuItem('inquiries', 'WebsiteInquiryList', {
         scopes: ['headquarters', 'linxi', 'website'],
         permissions: ['website:inquiry:list'],
