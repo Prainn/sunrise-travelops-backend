@@ -1,5 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
+import { isHeadquartersBusinessAdmin } from '../auth/account-access';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ErrorCode, ErrorCodeValue } from '../common/constants/error-code';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -70,18 +71,46 @@ export const COORDINATOR_FROM = `FROM users u JOIN user_identities i ON i.user_i
   WHERE i.scope=$1 AND u.status='enabled' AND u.deleted_at IS NULL AND NOT u.is_superuser
   AND EXISTS (SELECT 1 FROM identity_roles ir JOIN roles r ON r.id=ir.role_id
     WHERE ir.identity_id=i.id AND r.code='COORDINATOR' AND r.is_enabled)`;
+async function findCoordinator(
+  manager: EntityManager,
+  id: string,
+  unit: string,
+  duty: 'reception' | 'operation',
+  lock: boolean,
+) {
+  const dutyFilter =
+    unit === 'shengxu' ? '' : " AND i.coordinator_duty IN ($3,'both')";
+  const [row] = await manager.query<{ id: string; name: string }[]>(
+    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2${dutyFilter}${lock ? ' FOR SHARE OF u,i' : ''}`,
+    unit === 'shengxu' ? [unit, id] : [unit, id, duty],
+  );
+  return row;
+}
+
+export async function canCreateLinkedWebsiteLedger(
+  manager: EntityManager,
+  actor: AuthenticatedUser,
+  ownerId: string | null,
+) {
+  if (
+    !ownerId ||
+    !actor.permissions.includes('ledger:direct:create') ||
+    !actor.permissions.includes('ledger:direct:list')
+  )
+    return false;
+  if (actor.id !== ownerId && !isHeadquartersBusinessAdmin(actor)) return false;
+  return Boolean(
+    await findCoordinator(manager, ownerId, 'website', 'reception', false),
+  );
+}
+
 export async function coordinator(
   manager: EntityManager,
   id: string,
   unit: string,
   duty: 'reception' | 'operation' = 'reception',
 ) {
-  const dutyFilter =
-    unit === 'shengxu' ? '' : " AND i.coordinator_duty IN ($3,'both')";
-  const [row] = await manager.query<{ id: string; name: string }[]>(
-    `SELECT u.id,u.nickname AS name ${COORDINATOR_FROM} AND u.id=$2${dutyFilter} FOR SHARE OF u,i`,
-    unit === 'shengxu' ? [unit, id] : [unit, id, duty],
-  );
+  const row = await findCoordinator(manager, id, unit, duty, true);
   return (
     row ??
     invalid(

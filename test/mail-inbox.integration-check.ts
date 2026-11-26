@@ -12,6 +12,7 @@ import {
   OutgoingMail,
 } from '../src/mail/alimail.provider';
 import { MAILBOX, MailMessage, MailThread } from '../src/mail/mail.types';
+import type { CustomerNotes } from '../src/whatsapp/whatsapp.types';
 import { MediaStorage } from '../src/media/media.storage';
 
 async function main() {
@@ -22,11 +23,30 @@ async function main() {
   const countryId = randomUUID();
   try {
     await h.start({
-      from: 1796256022000,
+      from: 1796256024000,
       seed: async () => {
         await h.db.query(
           `INSERT INTO system_business_dictionary_items(id,type_id,code,name,english_name) SELECT $1,id,'MAIL_TEST','测试地区','Test region' FROM system_business_dictionary_types WHERE code='country-region'`,
           [countryId],
+        );
+        // A real pre-upgrade thread must keep its source, unread state and version.
+        const [old] = await h.db.query<{ id: string }[]>(
+          "INSERT INTO mail_threads(mailbox,subject,customer_email,customer_name,last_at,has_inbound) VALUES($1,'Same subject','client@example.test','Customer','2026-11-26T01:02:00Z',true) RETURNING id",
+          [MAILBOX],
+        );
+        await h.db.query(
+          `INSERT INTO mail_messages(thread_id,direction,state,provider_id,internet_id,subject,sender,recipients,reply_to,body,occurred_at)
+           VALUES($1,'inbound','received','first','first@example.test','Same subject',$2,$3,$4,'Body first','2026-11-26T01:02:00Z')`,
+          [
+            old.id,
+            { email: 'client@example.test', name: 'Customer' },
+            JSON.stringify([{ email: MAILBOX }]),
+            JSON.stringify([{ email: 'first-reply@example.test' }]),
+          ],
+        );
+        await h.db.query(
+          "INSERT INTO mail_thread_keys(mailbox,internet_id,thread_id) VALUES($1,'first@example.test',$2)",
+          [MAILBOX, old.id],
         );
       },
     });
@@ -203,7 +223,14 @@ async function main() {
     );
     const path = '/mail/threads/' + thread.id;
     const detail = () =>
-      h.call<MailThread & { messages: MailMessage[] }>(mgr, 'GET', path);
+      h.call<
+        MailThread & {
+          messages: MailMessage[];
+          canUpdateCustomer: boolean;
+          ledger: { id: string; orderNo: string } | null;
+          canCreateLedger: boolean;
+        }
+      >(mgr, 'GET', path);
     const original = (await detail()).messages;
     assert.equal(original.length, 2);
     const source = original.find((msg) => msg.body === b.body)!;
@@ -255,6 +282,83 @@ async function main() {
     assert.equal((await unread(alice)).unreadCount, 0);
     assert.equal((await unread(mgr)).unreadCount, 2);
     const inboxSource = path + '/messages/' + source.id;
+    const notesUrl = inboxSource + '/customer-notes';
+    const firstNotesUrl =
+      path + '/messages/' + original[0].id + '/customer-notes';
+    type Notes = CustomerNotes & { customerName: string; version: number };
+    const initial = await h.call<Notes>(alice, 'GET', notesUrl);
+    assert.equal(initial.customerName, 'Customer');
+    assert.equal(initial.requirements, b.subject + '\n\n' + b.body);
+    assert.equal(initial.updatedAt, null);
+    assert.equal(
+      (await h.call<Notes>(alice, 'GET', firstNotesUrl)).contactInfo,
+      'first-reply@example.test',
+    );
+    const base = {
+      version: initial.version,
+      customerName: 'Mail customer',
+      countryItemId: countryId,
+      plannedDays: 5,
+      pax: 2,
+      startDate: '2027-01-12',
+      requirements: 'Two guests, five days',
+      internalRemark: 'Call after 3 PM',
+    };
+    await h.call(bob, 'GET', notesUrl, undefined, 404, 'NOT_FOUND');
+    await h.call(bob, 'PUT', notesUrl, base, 404, 'NOT_FOUND');
+    await h.call(other, 'PUT', notesUrl, base, 403, 'AUTH_FORBIDDEN');
+    await h.call(
+      alice,
+      'PUT',
+      notesUrl,
+      { ...base, contactInfo: 'forged' },
+      400,
+      'VALIDATION_ERROR',
+    );
+    await h.call(
+      alice,
+      'PUT',
+      notesUrl,
+      { ...base, destinations: [randomUUID()] },
+      400,
+      'VALIDATION_ERROR',
+    );
+    const [foreignSource] = await h.db.query<{ id: string }[]>(
+      "SELECT id FROM mail_messages WHERE provider_id='third'",
+    );
+    await h.call(
+      alice,
+      'PUT',
+      path + '/messages/' + foreignSource.id + '/customer-notes',
+      base,
+      404,
+      'NOT_FOUND',
+    );
+    const savedNotes = await h.call<Notes>(alice, 'PUT', notesUrl, base);
+    assert.equal(savedNotes.version, initial.version + 1);
+    assert.equal(savedNotes.requirements, base.requirements);
+    await h.call(
+      mgr,
+      'PUT',
+      notesUrl,
+      { ...base, customerName: 'Stale name' },
+      409,
+      'CONFLICT',
+    );
+    const firstNotes = await h.call<Notes>(mgr, 'GET', firstNotesUrl);
+    assert.equal(firstNotes.requirements, 'Same subject\n\nBody first');
+    assert.equal(firstNotes.customerName, base.customerName);
+    assert.equal(firstNotes.internalRemark, base.internalRemark);
+    const found = await h.call<{ list: MailThread[] }>(
+      mgr,
+      'GET',
+      '/mail/threads?keyword=Mail%20customer',
+    );
+    assert.equal(found.list[0].id, thread.id);
+    assert.equal(
+      (await detail()).messages.find((m) => m.id === source.id)?.body,
+      b.body,
+    );
     const open = () =>
       h.call<MailMessage>(
         alice,
@@ -350,9 +454,12 @@ async function main() {
     assert.equal((await detail()).messages.length, 4);
     const inquiryInput = {
       countryItemId: countryId,
-      customerName: 'Customer',
-      plannedDays: 3,
-      requirements: b.body,
+      customerName: 'Inquiry name',
+      plannedDays: savedNotes.plannedDays,
+      startDate: savedNotes.startDate,
+      pax: savedNotes.pax,
+      requirements: savedNotes.requirements,
+      internalRemark: savedNotes.internalRemark,
       contactChannel: 'Website',
       contactInfo: 'forged',
       acquisitionSource: 'forged',
@@ -379,6 +486,9 @@ async function main() {
       contactInfo: string;
       acquisitionSource: string;
       mailSource: { messageId: string };
+      requirements: string;
+      internalRemark: string;
+      plannedDays: number;
       version: number;
     }>(alice, 'GET', inquiryPath);
     assert.equal(inquiry.ownerId, alice.id);
@@ -387,6 +497,16 @@ async function main() {
     assert.equal(inquiry.contactChannel, 'Email');
     assert.equal(inquiry.acquisitionSource, '');
     assert.equal(inquiry.mailSource.messageId, source.id);
+    assert.equal(inquiry.requirements, base.requirements);
+    assert.equal(inquiry.internalRemark, base.internalRemark);
+    assert.equal(inquiry.plannedDays, base.plannedDays);
+    assert.equal((await detail()).customerName, 'Inquiry name');
+    assert.equal((await detail()).canCreateLedger, false);
+    assert.equal(
+      (await h.call<{ canCreateLedger: boolean }>(alice, 'GET', path))
+        .canCreateLedger,
+      true,
+    );
     const retry = await open();
     const retryPath = path + '/drafts/' + retry.id;
     const saved = await h.call<MailMessage>(alice, 'PUT', retryPath, {
@@ -451,6 +571,16 @@ async function main() {
         itinerary: 'Synthetic title',
       },
       201,
+    );
+    assert.equal((await detail()).ledger?.id, ledger.id);
+    assert.equal((await detail()).canCreateLedger, false);
+    await h.call(
+      alice,
+      'PUT',
+      notesUrl,
+      { ...base, version: (await detail()).version },
+      404,
+      'NOT_FOUND',
     );
     await h.db.query('DELETE FROM direct_ledgers WHERE id=$1', [ledger.id]);
     await h.call(
@@ -550,7 +680,7 @@ async function main() {
       'VALIDATION_ERROR',
     );
     console.log(
-      'Mail inbox isolated PostgreSQL upgrade, sync, role scope, MIME attachments, draft concurrency, reply reconciliation, selected source, inquiry transfer and permanent ledger lock passed.',
+      'Mail inbox isolated PostgreSQL upgrade, sync, role scope, MIME attachments, draft concurrency, reply reconciliation, customer notes, original-specific prefill, inquiry transfer and permanent ledger lock passed.',
       h.requests,
       'HTTP checks.',
     );

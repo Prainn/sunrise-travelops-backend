@@ -1,3 +1,4 @@
+import { canCreateLinkedWebsiteLedger } from '../ledgers/ledger-access';
 import { assertMailAssignable, recordMailAssignment } from './mail.assignment';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
@@ -5,7 +6,11 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { WebsiteService } from '../website/website.service';
 import { AssignChatDto, CreateChatInquiryDto } from '../whatsapp/whatsapp.dto';
 import { MediaStorage } from '../media/media.storage';
-import { MailListQuery } from './mail.dto';
+import {
+  readMailCustomerNotes,
+  writeMailCustomerNotes,
+} from './mail.customer-notes';
+import { MailCustomerNotesDto, MailListQuery } from './mail.dto';
 import { AliMailProvider } from './alimail.provider';
 import {
   MAILBOX,
@@ -17,7 +22,7 @@ import {
   mailSignature,
 } from './mail.types';
 
-const columns = `t.id,t.mailbox,t.subject,t.customer_email AS "customerEmail",t.customer_name AS "customerName",t.last_at AS "lastAt",
+const columns = `t.id,t.mailbox,t.subject,t.customer_email AS "customerEmail",coalesce(t.manual_customer_name,t.customer_name) AS "customerName",t.last_at AS "lastAt",
  t.owner_id AS "ownerId",u.nickname AS "ownerName",t.inquiry_id AS "inquiryId",t.source_message_id AS "sourceMessageId",
  t.assignment_locked AS "assignmentLocked",t.version,(SELECT count(*)::int FROM mail_messages m WHERE m.thread_id=t.id AND m.direction='inbound' AND NOT m.is_read) AS "unreadCount"`;
 const threadFrom = 'FROM mail_threads t LEFT JOIN users u ON u.id=t.owner_id';
@@ -109,7 +114,7 @@ export class MailService {
           '%' + query.keyword.trim().replace(/[\\%_]/g, '\\$&') + '%',
         );
       filters.push(
-        `(t.subject ILIKE ${p} OR t.customer_name ILIKE ${p} OR t.customer_email ILIKE ${p})`,
+        `(t.subject ILIKE ${p} OR coalesce(t.manual_customer_name,t.customer_name) ILIKE ${p} OR t.customer_email ILIKE ${p})`,
       );
     }
     const where = threadFrom + ' WHERE ' + filters.join(' AND ');
@@ -159,10 +164,24 @@ export class MailService {
         'SELECT english_name AS "englishName" FROM users WHERE id=$1',
         [user.id],
       );
+      const [ledger] =
+        t.inquiryId && user.permissions.includes('ledger:direct:list')
+          ? await m.query<{ id: string; orderNo: string }[]>(
+              'SELECT id,order_no AS "orderNo" FROM direct_ledgers WHERE website_inquiry_id=$1',
+              [t.inquiryId],
+            )
+          : [];
       return {
         ...t,
         messages,
         assignments,
+        ledger: ledger ?? null,
+        canUpdateCustomer:
+          canWrite && user.permissions.includes('mail:thread:update'),
+        canCreateLedger:
+          !!t.inquiryId &&
+          !ledger &&
+          (await canCreateLinkedWebsiteLedger(m, user, t.ownerId)),
         signature: englishName?.trim()
           ? mailSignature(englishName.trim())
           : null,
@@ -178,6 +197,25 @@ export class MailService {
           user.permissions.includes('mail:inquiry:create') &&
           user.permissions.includes('website:inquiry:create'),
       };
+    });
+  }
+  async customerNotes(id: string, source: string, user: AuthenticatedUser) {
+    return this.db.transaction('REPEATABLE READ', async (manager) => {
+      await this.thread(id, user, manager);
+      return readMailCustomerNotes(manager, id, source);
+    });
+  }
+  async saveCustomerNotes(
+    id: string,
+    source: string,
+    input: MailCustomerNotesDto,
+    user: AuthenticatedUser,
+  ) {
+    return this.db.transaction(async (manager) => {
+      const thread = await this.thread(id, user, manager, true);
+      this.writable(thread, user, 'mail:thread:update');
+      mailVersion(thread.version, input.version);
+      return writeMailCustomerNotes(manager, id, source, input);
     });
   }
   async markRead(id: string, messageIds: string[], user: AuthenticatedUser) {
@@ -277,8 +315,9 @@ export class MailService {
         m,
       );
       await m.query(
-        'UPDATE mail_threads SET inquiry_id=$2,source_message_id=$3,version=version+1 WHERE id=$1',
-        [id, created.id, source],
+        `UPDATE mail_threads SET inquiry_id=$2,source_message_id=$3,
+         manual_customer_name=nullif($4,''),version=version+1 WHERE id=$1`,
+        [id, created.id, source, input.customerName.trim()],
       );
       return { inquiryId: created.id, created: true };
     });

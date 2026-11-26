@@ -1,3 +1,5 @@
+import { OmitType } from '@nestjs/swagger';
+import { CustomerNotesDto } from '../whatsapp/whatsapp.dto';
 import {
   IsArray,
   IsEmail,
@@ -30,3 +32,7 @@ export class SaveMailDraftDto extends MailVersionDto {
   @IsString() @MaxLength(998) @Matches(/^[^\r\n]*$/) subject: string;
   @IsString() @MaxLength(100000) body: string;
 }
+
+export class MailCustomerNotesDto extends OmitType(CustomerNotesDto, [
+  'contactInfo',
+] as const) {}

@@ -20,6 +20,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import { MAX_DOCUMENT_BYTES } from '../media/media.document-format';
 import { AssignChatDto, CreateChatInquiryDto } from '../whatsapp/whatsapp.dto';
 import {
+  MailCustomerNotesDto,
   MailListQuery,
   MailVersionDto,
   SaveMailDraftDto,
@@ -81,6 +82,25 @@ export class MailController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.mail.assign(id, input, user);
+  }
+  @Get('threads/:id/messages/:source/customer-notes')
+  @Permissions('mail:thread:list')
+  customerNotes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('source', ParseUUIDPipe) source: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.mail.customerNotes(id, source, user);
+  }
+  @Put('threads/:id/messages/:source/customer-notes')
+  @Permissions('mail:thread:update')
+  saveCustomerNotes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('source', ParseUUIDPipe) source: string,
+    @Body() input: MailCustomerNotesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.mail.saveCustomerNotes(id, source, input, user);
   }
   @Post('threads/:id/messages/:source/inquiry')
   @Permissions('mail:inquiry:create', 'website:inquiry:create')

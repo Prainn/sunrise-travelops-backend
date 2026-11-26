@@ -101,6 +101,7 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'sys:notification:list': '查看通知管理',
   'sys:notification:update': '配置通知开关',
   'mail:thread:list': '查看邮件会话',
+  'mail:thread:update': '维护邮件客户资料',
   'mail:thread:assign': '分配邮件会话',
   'mail:message:send': '回复邮件',
   'mail:inquiry:create': '从邮件创建询盘',
@@ -229,6 +230,7 @@ export const LEDGER_PERMISSIONS = [
 
 export const MAIL_PERMISSIONS = [
   'mail:thread:list',
+  'mail:thread:update',
   'mail:thread:assign',
   'mail:message:send',
   'mail:inquiry:create',
