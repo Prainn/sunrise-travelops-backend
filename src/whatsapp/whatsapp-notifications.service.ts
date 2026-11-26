@@ -7,7 +7,7 @@ import {
 import { DataSource } from 'typeorm';
 import { FeishuSendException, FeishuService } from '../feishu/feishu.service';
 import { formatWhatsAppReminder } from '../feishu/whatsapp-reminder';
-import { notificationEnabled } from '../notifications/notification-settings';
+import { notificationPolicy } from '../notifications/notification-settings';
 import {
   NotificationConversation,
   whatsappRecipients,
@@ -28,6 +28,7 @@ interface Batch {
   type: WhatsappNotificationType;
   owner_id: string | null;
   previous_owner_id: string | null;
+  repeated_unassigned: boolean;
   status: string;
   message_count: number;
   name: string;
@@ -67,7 +68,7 @@ export class WhatsappNotificationsService
     );
     for (let n = 0; n < 20; n++) {
       const [candidate] = await this.db.query<Job[]>(
-        `SELECT d.*,b.conversation_id FROM whatsapp_notification_deliveries d JOIN whatsapp_notification_batches b ON b.id=d.batch_id WHERE d.status='pending' AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at,d.id LIMIT 1`,
+        `SELECT d.*,b.conversation_id FROM whatsapp_notification_deliveries d JOIN whatsapp_notification_batches b ON b.id=d.batch_id WHERE d.status='pending' AND d.digest_at IS NULL AND d.next_attempt_at<=now() ORDER BY d.next_attempt_at,d.id LIMIT 1`,
       );
       if (!candidate) break;
       // Persist a claim before the network request. A crash never returns it to pending.
@@ -77,7 +78,7 @@ export class WhatsappNotificationsService
           [candidate.conversation_id],
         );
         const [rows] = await manager.query<[Job[], number]>(
-          `UPDATE whatsapp_notification_deliveries SET status='sending',claimed_at=now(),attempts=attempts+1 WHERE id=$1 AND status='pending' RETURNING *`,
+          `UPDATE whatsapp_notification_deliveries SET status='sending',claimed_at=now(),attempts=attempts+1 WHERE id=$1 AND status='pending' AND digest_at IS NULL RETURNING *`,
           [candidate.id],
         );
         if (rows.length)
@@ -94,14 +95,15 @@ export class WhatsappNotificationsService
           [candidate.conversation_id],
         );
         const [batch] = await manager.query<Batch[]>(
-          `SELECT b.*,coalesce(nullif(p.manual_name,''),nullif(p.name,''),'未命名客户') AS name,m.text,m.kind,m.occurred_at
+          `SELECT b.*,(b.type='whatsapp_unassigned' AND b.first_message_id IS NULL AND EXISTS
+          (SELECT 1 FROM whatsapp_notification_batches prior WHERE prior.conversation_id=b.conversation_id AND prior.type=b.type
+          AND (prior.created_at,prior.id)<(b.created_at,b.id))) AS repeated_unassigned,coalesce(nullif(p.manual_name,''),nullif(p.name,''),'未命名客户') AS name,m.text,m.kind,m.occurred_at
           FROM whatsapp_notification_batches b JOIN whatsapp_conversations c ON c.id=b.conversation_id JOIN whatsapp_contacts p ON p.id=c.contact_id LEFT JOIN whatsapp_messages m ON m.id=b.latest_message_id WHERE b.id=$1`,
           [candidate.batch_id],
         );
-        const enabled = await notificationEnabled(
+        const policy = await notificationPolicy(
           manager,
           batch.type,
-          true,
           batch.created_at,
         );
         const [job] = await manager.query<Job[]>(
@@ -110,7 +112,8 @@ export class WhatsappNotificationsService
         );
         if (job.status !== 'sending') return;
         let reason: string | undefined;
-        if (!enabled) reason = 'NOTIFICATION_DISABLED';
+        if (!policy.enabled) reason = 'NOTIFICATION_DISABLED';
+        else if (batch.repeated_unassigned) reason = 'ALREADY_NOTIFIED';
         else if (!c || c.state !== 'open' || batch.status !== 'ready')
           reason = 'CONVERSATION_INACTIVE';
         else if (c.owner_id !== batch.owner_id) reason = 'ASSIGNMENT_CHANGED';
@@ -125,6 +128,13 @@ export class WhatsappNotificationsService
           await manager.query(
             `UPDATE whatsapp_notification_deliveries SET status='skipped',error_code=$2 WHERE id=$1`,
             [job.id, reason],
+          );
+          return;
+        }
+        if (policy.resume) {
+          await manager.query(
+            `UPDATE whatsapp_notification_deliveries SET status='pending',digest_at=$2,attempts=attempts-1,claimed_at=NULL WHERE id=$1`,
+            [job.id, policy.resume],
           );
           return;
         }

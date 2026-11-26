@@ -10,6 +10,7 @@ import {
 } from '../src/media/media.document-format';
 import { PROVIDER_MEDIA_ORIGIN } from '../src/media/media.images';
 import { MediaStorage } from '../src/media/media.storage';
+import type { MediaService } from '../src/media/media.service';
 import { AddWhatsappDocumentArchives1796256011000 } from '../src/migrations/1796256011000-AddWhatsappDocumentArchives';
 import { WhatsappEvents } from '../src/whatsapp/whatsapp.events';
 import { ChatMessage, Conversation } from '../src/whatsapp/whatsapp.types';
@@ -209,8 +210,16 @@ async function incoming(name: string, fileName: string) {
 
 async function main() {
   await h.start();
-  await h.db.undoLastMigration();
   const migration = new AddWhatsappDocumentArchives1796256011000();
+  const runner = h.db.createQueryRunner();
+  try {
+    await migration.down(runner);
+    await runner.query('DELETE FROM migrations WHERE name=$1', [
+      migration.constructor.name,
+    ]);
+  } finally {
+    await runner.release();
+  }
   await incoming('historical', '历史.pdf');
   assert.deepEqual(
     (await h.db.runMigrations()).map((m) => m.name),
@@ -372,6 +381,59 @@ async function main() {
   assert.equal(records.find((r) => r.provider_id === 'expired')?.attempts, 1);
   assert.equal(rows.length, 10);
   assert.equal(privateFiles.size, 3);
+  const root = await h.actor('headquarters', 'ROOT', null, undefined, 'mango');
+  const ossOnly = await h.actor('headquarters', 'ROOT');
+  const catalog = '/system/oss/resources';
+  type CatalogItem = ReturnType<MediaService['present']>;
+  const files = (query: string) =>
+    h.call<Page<CatalogItem>>(root, 'GET', catalog + query);
+  await h.db.query(
+    "INSERT INTO oss_resources(environment,name,kind,source) VALUES('dev','image','image','management')",
+  );
+  const firstPage = await files('?pageSize=2');
+  const secondPage = await files('?pageSize=2&page=2');
+  assert.equal(firstPage.total, 4);
+  assert.equal(secondPage.total, 4);
+  assert.deepEqual(
+    [...firstPage.list, ...secondPage.list].map((r) => r.kind).sort(),
+    ['image', 'pdf', 'word', 'word'],
+  );
+  const words = await files('?kind=word&state=ready');
+  assert.deepEqual(words.list.map((r) => r.extension).sort(), ['doc', 'docx']);
+  const result = await files('?kind=pdf&keyword=' + encodeURIComponent('报价'));
+  assert.equal(result.total, 1);
+  const [item] = result.list;
+  assert.equal(item.id, pending.id);
+  assert.equal(item.referenceCount, 1);
+  assert.equal(item.size, pdf.length);
+  assert.equal(item.originalUrl, null);
+  assert.equal(item.thumbnailUrl, null);
+  assert.equal(item.objectKey, null);
+  assert.deepEqual(item.documentMessage, {
+    conversationId: id,
+    messageId: pending.id,
+  });
+  const itemPath = catalog + '/' + item.id;
+  assert.deepEqual(await h.call(root, 'GET', itemPath), item);
+  const metadata = await h.call<CatalogItem>(ossOnly, 'GET', itemPath);
+  assert.equal(metadata.documentMessage, null);
+  assert.equal(metadata.previewable, false);
+  await h.call(
+    ossOnly,
+    'GET',
+    docRoute(pending, 'download'),
+    undefined,
+    403,
+    'AUTH_FORBIDDEN',
+  );
+  await h.call(
+    root,
+    'DELETE',
+    itemPath + '?version=1',
+    undefined,
+    404,
+    'NOT_FOUND',
+  );
   for (const kind of ['pdf', 'docx', 'doc'] as const) {
     const m = byName.get(kind)!,
       bytes = providerFiles.get(kind)!;
@@ -450,6 +512,8 @@ async function main() {
   }
   storageFault = undefined;
   config.set('OSS_MEDIA_ENVIRONMENT', 'prod');
+  assert.equal((await files('?kind=word')).total, 0);
+  await h.call(root, 'GET', itemPath, undefined, 404, 'NOT_FOUND');
   assert.deepEqual(state((await list()).find((m) => m.id === pending.id)!), {
     state: 'pending',
   });

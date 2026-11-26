@@ -58,7 +58,7 @@ export function formatWhatsAppReminder(
         ]
       : []),
     type === 'whatsapp_unassigned'
-      ? '请进入系统分配负责人。'
+      ? '请使用独立站账号登录系统，为该客户分配负责人。'
       : type === 'whatsapp_assignment'
         ? '会话已分配给你，请查看并跟进。'
         : '客户有新消息，请查看并回复。',

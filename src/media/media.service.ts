@@ -8,39 +8,23 @@ import { DataSource, EntityManager } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { ChatMessage } from '../whatsapp/whatsapp.types';
-import { chatFail } from '../whatsapp/whatsapp.policy';
+import { chatAdmin, chatFail } from '../whatsapp/whatsapp.policy';
 import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
 import { MediaConfig } from './media.config';
 import { MediaStorage } from './media.storage';
 import { WhatsappDocumentArchive } from './media.document-archive';
 import { downloadProviderMedia, prepareImage } from './media.images';
 import { MediaQuery, UpdateMediaDto } from './media.dto';
+import { MEDIA_CATALOG, MediaCatalogRow } from './media.catalog';
+import { DOC_MIME } from './media.document-format';
 
-export interface MediaResource {
-  id: string;
-  environment: 'dev' | 'prod';
-  name: string;
-  remark: string;
+export interface MediaResource extends MediaCatalogRow {
   kind: 'image' | 'sticker';
-  source: string;
   source_url: string | null;
-  message_id: string | null;
-  conversation_id: string | null;
   actor_id: string | null;
-  state: string;
-  object_key: string | null;
-  thumbnail_key: string | null;
   send_key: string | null;
-  mime_type: string | null;
-  size: number | null;
-  width: number | null;
-  height: number | null;
   attempts: number;
-  error_code: string | null;
   version: number;
-  created_at: Date;
-  updated_at: Date;
-  references?: number;
 }
 
 const UUID_PATTERN =
@@ -102,7 +86,20 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       chatFail('AUTH_FORBIDDEN', '无OSS管理权限', 403);
     this.config.assertEnabled();
   }
-  present(r: MediaResource) {
+  present(r: MediaCatalogRow, user?: AuthenticatedUser) {
+    const documentMessage =
+      r.extension &&
+      this.config.documentsEnabled &&
+      user &&
+      chatAdmin(user) &&
+      user.permissions.includes('whatsapp:conversation:list') &&
+      r.conversation_id &&
+      r.message_id
+        ? { conversationId: r.conversation_id, messageId: r.message_id }
+        : null;
+    const previewable = r.extension
+      ? !!documentMessage && r.extension !== 'doc'
+      : r.state === 'ready' && !!this.config.publicOrigin;
     return {
       id: r.id,
       environment: r.environment,
@@ -111,21 +108,25 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       kind: r.kind,
       source: r.source,
       state: r.state,
-      mimeType: r.mime_type,
+      mimeType: r.extension ? DOC_MIME[r.extension] : r.mime_type,
       size: r.size,
       width: r.width,
       height: r.height,
       version: r.version,
       errorCode: r.error_code,
-      originalUrl: r.state === 'ready' ? this.config.url(r.object_key) : null,
+      originalUrl:
+        !r.extension && r.state === 'ready'
+          ? this.config.url(r.object_key)
+          : null,
       thumbnailUrl:
-        r.state === 'ready'
+        !r.extension && r.state === 'ready'
           ? this.config.url(
               r.kind === 'sticker' ? r.object_key : r.thumbnail_key,
             )
           : null,
-      previewable: r.state === 'ready' && !!this.config.publicOrigin,
-      clickable: r.kind === 'image',
+      previewable,
+      clickable: r.extension ? previewable : r.kind === 'image',
+      ...(r.extension ? { extension: r.extension, documentMessage } : {}),
       objectKey: r.object_key,
       referenceCount: r.references ?? 0,
       createdAt: r.created_at,
@@ -147,21 +148,25 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   async list(query: MediaQuery, user: AuthenticatedUser) {
     this.admin(user, 'list');
     const args: unknown[] = [this.config.environment];
-    let where = 'environment=$1';
-    if (query.kind) where += ` AND kind=$${args.push(query.kind)}`;
-    if (query.state) where += ` AND state=$${args.push(query.state)}`;
+    const filters: string[] = [];
+    if (query.kind) filters.push(`kind=$${args.push(query.kind)}`);
+    if (query.state) filters.push(`state=$${args.push(query.state)}`);
     if (query.keyword)
-      where += ` AND position(lower($${args.push(query.keyword)}) in lower(name||' '||remark))>0`;
+      filters.push(
+        `position(lower($${args.push(query.keyword)}) in lower(name||' '||remark))>0`,
+      );
+    const where = filters.length ? 'WHERE ' + filters.join(' AND ') : '';
     const [count] = await this.db.query<{ total: number }[]>(
-      `SELECT count(*)::int total FROM oss_resources WHERE ${where}`,
+      `${MEDIA_CATALOG} SELECT count(*)::int total FROM resources ${where}`,
       args,
     );
-    const rows = await this.db.query<MediaResource[]>(
-      `SELECT r.*,(SELECT count(*)::int FROM whatsapp_messages m WHERE m.attachment->>'mediaAssetId'=r.id::text OR m.id=r.message_id) AS "references" FROM oss_resources r WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${args.length + 1} OFFSET $${args.length + 2}`,
+    const rows = await this.db.query<MediaCatalogRow[]>(
+      `${MEDIA_CATALOG} SELECT * FROM resources ${where}
+       ORDER BY created_at DESC,id DESC LIMIT $${args.length + 1} OFFSET $${args.length + 2}`,
       [...args, query.pageSize, (query.page - 1) * query.pageSize],
     );
     return {
-      list: rows.map((r) => this.present(r)),
+      list: rows.map((r) => this.present(r, user)),
       total: count.total,
       page: query.page,
       pageSize: query.pageSize,
@@ -170,9 +175,12 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   }
   async detail(id: string, user: AuthenticatedUser) {
     this.admin(user, 'list');
-    const r = await this.get(id);
-    r.references = await this.references(r, this.db.manager);
-    return this.present(r);
+    const [row] = await this.db.query<MediaCatalogRow[]>(
+      `${MEDIA_CATALOG} SELECT * FROM resources WHERE id=$2`,
+      [this.config.environment, id],
+    );
+    if (!row) chatFail('NOT_FOUND', '资源不存在', 404);
+    return this.present(row, user);
   }
   async update(id: string, input: UpdateMediaDto, user: AuthenticatedUser) {
     this.admin(user, 'update');

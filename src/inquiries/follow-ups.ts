@@ -1,4 +1,4 @@
-import { notificationEnabled } from '../notifications/notification-settings';
+import { notificationPolicy } from '../notifications/notification-settings';
 import { HttpStatus } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { BusinessException } from '../common/exceptions/business.exception';
@@ -52,6 +52,10 @@ export async function appendFollowUp(
   schedule = true,
 ) {
   const due = reminderDueAt(input.nextFollowUpAt, input.reminderDays);
+  const policy =
+    due && schedule
+      ? await notificationPolicy(manager, 'inquiry_follow_up', undefined, due)
+      : null;
   await cancelInquiryReminders(manager, inquiryId);
   const [row] = await manager.query<{ id: string }[]>(
     `INSERT INTO inquiry_follow_ups(inquiry_id,request_id,remark,next_follow_up_at,reminder_days,followed_at,followed_by,followed_by_name)
@@ -66,20 +70,16 @@ export async function appendFollowUp(
       actor.name,
     ],
   );
-  if (due && schedule) {
-    const enabled = await notificationEnabled(
-      manager,
-      'inquiry_follow_up',
-      true,
-    );
+  if (due && policy) {
     await manager.query(
-      `INSERT INTO inquiry_follow_up_reminders(follow_up_id,inquiry_id,due_at,status,error_code) VALUES($1,$2,$3,$4,$5)`,
+      `INSERT INTO inquiry_follow_up_reminders(follow_up_id,inquiry_id,due_at,status,error_code,digest_at) VALUES($1,$2,$3,$4,$5,$6)`,
       [
         row.id,
         inquiryId,
         due,
-        enabled ? 'pending' : 'cancelled',
-        enabled ? null : 'NOTIFICATION_DISABLED',
+        policy.enabled ? 'pending' : 'cancelled',
+        policy.enabled ? null : 'NOTIFICATION_DISABLED',
+        policy.resume,
       ],
     );
   }
