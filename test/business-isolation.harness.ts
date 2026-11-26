@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { MailModule } from '../src/mail/mail.module';
 import { WhatsappModule } from '../src/whatsapp/whatsapp.module';
 import {
   Type,
@@ -106,6 +107,7 @@ export class IsolationHarness {
     private readonly extraConfig: Record<string, string> = {},
     private readonly options: {
       lynx?: boolean;
+      mail?: boolean;
       operationAudit?: boolean;
       httpsOptions?: NestApplicationOptions['httpsOptions'];
     } = {},
@@ -190,6 +192,7 @@ export class IsolationHarness {
         InquiriesModule,
         WebsiteModule,
         WhatsappModule,
+        ...(this.options.mail ? [MailModule] : []),
         ToursModule,
         SystemModule,
         OperationLogsModule,

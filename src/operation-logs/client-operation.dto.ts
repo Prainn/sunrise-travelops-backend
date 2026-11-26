@@ -47,6 +47,7 @@ export const CLIENT_PAGES = [
   'Dashboard',
   'Profile',
   'WhatsappWorkbench',
+  'MailInbox',
   'WhatsappInbox',
   'WhatsappQuickReplies',
   'WhatsappIntegration',

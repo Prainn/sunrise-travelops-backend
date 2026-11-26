@@ -245,7 +245,7 @@ class VehicleInput {
   @IsInt() @Min(1) seats: number;
   @IsInt() @Min(1) @Max(10000) quantity: number;
 }
-class VehiclePaxSegmentPriceInput {
+class VehiclePriceInput {
   @IsInt() @Min(1) @Max(10000) pax: number;
   @IsOptional()
   @Type(() => Number)
@@ -254,7 +254,15 @@ class VehiclePaxSegmentPriceInput {
   @Max(1e9)
   totalPrice: number | null;
 }
-class VehiclePaxPriceInput extends VehiclePaxSegmentPriceInput {
+class VehiclePaxSegmentPriceInput extends VehiclePriceInput {
+  @ValidateIf((_object, value: unknown) => value !== undefined)
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => VehicleInput)
+  vehicles?: VehicleInput[];
+}
+class VehiclePaxPriceInput extends VehiclePriceInput {
   @IsIn(['automatic', 'manual']) pricingMode: 'automatic' | 'manual';
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) segmentTotal?:
     number | null;

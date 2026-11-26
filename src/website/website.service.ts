@@ -1,3 +1,8 @@
+import {
+  assertMailAssignable,
+  recordMailAssignment,
+} from '../mail/mail.assignment';
+import { mailManager, requireMail } from '../mail/mail.types';
 import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
 import { enqueueWhatsappAssignment } from '../whatsapp/whatsapp-notifications';
 import { chatManager, chatPermission } from '../whatsapp/whatsapp.policy';
@@ -857,8 +862,23 @@ export class WebsiteService {
       pageSize: query.pageSize,
     };
   }
-  detail(id: string, user: AuthenticatedUser) {
-    return this.inquiry(id, user);
+  async detail(id: string, user: AuthenticatedUser) {
+    const inquiry = await this.inquiry(id, user);
+    if (
+      inquiry.businessUnit === 'website' &&
+      user.permissions.includes('mail:thread:list') &&
+      (mailManager(user) ||
+        (user.scope === 'website' && inquiry.ownerId === user.id))
+    ) {
+      const [source] = await this.db.query<
+        { threadId: string; messageId: string; mailbox: string }[]
+      >(
+        'SELECT id AS "threadId",source_message_id AS "messageId",mailbox FROM mail_threads WHERE inquiry_id=$1',
+        [id],
+      );
+      return { ...inquiry, mailSource: source ?? null };
+    }
+    return inquiry;
   }
   private async inquiryDestinations(
     manager: EntityManager,
@@ -1128,6 +1148,22 @@ export class WebsiteService {
             HttpStatus.CONFLICT,
           );
       }
+      const [mail] = await manager.query<
+        { id: string; assignmentLocked: boolean }[]
+      >(
+        'SELECT id,assignment_locked AS "assignmentLocked" FROM mail_threads WHERE inquiry_id=$1 FOR UPDATE',
+        [id],
+      );
+      if (mail) {
+        requireMail(user, 'mail:thread:assign');
+        if (!mailManager(user))
+          fail(
+            'AUTH_FORBIDDEN',
+            '只有主管可改派邮件询盘',
+            HttpStatus.FORBIDDEN,
+          );
+        await assertMailAssignable(manager, mail);
+      }
       await this.mutable(old, manager);
       this.version(old.version, input.version);
       if (old.ownerId === owner.id) invalid('新负责人不能与当前负责人相同');
@@ -1135,6 +1171,15 @@ export class WebsiteService {
         'UPDATE website_inquiries SET owner_id=$2,owner=$3,version=version+1,updated_at=now() WHERE id=$1',
         [id, owner.id, owner.name],
       );
+      if (mail)
+        await recordMailAssignment(
+          manager,
+          mail.id,
+          old.ownerId,
+          owner.id,
+          input.reason,
+          user.id,
+        );
       if (chat) {
         await enqueueWhatsappAssignment(manager, chat.id, old.ownerId);
         await notifyWhatsappChange(manager, {

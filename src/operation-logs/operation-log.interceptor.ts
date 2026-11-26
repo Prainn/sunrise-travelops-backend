@@ -545,6 +545,14 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
     if (handler === 'saveRating') details.guideId = safeId(params.guideId);
     if (controller === 'WebsiteController' && handler === 'createConfigRecord')
       details.group = safeCode(params.group);
+    if (!error && controller === 'MailController' && handler === 'send') {
+      const outcome = sendOutcome({
+        id: item.id,
+        status: item.state === 'preparing' ? 'queued' : item.state,
+      });
+      result = outcome.result;
+      Object.assign(details, outcome.detail);
+    }
     if (controller === 'WhatsappController' && params.messageId)
       details.messageId = safeId(params.messageId);
     if (controller === 'MenuPermissionsController' && error)

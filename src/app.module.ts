@@ -1,3 +1,4 @@
+import { MailModule } from './mail/mail.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -47,6 +48,7 @@ import { InspectionAlertModule } from './inspection-alert/inspection-alert.modul
     InquiriesModule,
     WebsiteModule,
     WhatsappModule,
+    MailModule,
     ToursModule,
     LedgersModule,
     DashboardModule,

@@ -58,6 +58,13 @@ function validatePaxRows(
   rows.sort((a, b) => a.pax - b.pax);
 }
 
+export function vehicleSeats(vehicles: { seats: number; quantity: number }[]) {
+  return vehicles.reduce(
+    (sum, vehicle) => sum + vehicle.seats * vehicle.quantity,
+    0,
+  );
+}
+
 export function normalizeVehiclePaxPrices(
   plan: Plan,
   paxTiers: number[],
@@ -72,8 +79,20 @@ export function normalizeVehiclePaxPrices(
   validatePaxRows(plan.paxPrices, paxTiers);
   for (const range of plan.arrangements) {
     validatePaxRows(range.paxPrices, paxTiers);
-    if (plan.quotationMode === 'stage' && range.vehicles.length)
-      invalid('按阶段报价不能包含车型明细');
+    if (range.vehicles.length)
+      invalid(
+        plan.quotationMode === 'stage'
+          ? '按阶段报价不能包含车型明细'
+          : '请按人数档填写车型明细',
+      );
+    for (const price of range.paxPrices!) {
+      if (plan.quotationMode === 'itinerary' && !Array.isArray(price.vehicles))
+        invalid('请按人数档填写车型明细');
+      if (plan.quotationMode === 'stage') {
+        if (price.vehicles?.length) invalid('按阶段报价不能包含车型明细');
+        delete price.vehicles;
+      }
+    }
   }
   for (const price of plan.paxPrices!) {
     const segmentPrices = plan.arrangements.map(

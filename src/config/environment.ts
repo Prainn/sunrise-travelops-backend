@@ -72,6 +72,20 @@ export function validateEnvironment(environment: Environment): Environment {
   }
 
   parseTrustProxy(environment.TRUST_PROXY);
+  if (environment.ALIMAIL_ENABLED === 'true') {
+    if (
+      !environment.ALIMAIL_CLIENT_ID?.trim() ||
+      !environment.ALIMAIL_CLIENT_SECRET?.trim()
+    )
+      throw new Error(
+        'ALIMAIL_CLIENT_ID and ALIMAIL_CLIENT_SECRET are required when mail is enabled',
+      );
+    if (
+      environment.ALIMAIL_SYNC_FROM &&
+      !Number.isFinite(Date.parse(environment.ALIMAIL_SYNC_FROM))
+    )
+      throw new Error('ALIMAIL_SYNC_FROM must be an ISO date/time');
+  }
   validateVisitsEnvironment(environment);
 
   return environment;

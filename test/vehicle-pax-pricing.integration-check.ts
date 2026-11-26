@@ -8,6 +8,8 @@ import { ItineraryInput } from '../src/inquiries/inquiry.dto';
 import { AddVehiclePaxPrices1795737600000 } from '../src/migrations/1795737600000-AddVehiclePaxPrices';
 import { RequireVehicleQuotationMode1796256006000 } from '../src/migrations/1796256006000-RequireVehicleQuotationMode';
 
+import { AssignVehiclesByPax1796256023000 } from '../src/migrations/1796256023000-AssignVehiclesByPax';
+
 type Record = ItineraryInput & { id: string; version: number };
 type Calculation = {
   options: {
@@ -41,6 +43,17 @@ async function run() {
       `INSERT INTO resource_hotels(id,code,name,city,rating,individual_price,unit) VALUES($1,next_business_code('HTL'),'酒店','杭州',4,100,'roomNight')`,
       [priceResourceIds.hotel],
     );
+    const coaches = [19, 39].map((seats) => ({
+      vehicleId: randomUUID(),
+      seats,
+      quantity: 1,
+      vehicleName: `${seats}-seat coach`,
+    }));
+    for (const coach of coaches)
+      await h.db.query(
+        "INSERT INTO resource_transports(id,code,name,service_level,seats,unit) VALUES($1,next_business_code('VEH'),$2,'standard',$3,'vehicleDay')",
+        [coach.vehicleId, coach.vehicleName, coach.seats],
+      );
     const inquiry = await h.call(
       actor,
       'POST',
@@ -96,7 +109,9 @@ async function run() {
     await q.connect();
     await q.startTransaction();
     try {
-      await q.query(`DROP TABLE quote_vehicle_range_pax_prices,quote_vehicle_pax_prices,itinerary_vehicle_range_pax_prices,itinerary_vehicle_pax_prices;
+      await q.query(`ALTER TABLE quote_vehicles DROP COLUMN pax;
+        ALTER TABLE itinerary_vehicles DROP COLUMN pax, ADD UNIQUE(itinerary_id,tier,range_id,vehicle_id);
+        DROP TABLE quote_vehicle_range_pax_prices,quote_vehicle_pax_prices,itinerary_vehicle_range_pax_prices,itinerary_vehicle_pax_prices;
         ALTER TABLE itinerary_vehicle_plans DROP COLUMN quotation_mode;
         ALTER TABLE quote_pax_prices DROP COLUMN vehicle_total;`);
       const totals: unknown = await q.query(
@@ -153,6 +168,41 @@ async function run() {
           [legacy.id],
         ),
         [15, 20, 25].map((pax) => ({ pax, total_price: '100' })),
+      );
+      assert.deepEqual(
+        await q.query(
+          'SELECT snapshot FROM itinerary_quotes WHERE itinerary_id=$1',
+          [legacy.id],
+        ),
+        before,
+      );
+      await q.query(
+        "UPDATE itinerary_vehicle_plans SET quotation_mode='itinerary' WHERE itinerary_id=$1",
+        [legacy.id],
+      );
+      for (const [index, coach] of coaches.entries())
+        await q.query(
+          "INSERT INTO itinerary_vehicles(itinerary_id,position,tier,range_id,vehicle_id,vehicle_name,seats,quantity) VALUES($1,$2,'standard',$3,$4,$5,$6,$7)",
+          [
+            legacy.id,
+            index,
+            legacy.vehiclePlans[0].arrangements[0].id,
+            coach.vehicleId,
+            coach.vehicleName,
+            coach.seats,
+            index + 1,
+          ],
+        );
+      await new AssignVehiclesByPax1796256023000().up(q);
+      assert.deepEqual(
+        await q.query(
+          'SELECT pax, seats, quantity FROM itinerary_vehicles WHERE itinerary_id=$1 ORDER BY pax,position',
+          [legacy.id],
+        ),
+        [15, 20, 25].flatMap((pax) => [
+          { pax, seats: 19, quantity: 1 },
+          { pax, seats: 39, quantity: 2 },
+        ]),
       );
       assert.deepEqual(
         await q.query(
@@ -343,6 +393,82 @@ async function run() {
         [legacy.id],
       ),
       before,
+    );
+    const split = body(copied);
+    split.confirmVehicleModeChange = true;
+    const newPlan = split.vehiclePlans[0];
+    newPlan.quotationMode = 'itinerary';
+    const newRange = newPlan.arrangements[0];
+    newRange.id = randomUUID();
+    for (const price of newRange.paxPrices!)
+      price.vehicles = [price.pax === 15 ? coaches[0] : coaches[1]];
+    const splitPath = `/itineraries/${copied.id}`;
+    const assigned = await h.call<Record>(actor, 'PUT', splitPath, {
+      ...split,
+      version: copied.version,
+    });
+    const datedPrices = assigned.vehiclePlans[0].arrangements[0].paxPrices;
+    assert.deepEqual(
+      datedPrices!.map((p) => p.vehicles![0].seats),
+      [19, 39, 39],
+    );
+    assert.deepEqual(
+      (await h.call<Record>(actor, 'GET', splitPath)).vehiclePlans,
+      assigned.vehiclePlans,
+    );
+    const invalid = body(assigned);
+    invalid.vehiclePlans[0].arrangements[0].paxPrices![1].vehicles = [
+      coaches[0],
+    ];
+    await h.call(
+      actor,
+      'PUT',
+      splitPath,
+      { ...invalid, version: assigned.version },
+      400,
+      'ITINERARY_INVALID',
+    );
+    await h.call(
+      actor,
+      'POST',
+      `${splitPath}/confirm-pdf`,
+      {
+        version: assigned.version,
+        inquiryVersion: (await h.call(actor, 'GET', `/inquiries/${inquiry.id}`))
+          .version,
+      },
+      201,
+    );
+    const splitPdf = await h.call<{ itinerary: Record }>(
+      actor,
+      'GET',
+      `${splitPath}/pdf-data`,
+    );
+    assert.deepEqual(
+      splitPdf.itinerary.vehiclePlans[0].arrangements[0].paxPrices,
+      datedPrices,
+    );
+    assert.deepEqual(
+      await h.db.query(
+        'SELECT pax,seats FROM quote_vehicles WHERE quote_id=(SELECT id FROM itinerary_quotes WHERE itinerary_id=$1) ORDER BY pax',
+        [copied.id],
+      ),
+      [
+        { pax: 15, seats: 19 },
+        { pax: 20, seats: 39 },
+        { pax: 25, seats: 39 },
+      ],
+    );
+    const splitCopy = await h.call<Record>(
+      actor,
+      'POST',
+      `${splitPath}/copy`,
+      { version: assigned.version + 1, title: 'PAX fleet copy' },
+      201,
+    );
+    assert.deepEqual(
+      splitCopy.vehiclePlans[0].arrangements[0].paxPrices,
+      datedPrices,
     );
     console.log(
       `PASS: ${h.requests} HTTP requests; full/duplicate migrations, populated-schema upgrade, PAX persistence/calculation/preview/version/history/copy/freeze, legacy snapshots unchanged.`,
