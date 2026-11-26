@@ -14,6 +14,12 @@ import { WhatsappDocumentArchive } from './media.document-archive';
     WhatsappDocuments,
     WhatsappDocumentArchive,
   ],
-  exports: [MediaService, WhatsappDocuments, WhatsappDocumentArchive],
+  exports: [
+    MediaConfig,
+    MediaStorage,
+    MediaService,
+    WhatsappDocuments,
+    WhatsappDocumentArchive,
+  ],
 })
 export class MediaModule {}

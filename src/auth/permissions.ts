@@ -100,6 +100,10 @@ export const PERMISSION_DEFINITIONS: Record<string, string> = {
   'sys:oss:delete': '删除OSS资源',
   'sys:notification:list': '查看通知管理',
   'sys:notification:update': '配置通知开关',
+  'mail:thread:list': '查看邮件会话',
+  'mail:thread:assign': '分配邮件会话',
+  'mail:message:send': '回复邮件',
+  'mail:inquiry:create': '从邮件创建询盘',
   'whatsapp:conversation:list': '查看WhatsApp会话',
   'whatsapp:message:send': '回复WhatsApp消息',
   'whatsapp:conversation:assign': '分配WhatsApp会话',
@@ -221,6 +225,13 @@ export const LEDGER_PERMISSIONS = [
   'ledger:direct:delete',
   'ledger:direct:review',
   'ledger:direct:operate',
+] as const;
+
+export const MAIL_PERMISSIONS = [
+  'mail:thread:list',
+  'mail:thread:assign',
+  'mail:message:send',
+  'mail:inquiry:create',
 ] as const;
 
 export const WHATSAPP_PERMISSIONS = [

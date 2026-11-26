@@ -30,6 +30,7 @@ export const OPERATION_CATEGORIES = [
   'website-config',
   'ledger',
   'website-visit',
+  'mail',
   'whatsapp',
   'client',
 ] as const;

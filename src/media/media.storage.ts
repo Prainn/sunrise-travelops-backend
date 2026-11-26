@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Readable } from 'node:stream';
 import { request } from 'node:http';
 import { MediaConfig } from './media.config';
 
@@ -18,7 +19,7 @@ export class MediaStorage {
     path: string,
     method: string,
     headers: Record<string, string>,
-    body: string | Buffer,
+    body: string | Buffer | Readable,
   ): Promise<T> {
     this.config.assertEnabled();
     return new Promise((resolve, reject) => {
@@ -50,7 +51,11 @@ export class MediaStorage {
       );
       req.setTimeout(45000, () => req.destroy());
       req.on('error', () => reject(new Error('OSS_UNAVAILABLE')));
-      req.end(body);
+      if (body instanceof Readable) {
+        body.on('error', () => req.destroy(new Error('OSS_INPUT_FAILED')));
+        req.on('close', () => body.destroy());
+        body.pipe(req);
+      } else req.end(body);
     });
   }
   put(key: string, body: Buffer, mime: string) {
@@ -71,6 +76,18 @@ export class MediaStorage {
       {
         'content-type': 'application/octet-stream',
         'content-length': String(body.length),
+        'x-oss-object-key': key,
+      },
+      body,
+    );
+  }
+  putMail(key: string, body: Buffer | Readable, size: number) {
+    return this.send<{ etag: string }>(
+      '/mail-attachments',
+      'PUT',
+      {
+        'content-type': 'application/octet-stream',
+        'content-length': String(size),
         'x-oss-object-key': key,
       },
       body,

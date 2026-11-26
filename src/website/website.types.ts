@@ -109,6 +109,7 @@ export interface WebsiteInquiryInput {
   lostReason: string;
 }
 export interface WebsiteInquiry extends WebsiteInquiryInput {
+  mailSource?: { threadId: string; messageId: string; mailbox: string } | null;
   canDelete: boolean;
   businessUnit: WebsiteBusinessUnit;
   hasActiveTour: boolean;

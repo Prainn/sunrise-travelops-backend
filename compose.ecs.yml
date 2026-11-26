@@ -77,6 +77,8 @@ services:
     image: ${API_IMAGE:?required}
     # Private, environment-local WhatsApp configuration is never loaded by migrate.
     env_file:
+      - path: ./alimail.env
+        required: false
       - path: ./whatsapp-receive.env
         required: false
     environment:

@@ -24,6 +24,16 @@ const whatsappCommands: Record<string, string> = {
   inquiry: '从会话新增询盘',
   documentDownload: '获取文件下载链接',
 };
+const mailCommands: Record<string, string> = {
+  assign: '分配邮件会话',
+  open: '打开回复草稿',
+  save: '保存回复草稿',
+  attach: '添加邮件附件',
+  remove: '移除邮件附件',
+  send: '发送回复',
+  inquiry: '从来信新增询盘',
+  download: '获取邮件附件下载链接',
+};
 const accountCommands: Record<string, string> = {
   create: '建立账号关联',
   update: '调整账号关联',
@@ -37,6 +47,8 @@ export function additionalCommand(
     return { category: 'login', label: '切换账号' };
   if (controller === 'AccountLinksController' && accountCommands[handler])
     return { category: 'user', label: accountCommands[handler] };
+  if (controller === 'MailController' && mailCommands[handler])
+    return { category: 'mail', label: mailCommands[handler] };
   if (controller === 'WhatsappController' && whatsappCommands[handler])
     return {
       category: 'whatsapp',
