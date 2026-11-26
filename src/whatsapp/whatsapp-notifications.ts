@@ -1,7 +1,7 @@
 import { EntityManager } from 'typeorm';
 import { effectiveAccountPermissions } from '../auth/identity-permissions';
 import {
-  notificationEnabled,
+  notificationPolicy,
   NotificationType,
 } from '../notifications/notification-settings';
 
@@ -33,17 +33,24 @@ export async function whatsappRecipients(
      AND ($1::uuid IS NULL OR u.id=$1) GROUP BY u.id,i.id ORDER BY u.id`,
     [ownerId],
   );
-  return rows.filter(
-    (row) =>
-      row.roles.includes(ownerId ? 'COORDINATOR' : 'BUSINESS_MANAGER') &&
-      effectiveAccountPermissions(
-        'website',
-        row.roles,
-        null,
-        row.username,
-      ).includes(
-        ownerId ? 'whatsapp:message:send' : 'whatsapp:conversation:assign',
-      ),
+  return rows.filter((row) => eligibleWhatsappRecipient(row, ownerId));
+}
+
+export function eligibleWhatsappRecipient(
+  row: NotificationRecipient,
+  ownerId: string | null,
+) {
+  return (
+    (!ownerId || ownerId === row.id) &&
+    row.roles.includes(ownerId ? 'COORDINATOR' : 'BUSINESS_MANAGER') &&
+    effectiveAccountPermissions(
+      'website',
+      row.roles,
+      null,
+      row.username,
+    ).includes(
+      ownerId ? 'whatsapp:message:send' : 'whatsapp:conversation:assign',
+    )
   );
 }
 
@@ -67,12 +74,13 @@ async function deliveries(
   batchId: string,
   c: NotificationConversation,
   due: Date,
+  digestAt: Date | null,
 ) {
   const recipients = await whatsappRecipients(manager, c.owner_id);
   for (const recipient of recipients)
     await manager.query(
-      `INSERT INTO whatsapp_notification_deliveries(batch_id,recipient_id,open_id,next_attempt_at) VALUES($1,$2,$3,$4) ON CONFLICT(batch_id,open_id) DO NOTHING`,
-      [batchId, recipient.id, recipient.openId, due],
+      `INSERT INTO whatsapp_notification_deliveries(batch_id,recipient_id,open_id,next_attempt_at,digest_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(batch_id,open_id) DO NOTHING`,
+      [batchId, recipient.id, recipient.openId, due, digestAt],
     );
   if (!recipients.length) {
     await manager.query(
@@ -100,10 +108,20 @@ export async function enqueueWhatsappMessage(
   const type: WhatsappNotificationType = c.owner_id
     ? 'whatsapp_message'
     : 'whatsapp_unassigned';
-  if (!(await notificationEnabled(manager, type, true))) return;
+  const policy = await notificationPolicy(manager, type);
+  if (!policy.enabled) return;
+  if (!c.owner_id) {
+    const [previous] = await manager.query<{ id: string }[]>(
+      `SELECT m.id FROM whatsapp_messages m WHERE m.conversation_id=$1 AND m.id<>$2
+        AND m.direction='inbound' AND m.source='customer' AND m.kind NOT IN ('reaction','edit','system')
+        AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import') LIMIT 1`,
+      [conversationId, messageId],
+    );
+    if (previous) return;
+  }
   const [pending] = await manager.query<{ id: string }[]>(
-    `SELECT id FROM whatsapp_notification_batches WHERE conversation_id=$1 AND type=$2 AND owner_id IS NOT DISTINCT FROM $3::uuid AND status='pending' AND due_at>now() AND created_at>coalesce((SELECT last_disabled_at FROM feishu_notification_settings WHERE type=$2),'-infinity'::timestamptz) ORDER BY due_at DESC LIMIT 1`,
-    [conversationId, type, c.owner_id],
+    `SELECT id FROM whatsapp_notification_batches WHERE conversation_id=$1 AND type=$2 AND owner_id IS NOT DISTINCT FROM $3::uuid AND status='pending' AND EXISTS(SELECT 1 FROM whatsapp_notification_deliveries d WHERE d.batch_id=whatsapp_notification_batches.id AND d.status='pending' AND d.digest_id IS NULL AND d.digest_at IS NOT DISTINCT FROM $4::timestamptz) AND ($4::timestamptz IS NOT NULL OR due_at>now()) AND created_at>coalesce((SELECT last_disabled_at FROM feishu_notification_settings WHERE type=$2),'-infinity'::timestamptz) ORDER BY due_at DESC LIMIT 1`,
+    [conversationId, type, c.owner_id, policy.resume],
   );
   if (pending) {
     await manager.query(
@@ -112,17 +130,24 @@ export async function enqueueWhatsappMessage(
     );
     return;
   }
-  const [window] = await manager.query<{ due: Date }[]>(
-    `INSERT INTO whatsapp_notification_windows(conversation_id,next_at,type,setting_version) SELECT $1,now()+interval '30 seconds',type,version FROM feishu_notification_settings WHERE type=$2
+  const [window] = policy.resume
+    ? [{ due: policy.resume }]
+    : await manager.query<{ due: Date }[]>(
+        `INSERT INTO whatsapp_notification_windows(conversation_id,next_at,type,setting_version) SELECT $1,now()+interval '30 seconds',type,version FROM feishu_notification_settings WHERE type=$2
     ON CONFLICT(conversation_id) DO UPDATE SET next_at=CASE WHEN whatsapp_notification_windows.type<>EXCLUDED.type OR whatsapp_notification_windows.setting_version<>EXCLUDED.setting_version THEN now()+interval '30 seconds' ELSE greatest(now(),whatsapp_notification_windows.next_at)+interval '30 seconds' END,type=EXCLUDED.type,setting_version=EXCLUDED.setting_version
     RETURNING next_at-interval '30 seconds' AS due`,
-    [conversationId, type],
-  );
+        [conversationId, type],
+      );
+  const digestAt =
+    policy.resume ??
+    (policy.timed
+      ? (await notificationPolicy(manager, type, undefined, window.due)).resume
+      : null);
   const [batch] = await manager.query<{ id: string }[]>(
-    `INSERT INTO whatsapp_notification_batches(conversation_id,type,owner_id,message_count,latest_message_id,due_at) VALUES($1,$2,$3,1,$4,$5) RETURNING id`,
+    `INSERT INTO whatsapp_notification_batches(conversation_id,type,owner_id,message_count,first_message_id,latest_message_id,due_at) VALUES($1,$2,$3,1,$4,$4,$5) RETURNING id`,
     [conversationId, type, c.owner_id, messageId, window.due],
   );
-  await deliveries(manager, batch.id, c, window.due);
+  await deliveries(manager, batch.id, c, window.due, digestAt);
 }
 
 /** Conversation row is locked; the resulting version deduplicates both assignment entry points. */
@@ -141,11 +166,7 @@ export async function enqueueWhatsappAssignment(
     [c.id, c.version],
   );
   if (existing) return;
-  const enabled = await notificationEnabled(
-    manager,
-    'whatsapp_assignment',
-    true,
-  );
+  const policy = await notificationPolicy(manager, 'whatsapp_assignment');
   const [counts] = await manager.query<{ count: number }[]>(
     `SELECT coalesce(sum(message_count),0)::int AS count FROM whatsapp_notification_batches WHERE conversation_id=$1 AND status IN ('pending','ready') AND EXISTS(SELECT 1 FROM whatsapp_notification_deliveries d WHERE d.batch_id=whatsapp_notification_batches.id AND d.status='pending')`,
     [c.id],
@@ -155,7 +176,7 @@ export async function enqueueWhatsappAssignment(
     'DELETE FROM whatsapp_notification_windows WHERE conversation_id=$1',
     [c.id],
   );
-  if (!c.owner_id || c.state !== 'open' || !enabled) return;
+  if (!c.owner_id || c.state !== 'open' || !policy.enabled) return;
   const [message] = await manager.query<{ id: string }[]>(
     `SELECT m.id FROM whatsapp_messages m WHERE m.conversation_id=$1 AND m.direction='inbound' AND m.kind NOT IN ('reaction','edit','system')
     AND NOT EXISTS(SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import') ORDER BY m.seq DESC LIMIT 1`,
@@ -172,7 +193,7 @@ export async function enqueueWhatsappAssignment(
       message?.id ?? null,
     ],
   );
-  await deliveries(manager, batch.id, c, batch.due);
+  await deliveries(manager, batch.id, c, batch.due, policy.resume);
   await manager.query(
     `INSERT INTO whatsapp_notification_windows(conversation_id,next_at,type,setting_version) SELECT $1,now()+interval '30 seconds',type,version FROM feishu_notification_settings WHERE type='whatsapp_message' ON CONFLICT(conversation_id) DO UPDATE SET next_at=EXCLUDED.next_at,type=EXCLUDED.type,setting_version=EXCLUDED.setting_version`,
     [c.id],

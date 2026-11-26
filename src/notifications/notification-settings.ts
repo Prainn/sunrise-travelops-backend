@@ -12,15 +12,24 @@ export const NOTIFICATION_TYPES = {
 } as const;
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 
-export async function notificationEnabled(
+export interface NotificationWindow {
+  start: string;
+  end: string;
+}
+
+export async function notificationPolicy(
   manager: EntityManager,
   type: NotificationType,
-  lock = false,
   createdAt?: Date,
-): Promise<boolean> {
-  const [row] = await manager.query<{ enabled: boolean }[]>(
-    `SELECT (enabled AND ($2::timestamptz IS NULL OR last_disabled_at IS NULL OR last_disabled_at<$2)) AS enabled FROM feishu_notification_settings WHERE type=$1${lock ? ' FOR SHARE' : ''}`,
-    [type, createdAt ?? null],
+  scheduledAt?: Date,
+) {
+  const [row] = await manager.query<
+    { enabled: boolean; timed: boolean; resume: Date | null }[]
+  >(
+    `SELECT enabled AND ($2::timestamptz IS NULL OR last_disabled_at IS NULL OR last_disabled_at<$2) AS enabled, window_start IS NOT NULL AS timed,
+      feishu_window_resume(window_start,window_end,coalesce($3::timestamptz,clock_timestamp())) AS resume
+      FROM feishu_notification_settings WHERE type=$1 FOR SHARE`,
+    [type, createdAt ?? null, scheduledAt ?? null],
   );
-  return row?.enabled === true;
+  return row;
 }

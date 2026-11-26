@@ -521,6 +521,18 @@ export class OperationLogInterceptor implements CanActivate, NestInterceptor {
       if (typeof body.enabled === 'boolean')
         details.enabled = String(body.enabled);
       if (typeof body.version === 'number') details.version = body.version;
+      if (body.sendWindow === null) details.sendWindow = '全天';
+      else if (body.sendWindow && typeof body.sendWindow === 'object') {
+        const window = body.sendWindow as Record<string, unknown>;
+        const clock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+        if (
+          typeof window.start === 'string' &&
+          typeof window.end === 'string' &&
+          clock.test(window.start) &&
+          clock.test(window.end)
+        )
+          details.sendWindow = `${window.start}–${window.end}`;
+      }
     }
     if (req.menuPermissionChange && !error)
       Object.assign(details, req.menuPermissionChange);
