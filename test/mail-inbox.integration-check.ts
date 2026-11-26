@@ -70,10 +70,30 @@ async function main() {
     const drafts: OutgoingMail[] = [];
     let sendCalls = 0,
       unknown = false;
+    const mailboxOptions = (actor: typeof mgr) =>
+      h.call<{ mailboxes: string[]; canSwitch: boolean }>(
+        actor,
+        'GET',
+        '/mail/mailboxes',
+      );
+    assert.deepEqual((await mailboxOptions(mgr)).mailboxes, []);
     Object.defineProperties(provider, {
       enabled: { get: () => true },
       startAt: { get: () => '2026-11-26T00:00:00Z' },
     });
+    assert.deepEqual(await mailboxOptions(mgr), {
+      mailboxes: [MAILBOX],
+      canSwitch: true,
+    });
+    assert.equal((await mailboxOptions(alice)).canSwitch, false);
+    await h.call(
+      other,
+      'GET',
+      '/mail/mailboxes',
+      undefined,
+      403,
+      'AUTH_FORBIDDEN',
+    );
     let resume = false;
     provider.list = (folder, _start, _end, cursor) => {
       if (folder === '1')
@@ -99,7 +119,7 @@ async function main() {
         internetId: 'draft-' + input.id + '@example.test',
       });
     };
-    provider.upload = (_id, name, bytes) => {
+    provider.upload = (_mailbox, _id, name, bytes) => {
       uploads.set(name, bytes);
       return Promise.resolve();
     };
@@ -440,6 +460,94 @@ async function main() {
       { ownerId: alice.id, version: (await detail()).version },
       409,
       'CONFLICT',
+    );
+    const secondMailbox = 'another@example.test';
+    await h.db.query(
+      "INSERT INTO mail_sync(mailbox,folder,start_at,floor_at) VALUES ($1,'1',now(),now()),($1,'2',now(),now())",
+      [secondMailbox],
+    );
+    assert.deepEqual((await mailboxOptions(mgr)).mailboxes, [
+      MAILBOX,
+      secondMailbox,
+    ]);
+    const secondPage = (actor: typeof mgr, page = 1) =>
+      h.call<{ list: MailThread[]; total: number }>(
+        actor,
+        'GET',
+        '/mail/threads?' +
+          new URLSearchParams({
+            mailbox: secondMailbox,
+            keyword: 'Same subject',
+            pageSize: '1',
+            page: String(page),
+          }).toString(),
+      );
+    assert.equal((await secondPage(mgr)).total, 0);
+    await h.db.query(
+      `INSERT INTO mail_threads(mailbox,subject,customer_email,last_at,has_inbound,owner_id)
+       VALUES ($1,'Same subject','client@example.test',now(),true,$2),
+              ($1,'Same subject','client@example.test',now(),true,NULL)`,
+      [secondMailbox, alice.id],
+    );
+    const first = await secondPage(mgr);
+    const next = await secondPage(mgr, 2);
+    assert.equal(first.total, 2);
+    assert.equal(next.total, 2);
+    assert.equal(next.list[0].mailbox, secondMailbox);
+    assert.notEqual(first.list[0].id, next.list[0].id);
+    const assigned = await secondPage(alice);
+    assert.equal(assigned.total, 1);
+    assert.equal((await secondPage(bob)).total, 0);
+    const secondThread = assigned.list[0].id;
+    const [secondSource] = await h.db.query<{ id: string }[]>(
+      `INSERT INTO mail_messages(thread_id,direction,state,internet_id,subject,sender,body)
+       VALUES ($1,'inbound','received','second-box@example.test','Same subject',$2,'Hello') RETURNING id`,
+      [secondThread, JSON.stringify({ email: 'client@example.test' })],
+    );
+    const secondDraft = await h.call<MailMessage>(
+      alice,
+      'POST',
+      '/mail/threads/' +
+        secondThread +
+        '/messages/' +
+        secondSource.id +
+        '/reply',
+      undefined,
+      201,
+    );
+    assert.equal(secondDraft.sender.email, secondMailbox);
+    const secondDraftPath =
+      '/mail/threads/' + secondThread + '/drafts/' + secondDraft.id;
+    const ready = await h.call<MailMessage>(alice, 'PUT', secondDraftPath, {
+      ...draftInput,
+      version: secondDraft.version,
+    });
+    unknown = false;
+    const sentFromSecond = await h.call<MailMessage>(
+      alice,
+      'POST',
+      secondDraftPath + '/send',
+      { version: ready.version },
+      201,
+    );
+    assert.equal(sentFromSecond.state, 'sent');
+    assert.equal(drafts.at(-1)?.mailbox, secondMailbox);
+    assert.equal(
+      (
+        await h.db.query<{ mailbox: string }[]>(
+          'SELECT mailbox FROM mail_thread_keys WHERE thread_id=$1',
+          [secondThread],
+        )
+      )[0].mailbox,
+      secondMailbox,
+    );
+    await h.call(
+      mgr,
+      'GET',
+      '/mail/threads?mailbox=invalid',
+      undefined,
+      400,
+      'VALIDATION_ERROR',
     );
     console.log(
       'Mail inbox isolated PostgreSQL upgrade, sync, role scope, MIME attachments, draft concurrency, reply reconciliation, selected source, inquiry transfer and permanent ledger lock passed.',

@@ -99,6 +99,7 @@ describe('AliMail mailbox contract', () => {
       });
     const provider = new AliMailProvider(config);
     const remote = await provider.createReply({
+      mailbox: 'groups@example.test',
       id: 'reply-1',
       parent: 'parent@example.test',
       references: ['root@example.test'],
@@ -110,12 +111,12 @@ describe('AliMail mailbox contract', () => {
     });
     expect(remote.internetId).toBe('provider-assigned@example.test');
     const bytes = Buffer.from('pdf bytes');
-    await provider.upload(remote.id, 'quote.pdf', bytes);
-    await provider.send(remote.id);
+    await provider.upload('groups@example.test', remote.id, 'quote.pdf', bytes);
+    await provider.send('groups@example.test', remote.id);
     expect(Buffer.from(uploaded!)).toEqual(bytes);
     expect(payloads[0]).toMatchObject({
       message: {
-        from: { email: MAILBOX },
+        from: { email: 'groups@example.test' },
         internetMessageHeaders: {
           'In-Reply-To': '<parent@example.test>',
           References: '<root@example.test> <parent@example.test>',
@@ -139,6 +140,11 @@ describe('AliMail mailbox contract', () => {
       },
     });
     expect(payloads[2]).toEqual({ saveToSentItems: true });
+    for (const [url] of http.mock.calls) {
+      const pathname = requestUrl(url).pathname;
+      if (pathname.startsWith('/v2/users/'))
+        expect(pathname).toMatch(/^\/v2\/users\/groups%40example\.test\//);
+    }
     expect(
       http.mock.calls.filter(([url]) =>
         requestUrl(url).pathname.endsWith('/send'),

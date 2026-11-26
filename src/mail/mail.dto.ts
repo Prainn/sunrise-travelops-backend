@@ -13,6 +13,7 @@ import {
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 
 export class MailListQuery extends PaginationQueryDto {
+  @IsOptional() @IsEmail() @MaxLength(254) mailbox?: string;
   @IsOptional() @IsIn(['all', 'unassigned', 'mine']) view?:
     'all' | 'unassigned' | 'mine';
   @IsOptional() @IsString() @MaxLength(200) declare keyword?: string;

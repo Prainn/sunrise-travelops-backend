@@ -33,16 +33,21 @@ function fixture(mode: 'stage' | 'itinerary' = 'stage') {
   range.paxPrices = plan.paxTiers.map((pax, i) => ({
     pax,
     totalPrice: [13200, 14000, 15500][i],
+    ...(mode === 'itinerary' && {
+      vehicles: [
+        {
+          vehicleId: [
+            '196fda0c-4337-4d78-b948-71e27ad31aa8',
+            '196fda0c-4337-4d78-b948-71e27ad31aa9',
+            '196fda0c-4337-4d78-b948-71e27ad31aa9',
+          ][i],
+          vehicleName: i === 0 ? '19-seat coach' : '39-seat coach',
+          seats: i === 0 ? 19 : 39,
+          quantity: 1,
+        },
+      ],
+    }),
   }));
-  if (mode === 'itinerary')
-    range.vehicles = [
-      {
-        vehicleId: '196fda0c-4337-4d78-b948-71e27ad31aa9',
-        vehicleName: 'bus',
-        seats: 30,
-        quantity: 1,
-      },
-    ];
   return plan;
 }
 const normalize = (
@@ -151,7 +156,9 @@ describe('PAX vehicle pricing', () => {
   it('rejects mixed modes, vehicles in stage mode and shared price ambiguity', async () => {
     const stage = fixture();
     stage.vehiclePlans[0].arrangements[0].vehicles =
-      fixture('itinerary').vehiclePlans[0].arrangements[0].vehicles;
+      fixture(
+        'itinerary',
+      ).vehiclePlans[0].arrangements[0].paxPrices![0].vehicles!;
     await expect(normalize(stage)).rejects.toThrow('不能包含车型');
     const mixed = fixture();
     mixed.vehiclePlans.push({
@@ -163,10 +170,73 @@ describe('PAX vehicle pricing', () => {
     shared.vehiclePlans[0].totalPrice = 100;
     await expect(normalize(shared)).rejects.toThrow('共用');
   });
-  it('rejects insufficient itinerary seats', async () => {
+  it('validates seats and duplicate models independently for each PAX', async () => {
     const input = fixture('itinerary');
-    input.vehiclePlans[0].arrangements[0].vehicles[0].seats = 20;
-    await expect(normalize(input)).rejects.toThrow('座位不足');
+    const rows = input.vehiclePlans[0].arrangements[0].paxPrices!;
+    const valid = await normalize(input);
+    expect(
+      valid.vehiclePlans[0].arrangements[0].paxPrices!.map(
+        (p) => p.vehicles![0].seats,
+      ),
+    ).toEqual([19, 39, 39]);
+    rows[1].vehicles = structuredClone(rows[0].vehicles);
+    await expect(normalize(input, valid)).rejects.toThrow(
+      '20 人档所选车辆总座位不足',
+    );
+    rows[1].vehicles![0].quantity = 2;
+    await expect(normalize(input, valid)).resolves.toBeDefined();
+    rows[0].vehicles!.push({ ...rows[0].vehicles![0] });
+    await expect(normalize(input, valid)).rejects.toThrow();
+  });
+
+  it('retains the snapshot of each saved PAX assignment for a reused resource', async () => {
+    const previous = fixture('itinerary');
+    const rows = previous.vehiclePlans[0].arrangements[0].paxPrices!;
+    rows[1].vehicles![0].vehicleName = 'Original model name';
+    rows[2].vehicles![0].vehicleName = 'Updated model name';
+    const saved = await normalize(structuredClone(previous), previous);
+    expect(
+      saved.vehiclePlans[0].arrangements[0].paxPrices!.map(
+        (row) => row.vehicles![0].vehicleName,
+      ),
+    ).toEqual(['19-seat coach', 'Original model name', 'Updated model name']);
+  });
+
+  it('protects saved assignments from an older editor and an explicit short fleet', async () => {
+    const saved = await normalize(fixture('itinerary'));
+    const stale = structuredClone(saved);
+    delete stale.vehiclePlans[0].arrangements[0].paxPrices![0].vehicles;
+    await expect(normalize(stale, saved)).rejects.toThrow('按人数档填写车型');
+    const cleared = structuredClone(saved);
+    cleared.vehiclePlans[0].arrangements[0].paxPrices![0].vehicles = [];
+    await expect(normalize(cleared, saved)).rejects.toThrow(
+      '15 人档所选车辆总座位不足',
+    );
+    expect(() => validation.assertPdfReady(cleared)).toThrow();
+  });
+
+  it('can save a newly added PAX for later vehicle selection, then requires seats for freezing', async () => {
+    const saved = await normalize(fixture('itinerary'));
+    const next = structuredClone(saved);
+    next.paxTiers.push(30);
+    const group = next.vehiclePlans[0];
+    group.paxPrices!.push({
+      pax: 30,
+      pricingMode: 'automatic',
+      totalPrice: 6000,
+    });
+    group.arrangements[0].paxPrices!.push({
+      pax: 30,
+      totalPrice: 6000,
+      vehicles: [],
+    });
+    const pending = await normalize(next, saved);
+    expect(() => validation.assertPdfReady(pending)).toThrow();
+    await expect(normalize(pending, pending)).resolves.toBeDefined();
+    group.arrangements[0].paxPrices![3].vehicles = structuredClone(
+      group.arrangements[0].paxPrices![1].vehicles,
+    );
+    expect(() => validation.assertPdfReady(next)).not.toThrow();
   });
   it('requires a per-PAX manual adjustment reason, isolates history and permits automatic restoration', async () => {
     const old = await normalize(fixture('itinerary'));

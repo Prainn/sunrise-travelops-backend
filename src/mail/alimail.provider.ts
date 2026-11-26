@@ -9,7 +9,8 @@ import {
 } from './mail.types';
 
 const ORIGIN = 'https://alimail-cn.aliyuncs.com';
-const USER = '/v2/users/' + encodeURIComponent(MAILBOX);
+const mailboxPath = (mailbox: string) =>
+  '/v2/users/' + encodeURIComponent(mailbox);
 export class AliMailError extends Error {
   constructor(readonly status: number) {
     super('ALI_MAIL_HTTP_' + status);
@@ -46,6 +47,7 @@ export interface RemoteMail {
   attachments: { id: string; name: string; size: number }[];
 }
 export interface OutgoingMail {
+  mailbox: string;
   id: string;
   parent: string;
   references: string[];
@@ -139,13 +141,19 @@ export class AliMailProvider {
       messages?: { id: string }[];
       hasMore: boolean;
       nextCursor?: string;
-    }>(USER + '/mailFolders/' + folder + '/messages?' + query.toString());
+    }>(
+      mailboxPath(MAILBOX) +
+        '/mailFolders/' +
+        folder +
+        '/messages?' +
+        query.toString(),
+    );
   }
-  private messagePath(id: string) {
-    return USER + '/messages/' + encodeURIComponent(id);
+  private messagePath(mailbox: string, id: string) {
+    return mailboxPath(mailbox) + '/messages/' + encodeURIComponent(id);
   }
   async message(id: string, inbound: boolean): Promise<RemoteMail> {
-    const path = this.messagePath(id);
+    const path = this.messagePath(MAILBOX, id);
     const base = (await this.json<{ message: AliMessage }>(path)).message;
     // This tenant rejects comma-separated projections. Fetch optional fields individually.
     const fields: (keyof AliMessage)[] = [
@@ -217,11 +225,11 @@ export class AliMailProvider {
       .map((x) => '<' + x + '>')
       .join(' ');
     const data = await this.json<{ message: { id: string } }>(
-      USER + '/messages',
+      mailboxPath(input.mailbox) + '/messages',
       'POST',
       {
         message: {
-          from: { email: MAILBOX },
+          from: { email: input.mailbox },
           toRecipients: input.to,
           ccRecipients: input.cc,
           subject: input.subject,
@@ -238,7 +246,7 @@ export class AliMailProvider {
     if (!data.message?.id) throw new Error('ALI_MAIL_DRAFT_MISSING');
     const id = data.message.id;
     const saved = await this.json<{ message: AliMessage }>(
-      this.messagePath(id) + '?$select=internetMessageId',
+      this.messagePath(input.mailbox, id) + '?$select=internetMessageId',
     );
     return {
       id,
@@ -247,7 +255,7 @@ export class AliMailProvider {
         input.id + '@lynxtour.cn',
     };
   }
-  async upload(id: string, name: string, bytes: Buffer) {
+  async upload(mailbox: string, id: string, name: string, bytes: Buffer) {
     const types: Record<string, string> = {
       pdf: 'application/pdf',
       doc: 'application/msword',
@@ -262,7 +270,7 @@ export class AliMailProvider {
       types[name.split('.').at(-1)?.toLowerCase() ?? ''] ??
       'application/octet-stream';
     const { uploadUrl } = await this.json<{ uploadUrl: string }>(
-      this.messagePath(id) + '/attachments/createUploadSession',
+      this.messagePath(mailbox, id) + '/attachments/createUploadSession',
       'POST',
       { attachment: { name, contentType, isInline: false } },
     );
@@ -272,15 +280,15 @@ export class AliMailProvider {
     const response = await this.api(url.href, 'POST', bytes);
     if (!response.ok) throw new AliMailError(response.status);
   }
-  async send(id: string) {
-    const r = await this.api(this.messagePath(id) + '/send', 'POST', {
+  async send(mailbox: string, id: string) {
+    const r = await this.api(this.messagePath(mailbox, id) + '/send', 'POST', {
       saveToSentItems: true,
     });
     if (!r.ok) throw new AliMailError(r.status);
   }
-  async download(messageId: string, fileId: string) {
+  async download(mailbox: string, messageId: string, fileId: string) {
     const r = await this.api(
-      this.messagePath(messageId) +
+      this.messagePath(mailbox, messageId) +
         '/attachments/' +
         encodeURIComponent(fileId) +
         '/$value',

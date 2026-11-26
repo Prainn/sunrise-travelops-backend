@@ -41,6 +41,11 @@ export class MailController {
   summary(@CurrentUser() user: AuthenticatedUser) {
     return this.mail.unread(user);
   }
+  @Get('mailboxes')
+  @Permissions('mail:thread:list')
+  mailboxes(@CurrentUser() user: AuthenticatedUser) {
+    return this.mail.mailboxes(user);
+  }
   @Get('threads')
   @Permissions('mail:thread:list')
   list(@Query() query: MailListQuery, @CurrentUser() user: AuthenticatedUser) {

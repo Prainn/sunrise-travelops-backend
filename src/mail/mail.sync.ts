@@ -147,9 +147,16 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
     if (!inbound && mail.sender.email.toLowerCase() === MAILBOX) {
       const [local] = await m.query<{ id: string; threadId: string }[]>(
         `SELECT d.id,d.thread_id AS "threadId" FROM mail_messages d JOIN mail_messages original ON original.id=d.original_id
-         WHERE d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent') AND original.internet_id=ANY($3::text[])
+         JOIN mail_threads t ON t.id=d.thread_id
+         WHERE t.mailbox=$5 AND d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent') AND original.internet_id=ANY($3::text[])
          AND (d.id::text=$1 OR d.internet_id=$2 OR d.remote_draft_id=$4) FOR UPDATE OF d`,
-        [mail.marker ?? '', mail.internetId, mail.refs, mail.providerId],
+        [
+          mail.marker ?? '',
+          mail.internetId,
+          mail.refs,
+          mail.providerId,
+          MAILBOX,
+        ],
       );
       if (local) {
         await m.query(
@@ -237,12 +244,13 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         thread_id: string;
         provider_id: string;
         message: string;
+        mailbox: string;
         size_bytes: string;
         object_key: string | null;
         removed_at: Date | null;
       }[]
     >(
-      `SELECT a.*,m.provider_id AS message,m.thread_id FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id
+      `SELECT a.*,m.provider_id AS message,m.thread_id,t.mailbox FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id JOIN mail_threads t ON t.id=m.thread_id
        WHERE (a.removed_at IS NOT NULL OR (a.provider_id IS NOT NULL AND a.object_key IS NULL)) AND a.retry_at<=now()
        ORDER BY a.retry_at,a.id LIMIT 12`,
     );
@@ -257,6 +265,7 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
           continue;
         }
         const response = await this.provider.download(
+          file.mailbox,
           file.message,
           file.provider_id,
         );

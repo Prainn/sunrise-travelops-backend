@@ -31,11 +31,15 @@ export interface ItineraryVehicleSelection {
   seats: number;
   quantity: number;
 }
-export interface VehiclePaxSegmentPrice {
+interface VehiclePrice {
   pax: number;
   totalPrice: number | null;
 }
-export interface VehiclePaxPrice extends VehiclePaxSegmentPrice {
+export interface VehiclePaxSegmentPrice extends VehiclePrice {
+  /** Present in itinerary mode for snapshots with PAX-specific vehicles. */
+  vehicles?: ItineraryVehicleSelection[];
+}
+export interface VehiclePaxPrice extends VehiclePrice {
   pricingMode: 'automatic' | 'manual';
   segmentTotal?: number | null;
   adjustmentReason?: string | null;

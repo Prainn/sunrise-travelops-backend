@@ -351,11 +351,11 @@ export const MENU_GROUPS: MenuNavigationGroup[] = [
     title: 'websiteInquiries',
     routeName: 'WebsiteInquiries',
     children: [
+      menuItem('mail-inbox', 'MailInbox'),
       menuItem('inquiries', 'WebsiteInquiryList', {
         scopes: ['headquarters', 'linxi', 'website'],
         permissions: ['website:inquiry:list'],
       }),
-      menuItem('mail-inbox', 'MailInbox'),
       menuItem('website-inquiry-summary', 'WebsiteInquiryLogReport'),
     ],
   },

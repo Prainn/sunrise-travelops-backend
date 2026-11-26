@@ -6,7 +6,9 @@ import { WebsiteService } from '../website/website.service';
 import { AssignChatDto, CreateChatInquiryDto } from '../whatsapp/whatsapp.dto';
 import { MediaStorage } from '../media/media.storage';
 import { MailListQuery } from './mail.dto';
+import { AliMailProvider } from './alimail.provider';
 import {
+  MAILBOX,
   MailMessage,
   MailThread,
   mailManager,
@@ -34,6 +36,7 @@ export class MailService {
     private readonly db: DataSource,
     private readonly website: WebsiteService,
     private readonly storage: MediaStorage,
+    private readonly provider: AliMailProvider,
   ) {}
   private scope(user: AuthenticatedUser, params: unknown[]) {
     requireMail(user, 'mail:thread:list');
@@ -64,6 +67,21 @@ export class MailService {
     if (t.ownerId !== user.id && !mailManager(user))
       mailFail('AUTH_FORBIDDEN', '历史邮件会话只读', 403);
   }
+  async mailboxes(user: AuthenticatedUser) {
+    requireMail(user, 'mail:thread:list');
+    const canSwitch = mailManager(user);
+    if (!this.provider.enabled) return { mailboxes: [], canSwitch };
+    // Sync registers folders before fetching messages. Include the initial account
+    // even when the first sync cycle has not yet registered its folders.
+    const registered = await this.db.query<{ mailbox: string }[]>(
+      'SELECT DISTINCT mailbox FROM mail_sync WHERE mailbox <> $1 ORDER BY mailbox',
+      [MAILBOX],
+    );
+    return {
+      mailboxes: [MAILBOX, ...registered.map((row) => row.mailbox)],
+      canSwitch,
+    };
+  }
   async unread(user: AuthenticatedUser) {
     requireMail(user, 'mail:thread:list');
     const manager = mailManager(user);
@@ -78,6 +96,7 @@ export class MailService {
   async list(query: MailListQuery, user: AuthenticatedUser) {
     const params: unknown[] = [];
     const filters = [this.scope(user, params)];
+    if (query.mailbox) filters.push('t.mailbox=$' + params.push(query.mailbox));
     if (query.view && query.view !== 'mine' && !mailManager(user))
       mailFail('AUTH_FORBIDDEN', '只有主管可查看此视图', 403);
     if (query.view === 'mine')

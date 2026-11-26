@@ -92,6 +92,7 @@ export const ITINERARY_TABLES = {
     totalPrice: 'numeric?',
   },
   itinerary_vehicles: {
+    pax: 'integer',
     tier: 'text',
     rangeId: 'text',
     vehicleId: 'uuid',
@@ -218,7 +219,14 @@ export function itineraryRows(data: ItineraryInput): Record<Table, Row[]> {
     ),
     itinerary_vehicles: data.vehiclePlans.flatMap((p) =>
       p.arrangements.flatMap((a) =>
-        a.vehicles.map((v) => ({ ...v, tier: p.tier, rangeId: a.id })),
+        (a.paxPrices ?? []).flatMap((price) =>
+          (price.vehicles ?? []).map((v) => ({
+            ...v,
+            pax: price.pax,
+            tier: p.tier,
+            rangeId: a.id,
+          })),
+        ),
       ),
     ),
     itinerary_guides: data.guidePlans.map((row) => ({ ...row })),
@@ -307,6 +315,13 @@ export async function loadItineraryData(
     Object.fromEntries(
       Object.entries(r).filter(([key]) => !keys.includes(key)),
     );
+  const vehiclesByPax = new Map<string, Row[]>();
+  for (const vehicle of rows.itinerary_vehicles) {
+    const key = [vehicle.tier, vehicle.pax, vehicle.rangeId].join(':');
+    const fleet = vehiclesByPax.get(key) ?? [];
+    fleet.push(omit(vehicle, ['tier', 'rangeId', 'pax']));
+    vehiclesByPax.set(key, fleet);
+  }
   const readDay = (d: Row) => ({
     ...omit(d, ['breakfast', 'lunch', 'dinner', 'isDeleted', 'originalDate']),
     meals: { breakfast: d.breakfast, lunch: d.lunch, dinner: d.dinner },
@@ -347,10 +362,17 @@ export async function loadItineraryData(
           ...omit(a, ['tier']),
           paxPrices: rows.itinerary_vehicle_range_pax_prices
             .filter((price) => price.tier === p.tier && price.rangeId === a.id)
-            .map((price) => omit(price, ['tier', 'rangeId'])),
-          vehicles: rows.itinerary_vehicles
-            .filter((v) => v.tier === p.tier && v.rangeId === a.id)
-            .map((v) => omit(v, ['tier', 'rangeId'])),
+            .map((price) => ({
+              ...omit(price, ['tier', 'rangeId']),
+              ...(p.quotationMode === 'itinerary'
+                ? {
+                    vehicles:
+                      vehiclesByPax.get([p.tier, price.pax, a.id].join(':')) ??
+                      [],
+                  }
+                : {}),
+            })),
+          vehicles: [],
         })),
     })),
     guidePlans: rows.itinerary_guides,

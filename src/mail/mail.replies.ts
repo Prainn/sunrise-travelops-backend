@@ -9,7 +9,7 @@ import { prepareImage } from '../media/media.images';
 import { AliMailError, AliMailProvider } from './alimail.provider';
 import { MailVersionDto, SaveMailDraftDto } from './mail.dto';
 import { MailService, mailVersion, messageColumns } from './mail.service';
-import { MailMessage, MAILBOX, mailFail, mailSignature } from './mail.types';
+import { MailMessage, mailFail, mailSignature } from './mail.types';
 import { mailObjectKey, safeMailFileName } from './mail.sync';
 
 @Injectable()
@@ -64,7 +64,7 @@ export class MailReplies {
           /^re\s*:/i.test(original.subject)
             ? original.subject
             : 'Re: ' + original.subject,
-          JSON.stringify({ email: MAILBOX }),
+          JSON.stringify({ email: t.mailbox }),
           JSON.stringify(to),
           user.id,
         ],
@@ -191,9 +191,11 @@ export class MailReplies {
         mailFail('VALIDATION_ERROR', '请补全收件人及回复内容', 400);
       const original = await this.mail.original(m, thread, draft.originalId!);
       if (!original.internetId) mailFail('CONFLICT', '无法关联原信', 409);
-      const [{ name }] = await m.query<{ name: string }[]>(
-        'SELECT trim(english_name) AS name FROM users WHERE id=$1',
-        [user.id],
+      const [{ name, mailbox }] = await m.query<
+        { name: string; mailbox: string }[]
+      >(
+        'SELECT trim(u.english_name) AS name,t.mailbox FROM users u JOIN mail_threads t ON t.id=$2 WHERE u.id=$1',
+        [user.id, thread],
       );
       if (!name) mailFail('VALIDATION_ERROR', '请先维护回复计调的英文名', 400);
       const signature = mailSignature(name);
@@ -202,6 +204,7 @@ export class MailReplies {
         [id, signature, id + '@lynxtour.cn'],
       );
       return {
+        mailbox,
         draft,
         name,
         parent: original.internetId,
@@ -213,6 +216,7 @@ export class MailReplies {
     let dispatch = false;
     try {
       const remote = await this.provider.createReply({
+        mailbox: job.mailbox,
         id,
         name: job.name,
         parent: job.parent,
@@ -239,7 +243,12 @@ export class MailReplies {
         if (!response.ok) throw new Error('MAIL_OSS_READ_FAILED');
         const bytes = Buffer.from(await response.arrayBuffer());
         if (bytes.length !== file.sizeBytes) throw new Error('MAIL_OSS_SIZE');
-        await this.provider.upload(remote.id, file.fileName, bytes);
+        await this.provider.upload(
+          job.mailbox,
+          remote.id,
+          file.fileName,
+          bytes,
+        );
       }
       const changed = await this.db.query<{ id: string }[]>(
         `WITH changed AS (UPDATE mail_messages SET state='sending',remote_draft_id=$2,internet_id=$4,updated_at=now()
@@ -252,13 +261,13 @@ export class MailReplies {
           remote.id,
           revision,
           remote.internetId,
-          MAILBOX,
+          job.mailbox,
           id + '@lynxtour.cn',
         ],
       );
       if (!changed.length) mailFail('CONFLICT', '回复状态已更新', 409);
       dispatch = true;
-      await this.provider.send(remote.id);
+      await this.provider.send(job.mailbox, remote.id);
       await this.db.transaction(async (m) => {
         await m.query(
           "UPDATE mail_messages SET state='sent',occurred_at=now(),updated_at=now(),version=version+1 WHERE id=$1 AND state='sending'",
