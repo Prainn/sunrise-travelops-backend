@@ -1,3 +1,4 @@
+import { canCreateLinkedWebsiteLedger } from '../ledgers/ledger-access';
 import { notifyWhatsappChange } from './whatsapp-changes';
 import { MediaService } from '../media/media.service';
 import { WhatsappDocuments } from '../media/media.whatsapp-documents';
@@ -13,7 +14,7 @@ import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { WebsiteService } from '../website/website.service';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
-import { requireDictionaryItem } from '../common/dictionary-items';
+import { validateCustomerNotesLocations } from '../website/customer-notes';
 import { WhatsappConfig } from './whatsapp.config';
 import { WhatsappRuntime } from './whatsapp-runtime.service';
 import { SendResult, WhatsappProvider } from './whatsapp.provider';
@@ -276,6 +277,15 @@ export class WhatsappService {
           !related.ledger &&
           !formed &&
           user.permissions.includes('whatsapp:conversation:assign'),
+        canCreateLedger:
+          c.state !== 'archived' &&
+          !!c.inquiryId &&
+          !related.ledger &&
+          (await canCreateLinkedWebsiteLedger(
+            this.db.manager,
+            user,
+            c.ownerId,
+          )),
         canCreateInquiry:
           c.state !== 'archived' &&
           !!c.ownerId &&
@@ -543,27 +553,7 @@ export class WhatsappService {
       chatVersion(c, input.version);
       if (!chatManager(user) && c.ownerId !== user.id)
         chatFail('AUTH_FORBIDDEN', '只有当前负责人可修改客户资料', 403);
-      if (input.countryItemId)
-        await requireDictionaryItem(
-          manager,
-          'country-region',
-          input.countryItemId,
-        );
-      if (input.destinations.length) {
-        const [row] = await manager.query<
-          { config: { cities: { id: string; status: string }[] } }[]
-        >(
-          "SELECT v.config FROM website_config_versions v JOIN website_config_current c ON c.version=v.version AND c.business_unit=v.business_unit WHERE c.business_unit='website'",
-        );
-        for (const cityId of input.destinations) {
-          if (
-            !row?.config.cities.some(
-              (city) => city.id === cityId && city.status === 'enabled',
-            )
-          )
-            chatFail('VALIDATION_ERROR', '请选择启用的独立站目的地城市', 400);
-        }
-      }
+      await validateCustomerNotesLocations(manager, input);
       await this.saveCustomerName(c, input.customerName, manager);
       await manager.query(
         `INSERT INTO whatsapp_customer_notes(conversation_id,country_item_id,planned_days,start_date,pax,contact_info,destinations,requirements,internal_remark,updated_by)
