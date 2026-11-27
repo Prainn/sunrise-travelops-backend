@@ -46,19 +46,49 @@ export class MailReplies {
       mailFail('CONFLICT', '当前回复不能编辑或重复发送', 409);
     mailVersion(row.version, version);
   }
+  private async replySource(m: EntityManager, thread: string, id: string) {
+    // Older locally sent messages kept their parent ID but not its References.
+    const [source] = await m.query<
+      Pick<
+        MailMessage,
+        | 'direction'
+        | 'subject'
+        | 'sender'
+        | 'recipients'
+        | 'replyTo'
+        | 'internetId'
+        | 'refs'
+      >[]
+    >(
+      `SELECT m.direction,m.subject,m.sender,m.recipients,m.reply_to AS "replyTo",m.internet_id AS "internetId",
+        CASE WHEN cardinality(m.refs)=0 AND parent.internet_id IS NOT NULL THEN array_append(parent.refs,parent.internet_id)
+             ELSE m.refs END AS refs
+        FROM mail_messages m LEFT JOIN mail_messages parent ON parent.id=m.original_id AND parent.thread_id=m.thread_id
+        WHERE m.thread_id=$1 AND m.id=$2 AND ((m.direction='inbound' AND m.state='received') OR (m.direction='outbound' AND m.state='sent'))`,
+      [thread, id],
+    );
+    if (!source) mailFail('NOT_FOUND', '所选邮件不是此会话的已收发邮件', 404);
+    const { internetId } = source;
+    if (!internetId)
+      mailFail('CONFLICT', '原信缺少邮件标识，无法关联回复', 409);
+    return { ...source, internetId };
+  }
   async open(thread: string, source: string, user: AuthenticatedUser) {
     return this.db.transaction(async (m) => {
       const t = await this.mail.thread(thread, user, m, true);
       this.mail.writable(t, user, 'mail:message:send');
-      const original = await this.mail.original(m, thread, source);
-      if (!original.internetId)
-        mailFail('CONFLICT', '原信缺少邮件标识，无法关联回复', 409);
+      const original = await this.replySource(m, thread, source);
       const [existing] = await m.query<{ id: string }[]>(
         "SELECT id FROM mail_messages WHERE original_id=$1 AND actor_id=$2 AND state<>'sent'",
         [source, user.id],
       );
       if (existing) return this.reply(m, thread, existing.id, user);
-      const to = original.replyTo.length ? original.replyTo : [original.sender];
+      let to = original.replyTo.length ? original.replyTo : [original.sender];
+      if (original.direction === 'outbound') {
+        to = original.recipients.filter(
+          ({ email }) => email.toLowerCase() !== t.mailbox.toLowerCase(),
+        );
+      }
       const [draft] = await m.query<{ id: string }[]>(
         `INSERT INTO mail_messages(thread_id,original_id,direction,state,subject,sender,recipients,actor_id,is_read)
        VALUES($1,$2,'outbound','draft',$3,$4,$5,$6,true) RETURNING id`,
@@ -217,8 +247,7 @@ export class MailReplies {
         (!draft.body.trim() && !draft.attachments.length)
       )
         mailFail('VALIDATION_ERROR', '请补全收件人及回复内容', 400);
-      const original = await this.mail.original(m, thread, draft.originalId!);
-      if (!original.internetId) mailFail('CONFLICT', '无法关联原信', 409);
+      const original = await this.replySource(m, thread, draft.originalId!);
       const [{ name, mailbox }] = await m.query<
         { name: string; mailbox: string }[]
       >(
@@ -227,16 +256,20 @@ export class MailReplies {
       );
       if (!name) mailFail('VALIDATION_ERROR', '请先维护回复计调的英文名', 400);
       const signature = mailSignature(name);
+      const references = [
+        ...original.refs.filter((ref) => ref !== original.internetId),
+        original.internetId,
+      ];
       await m.query(
-        `UPDATE mail_messages SET state='preparing',version=version+1,signature=$2,internet_id=$3,remote_draft_id=NULL,updated_at=now() WHERE id=$1`,
-        [id, signature, id + '@lynxtour.cn'],
+        `UPDATE mail_messages SET state='preparing',version=version+1,signature=$2,internet_id=$3,refs=$4,remote_draft_id=NULL,updated_at=now() WHERE id=$1`,
+        [id, signature, id + '@lynxtour.cn', references],
       );
       return {
         mailbox,
         draft,
         name,
         parent: original.internetId,
-        references: original.refs,
+        references,
       };
     });
     if (!job) return this.reply(this.db.manager, thread, id, user);

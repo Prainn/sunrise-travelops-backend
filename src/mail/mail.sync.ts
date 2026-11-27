@@ -149,10 +149,12 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       ...new Set([...mail.refs, ...(mail.internetId ? [mail.internetId] : [])]),
     ];
     if (!inbound && mail.sender.email.toLowerCase() === MAILBOX) {
+      // A sent parent can acquire its final Message-ID after this reply was sent.
       const [local] = await m.query<{ id: string; threadId: string }[]>(
         `SELECT d.id,d.thread_id AS "threadId" FROM mail_messages d JOIN mail_messages original ON original.id=d.original_id
          JOIN mail_threads t ON t.id=d.thread_id
-         WHERE t.mailbox=$5 AND d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent') AND original.internet_id=ANY($3::text[])
+         WHERE t.mailbox=$5 AND d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent')
+         AND (original.internet_id=ANY($3::text[]) OR d.refs[cardinality(d.refs)]=ANY($3::text[]))
          AND (d.id::text=$1 OR d.internet_id=$2 OR d.remote_draft_id=$4) FOR UPDATE OF d`,
         [
           mail.marker ?? '',
@@ -164,8 +166,14 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       );
       if (local) {
         await m.query(
-          `UPDATE mail_messages SET state='sent',provider_id=$2,internet_id=$3,occurred_at=$4,updated_at=now() WHERE id=$1`,
-          [local.id, mail.providerId, mail.internetId, mail.occurredAt],
+          `UPDATE mail_messages SET state='sent',provider_id=$2,internet_id=coalesce($3,internet_id),occurred_at=$4,refs=$5,updated_at=now() WHERE id=$1`,
+          [
+            local.id,
+            mail.providerId,
+            mail.internetId,
+            mail.occurredAt,
+            mail.refs,
+          ],
         );
         await this.bind(m, local.threadId, keys);
         await m.query(
