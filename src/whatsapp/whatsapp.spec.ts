@@ -83,6 +83,38 @@ describe('WhatsApp identity, event and window boundaries', () => {
       echo: false,
     });
   });
+  it('uses the customer profile name when it is provided', () => {
+    expect(
+      normalizeEvent(
+        { ...event, Name: ' Synthetic customer ', DisplayName: 'Business' },
+        'inbound',
+        account,
+      ).name,
+    ).toBe('Synthetic customer');
+  });
+  it('leaves the customer name empty on an unnamed first message', () => {
+    expect(
+      normalizeEvent(
+        { ...event, DisplayName: 'Business', FromUserName: 'customer-handle' },
+        'inbound',
+        account,
+      ),
+    ).toMatchObject({ name: '', username: 'customer-handle' });
+  });
+  it('provides no name update when an edit callback omits the customer name', () => {
+    expect(
+      normalizeEvent(
+        {
+          ...event,
+          Type: 'INTERACTIVE',
+          Message: { type: 'edit' },
+          DisplayName: 'Business',
+        },
+        'inbound',
+        account,
+      ),
+    ).toMatchObject({ messageKind: 'edit', name: '' });
+  });
   it('supports phone-only events and BSUID in From', () => {
     expect(
       normalizeEvent(
@@ -108,11 +140,12 @@ describe('WhatsApp identity, event and window boundaries', () => {
           From: account.phone,
           To: 'ZZ.synthetic',
           UserId: 'ZZ.synthetic',
+          FromUserName: 'merchant-handle',
         },
         'inbound',
         account,
       ),
-    ).toMatchObject({ echo: true, bsuid: 'ZZ.synthetic' });
+    ).toMatchObject({ echo: true, bsuid: 'ZZ.synthetic', username: '' });
   });
   it.each([
     { CustSpaceId: 'other' },

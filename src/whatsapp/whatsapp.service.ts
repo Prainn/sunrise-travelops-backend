@@ -349,7 +349,7 @@ export class WhatsappService {
     if (query.keyword) {
       const p = params.push(`%${query.keyword.replace(/[\\%_]/g, '\\$&')}%`);
       where.push(
-        `(coalesce(p.manual_name,p.name) ILIKE $${p} OR p.phone ILIKE $${p} OR p.bsuid ILIKE $${p})`,
+        `(coalesce(p.manual_name,p.name) ILIKE $${p} OR ('@'||p.username) ILIKE $${p} OR p.phone ILIKE $${p} OR p.bsuid ILIKE $${p})`,
       );
     }
     const unread = unreadCountSql('c.id');
@@ -514,6 +514,7 @@ export class WhatsappService {
       conversationId: id,
       version: c.version,
       customerName: c.name,
+      title: c.title,
       ...(await this.recordedCustomerNotes(c)),
     };
   }
@@ -590,6 +591,7 @@ export class WhatsappService {
         conversationId: id,
         version: saved.version,
         customerName: saved.name,
+        title: saved.title,
         ...(await this.recordedCustomerNotes(saved, manager)),
       };
     });
