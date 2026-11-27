@@ -26,8 +26,10 @@ const whatsappCommands: Record<string, string> = {
 };
 const mailCommands: Record<string, string> = {
   assign: '分配邮件会话',
+  saveCustomerNotes: '保存客户备注',
   open: '打开回复草稿',
   save: '保存回复草稿',
+  discard: '删除回复草稿',
   attach: '添加邮件附件',
   remove: '移除邮件附件',
   send: '发送回复',

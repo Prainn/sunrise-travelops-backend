@@ -57,6 +57,21 @@ export interface MailMessage {
   attachments: MailFile[];
 }
 
+export interface MailQuotedTurn {
+  sourceMessageId: string;
+  position: number;
+  sender: string;
+  sentAt: string;
+  to: string | null;
+  cc: string | null;
+  subject: string | null;
+  body: string;
+}
+export interface MailReadingMessage extends MailMessage {
+  authoredBody: string | null;
+  quotedHistory: MailQuotedTurn[];
+}
+
 export function mailFail(
   code: ErrorCodeValue,
   message: string,
