@@ -114,6 +114,14 @@ export function normalizeEvent(
     if (contextMessageId) attachment = { ...attachment, contextMessageId };
   }
   if (attachment?.type === 'edit') messageKind = 'edit';
+  const fromUserName = p.FromUserName;
+  const username =
+    !isStatus &&
+    !echo &&
+    typeof fromUserName === 'string' &&
+    fromUserName.length <= 1000
+      ? fromUserName.trim().replace(/^@+/, '')
+      : '';
   return {
     providerId,
     occurredAt,
@@ -121,7 +129,8 @@ export function normalizeEvent(
     isStatus,
     bsuid,
     phone,
-    name: field(p, 'Name') || (!echo ? field(p, 'DisplayName') : ''),
+    name: field(p, 'Name').trim(),
+    username,
     status: statuses[field(p, 'Status')],
     taskId: field(p, 'TaskId'),
     errorCode: field(p, 'ErrorCode'),
@@ -206,6 +215,8 @@ export class WhatsappEvents {
         const messageId = e.isStatus
           ? await this.status(manager, account, e)
           : await this.message(manager, account, e, event.kind === 'inbound');
+        if (messageId && e.username && event.kind === 'inbound')
+          await this.recordUsername(manager, messageId, e.username);
         await manager.query(
           `UPDATE whatsapp_events SET state='done',attempts=attempts+1,processed_at=now(),message_id=$2,error_code=NULL WHERE id=$1`,
           [event.id, messageId],
@@ -318,6 +329,30 @@ export class WhatsappEvents {
       });
     return message.id;
   }
+  private async recordUsername(
+    manager: EntityManager,
+    messageId: string,
+    username: string,
+  ) {
+    // A delayed original callback can supply a username after the message was backfilled.
+    const [updated] = await manager.query<{ conversationId: string }[]>(
+      `WITH changed AS (
+         UPDATE whatsapp_contacts p SET username=$2,username_seen_at=m.occurred_at
+         FROM whatsapp_messages m JOIN whatsapp_conversations v ON v.id=m.conversation_id
+         WHERE m.id=$1 AND m.direction='inbound' AND m.source='customer' AND p.id=v.contact_id
+           AND (p.username_seen_at IS NULL OR p.username_seen_at<m.occurred_at
+             OR (p.username_seen_at=m.occurred_at AND p.username IS DISTINCT FROM $2))
+         RETURNING v.id AS "conversationId"
+       ) SELECT "conversationId" FROM changed`,
+      [messageId, username],
+    );
+    if (updated)
+      await notifyWhatsappChange(manager, {
+        conversationId: updated.conversationId,
+        reason: 'message',
+      });
+  }
+
   private async message(
     manager: EntityManager,
     account: ChatAccount,

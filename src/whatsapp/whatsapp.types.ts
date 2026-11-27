@@ -29,6 +29,7 @@ export interface Conversation {
   archivedAt: Date | null;
   updatedAt: Date;
   name: string;
+  title: string;
   phone: string | null;
   bsuid: string | null;
   lastInboundAt: Date | null;
@@ -76,5 +77,7 @@ export const MESSAGE_COLUMNS = `m.id,m.seq::text,m.account_id AS "accountId",m.c
 export const CONVERSATION_COLUMNS = `c.id,c.account_id AS "accountId",c.contact_id AS "contactId",c.owner_id AS "ownerId",
  u.nickname AS "ownerName",c.inquiry_id AS "inquiryId",c.state,c.version,c.assignment_locked_at AS "assignmentLockedAt",
  c.previous_id AS "previousId",c.created_at AS "createdAt",c.archived_at AS "archivedAt",c.updated_at AS "updatedAt",
- coalesce(p.manual_name,p.name) AS name,p.phone,p.bsuid,p.last_inbound_at AS "lastInboundAt"`;
+ coalesce(p.manual_name,p.name) AS name,
+ coalesce(nullif(p.manual_name,''),'@'||p.username,nullif(btrim(p.name),''),nullif(p.phone,''),nullif(p.bsuid,''),'') AS title,
+ p.phone,p.bsuid,p.last_inbound_at AS "lastInboundAt"`;
 export const CONVERSATION_FROM = `FROM whatsapp_conversations c JOIN whatsapp_contacts p ON p.id=c.contact_id LEFT JOIN users u ON u.id=c.owner_id`;
