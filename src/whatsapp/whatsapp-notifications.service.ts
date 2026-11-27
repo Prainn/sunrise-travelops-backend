@@ -5,7 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { FeishuSendException, FeishuService } from '../feishu/feishu.service';
+import { FeishuService } from '../feishu/feishu.service';
+import { directDeliveryFailure } from '../feishu/direct-delivery-failure';
 import { formatWhatsAppReminder } from '../feishu/whatsapp-reminder';
 import { notificationPolicy } from '../notifications/notification-settings';
 import {
@@ -149,21 +150,13 @@ export class WhatsappNotificationsService
             [job.id, result.messageId],
           );
         } catch (error) {
-          const unknown =
-            !(error instanceof FeishuSendException) || error.deliveryUnknown;
-          const status = unknown
-            ? 'unknown'
-            : job.attempts >= 4
-              ? 'failed'
-              : 'pending';
+          const { status, errorCode, retryAfter } = directDeliveryFailure(
+            error,
+            job.attempts,
+          );
           await manager.query(
             `UPDATE whatsapp_notification_deliveries SET status=$2,error_code=$3,next_attempt_at=now()+($4::int*interval '1 second') WHERE id=$1`,
-            [
-              job.id,
-              status,
-              unknown ? 'DELIVERY_OUTCOME_UNKNOWN' : 'FEISHU_SEND_FAILED',
-              [30, 120, 480, 0][Math.min(job.attempts - 1, 3)],
-            ],
+            [job.id, status, errorCode, retryAfter],
           );
         }
       });

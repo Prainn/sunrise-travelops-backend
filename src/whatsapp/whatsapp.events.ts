@@ -307,9 +307,13 @@ export class WhatsappEvents {
       conversationId: message.conversationId,
       reason: 'status',
     });
-    if (echo && echo.conversationId !== message.conversationId)
+    if (
+      echo ||
+      (message.source === 'mobile' &&
+        (status === 'failed') !== (message.status === 'failed'))
+    )
       await notifyWhatsappChange(manager, {
-        conversationId: echo.conversationId,
+        conversationId: echo?.conversationId ?? message.conversationId,
         reason: 'message',
       });
     return message.id;

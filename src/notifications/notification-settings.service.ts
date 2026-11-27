@@ -105,6 +105,12 @@ export class NotificationSettingsService {
         FROM whatsapp_notification_batches b WHERE b.id=j.batch_id AND b.type=$1 AND j.status='pending' AND j.digest_id IS NULL`,
         args,
       );
+    else if (type === 'mail_unassigned')
+      await manager.query(
+        `UPDATE mail_notification_deliveries j SET digest_at=${deadline('least(j.next_attempt_at,statement_timestamp())')}
+        WHERE $1::text='mail_unassigned' AND j.status='pending' AND j.digest_id IS NULL`,
+        args,
+      );
     else if (type === 'inquiry_follow_up')
       await manager.query(
         `UPDATE inquiry_follow_up_reminders j SET digest_at=${deadline('j.due_at')}

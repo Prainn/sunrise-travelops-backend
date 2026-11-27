@@ -1,15 +1,17 @@
 import { EntityManager } from 'typeorm';
 import type { LoginScope } from '../users/user-identity.entity';
-import {
-  eligibleWhatsappRecipient,
-  NotificationRecipient,
-} from '../whatsapp/whatsapp-notifications';
+import { eligibleWhatsappRecipient } from '../whatsapp/whatsapp-notifications';
+import { unreadWhatsappMessageSql } from '../whatsapp/whatsapp-unread';
 import {
   eligibleLedgerRecipient,
   LedgerReminderRow,
   reminderKind,
 } from '../ledgers/ledger-notifications.service';
 import { NotificationType } from './notification-settings';
+import {
+  eligibleWebsiteNotificationRecipient,
+  NotificationRecipient,
+} from './website-notification-recipients';
 
 export interface DigestItem {
   id: string;
@@ -82,9 +84,9 @@ export async function digestParts(
        LEFT JOIN whatsapp_messages last_msg ON last_msg.id=b.latest_message_id
        LEFT JOIN LATERAL (
          SELECT count(*)::int AS count,min(m.occurred_at) AS oldest FROM whatsapp_messages m
-         WHERE b.type='whatsapp_message' AND m.conversation_id=c.id AND m.direction='inbound' AND m.source='customer'
+         WHERE b.type='whatsapp_message' AND m.conversation_id=c.id AND m.source='customer'
            AND m.kind NOT IN ('reaction','edit','system')
-           AND m.seq>coalesce((SELECT max(last_seq) FROM whatsapp_reads WHERE conversation_id=c.id),0)
+           AND ${unreadWhatsappMessageSql('c.id')}
            AND m.seq BETWEEN coalesce(first_msg.seq,(SELECT min(old.seq) FROM
               (SELECT a.seq FROM whatsapp_messages a WHERE a.conversation_id=c.id AND a.seq<=last_msg.seq
                AND a.direction='inbound' AND a.source='customer' AND a.kind NOT IN ('reaction','edit','system')
@@ -111,6 +113,24 @@ export async function digestParts(
         add(row.id, row.count, row.oldest ?? undefined);
       else add(row.id);
     }
+  }
+  const mails = items
+    .filter((i) => i.type === 'mail_unassigned')
+    .map((i) => i.id);
+  if (
+    mails.length &&
+    identities.some(
+      (i) =>
+        i.scope === 'website' &&
+        eligibleWebsiteNotificationRecipient(i, null, 'mail:thread:assign'),
+    )
+  ) {
+    const rows = await manager.query<{ id: string }[]>(
+      `SELECT d.id FROM mail_notification_deliveries d JOIN mail_threads t ON t.id=d.thread_id
+       WHERE d.id=ANY($1::uuid[]) AND d.status='pending' AND d.open_id=$2 AND t.has_inbound AND t.owner_id IS NULL`,
+      [mails, openId],
+    );
+    for (const row of rows) add(row.id);
   }
   const ledgers = items
     .filter((i) => i.type.includes('_ledger_'))

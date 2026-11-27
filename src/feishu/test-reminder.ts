@@ -1,10 +1,21 @@
 import type { NotificationType } from '../notifications/notification-settings';
 import { formatInquiryFollowUpReminder } from './inquiry-follow-up-reminder';
 import { simulatedLedgerReminder } from './ledger-reminder';
+import { formatMailUnassignedReminder } from './mail-reminder';
 import { formatWhatsAppReminder } from './whatsapp-reminder';
 
 export function formatFeishuTestReminder(template: NotificationType): string {
   switch (template) {
+    case 'mail_unassigned':
+      return [
+        '【模拟提醒】',
+        formatMailUnassignedReminder(
+          '示例客户',
+          '云南定制行程咨询',
+          new Date('2026-01-15T01:30:00Z'),
+        ),
+        '以上为模拟会话数据，仅用于测试提醒，无需处理。',
+      ].join('\n');
     case 'linxi_ledger_review':
       return simulatedLedgerReminder('review');
     case 'linxi_ledger_operate':

@@ -3,9 +3,11 @@ import { assertMailAssignable, recordMailAssignment } from './mail.assignment';
 import { Injectable } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { BusinessException } from '../common/exceptions/business.exception';
 import { WebsiteService } from '../website/website.service';
 import { AssignChatDto, CreateChatInquiryDto } from '../whatsapp/whatsapp.dto';
 import { MediaStorage } from '../media/media.storage';
+import { MediaConfig } from '../media/media.config';
 import {
   readMailCustomerNotes,
   writeMailCustomerNotes,
@@ -13,6 +15,8 @@ import {
 import { MailCustomerNotesDto, MailListQuery } from './mail.dto';
 import { orderMailReadingHistory, StoredReadingMessage } from './mail-reading';
 import { AliMailProvider } from './alimail.provider';
+import { MailRuntime } from './mail-runtime.service';
+import { canPreviewMailImage, renderMailImage } from './mail-image-preview';
 import {
   MAILBOX,
   MailMessage,
@@ -42,7 +46,9 @@ export class MailService {
     private readonly db: DataSource,
     private readonly website: WebsiteService,
     private readonly storage: MediaStorage,
+    private readonly media: MediaConfig,
     private readonly provider: AliMailProvider,
+    private readonly runtime: MailRuntime,
   ) {}
   private scope(user: AuthenticatedUser, params: unknown[]) {
     requireMail(user, 'mail:thread:list');
@@ -141,6 +147,8 @@ export class MailService {
     return this.db.transaction(async (m) => {
       const t = await this.thread(id, user, m);
       const canWrite = t.ownerId === user.id || mailManager(user);
+      const { outboundEnabled, outboundAvailable } =
+        await this.runtime.state(m);
       const messages = await m.query<StoredReadingMessage[]>(
         `SELECT ${messageColumns}, CASE WHEN m.state IN ('received','sent') THEN m.authored_body END AS "authoredBody",
           to_char(m.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI') AS "occurredMinute",
@@ -192,6 +200,11 @@ export class MailService {
           ? mailSignature(englishName.trim())
           : null,
         canReply: canWrite && user.permissions.includes('mail:message:send'),
+        sendBlockedReason: !outboundAvailable
+          ? 'not_configured'
+          : outboundEnabled
+            ? null
+            : 'send_paused',
         canAssign:
           !t.assignmentLocked &&
           mailManager(user) &&
@@ -328,15 +341,60 @@ export class MailService {
       return { inquiryId: created.id, created: true };
     });
   }
-  async download(id: string, file: string, user: AuthenticatedUser) {
+  private async attachment(
+    id: string,
+    file: string,
+    user: AuthenticatedUser,
+    allowOwnDraft: boolean,
+  ) {
     await this.thread(id, user);
-    const [row] = await this.db.query<{ key: string | null; name: string }[]>(
-      `SELECT a.object_key AS key,a.file_name AS name FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id
-      WHERE m.thread_id=$1 AND a.id=$2 AND a.removed_at IS NULL AND (m.state IN ('received','sent') OR m.actor_id=$3)`,
-      [id, file, user.id],
+    const [row] = await this.db.query<
+      { key: string | null; name: string; size: number }[]
+    >(
+      `SELECT a.object_key AS key,a.file_name AS name,a.size_bytes::float8 AS size
+       FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id
+       WHERE m.thread_id=$1 AND a.id=$2 AND a.removed_at IS NULL
+         AND (m.state IN ('received','sent') OR ($4 AND m.actor_id=$3))`,
+      [id, file, user.id, allowOwnDraft],
     );
     if (!row) mailFail('NOT_FOUND', '附件不存在或不可访问', 404);
     if (!row.key) mailFail('CONFLICT', '附件正在归档，请稍后再试', 409);
-    return this.storage.signDocument(row.key, 'download', row.name);
+    return { ...row, key: row.key };
+  }
+  async download(id: string, file: string, user: AuthenticatedUser) {
+    const { key, name } = await this.attachment(id, file, user, true);
+    return this.storage.signDocument(key, 'download', name);
+  }
+  async imagePreview(
+    id: string,
+    file: string,
+    size: string,
+    user: AuthenticatedUser,
+  ) {
+    if (size !== 'thumbnail' && size !== 'large')
+      mailFail('VALIDATION_ERROR', '无效的预览尺寸', 400);
+    const attachment = await this.attachment(id, file, user, false);
+    if (!canPreviewMailImage(attachment.name, attachment.size))
+      mailFail('VALIDATION_ERROR', '附件图片格式无效或无法预览', 400);
+
+    const { key, name } = attachment;
+    try {
+      if (key !== `private/${this.media.environment}/email/${id}/${file}.bin`)
+        mailFail('NOT_FOUND', '附件不存在或不可访问', 404);
+      const { url } = await this.storage.signDocument(key, 'download', name);
+      const body = await this.storage.openPrivateObject(
+        key,
+        url,
+        attachment.size,
+      );
+      return await renderMailImage(
+        body,
+        attachment.size,
+        size === 'large' ? 2560 : 320,
+      );
+    } catch (error) {
+      if (error instanceof BusinessException) throw error;
+      mailFail('CONFLICT', '附件暂时无法读取，请稍后再试', 409);
+    }
   }
 }

@@ -1,9 +1,13 @@
 import { EntityManager } from 'typeorm';
-import { effectiveAccountPermissions } from '../auth/identity-permissions';
 import {
   notificationPolicy,
   NotificationType,
 } from '../notifications/notification-settings';
+import {
+  eligibleWebsiteNotificationRecipient,
+  NotificationRecipient,
+  websiteNotificationRecipients,
+} from '../notifications/website-notification-recipients';
 
 export type WhatsappNotificationType = Extract<
   NotificationType,
@@ -15,42 +19,29 @@ export interface NotificationConversation {
   state: string;
   version: number;
 }
-export interface NotificationRecipient {
-  id: string;
-  openId: string;
-  username: string;
-  roles: string[];
+function whatsappRecipientPermission(ownerId: string | null) {
+  return ownerId ? 'whatsapp:message:send' : 'whatsapp:conversation:assign';
 }
 
-export async function whatsappRecipients(
+export function whatsappRecipients(
   manager: EntityManager,
   ownerId: string | null,
 ): Promise<NotificationRecipient[]> {
-  const rows = await manager.query<NotificationRecipient[]>(
-    `SELECT u.id,u.username,u.feishu_open_id AS "openId",array_agg(DISTINCT r.code) AS roles
-     FROM users u JOIN user_identities i ON i.user_id=u.id JOIN identity_roles ir ON ir.identity_id=i.id JOIN roles r ON r.id=ir.role_id AND r.is_enabled
-     WHERE u.status='enabled' AND u.deleted_at IS NULL AND btrim(u.feishu_open_id)<>'' AND i.scope='website'
-     AND ($1::uuid IS NULL OR u.id=$1) GROUP BY u.id,i.id ORDER BY u.id`,
-    [ownerId],
+  return websiteNotificationRecipients(
+    manager,
+    ownerId,
+    whatsappRecipientPermission(ownerId),
   );
-  return rows.filter((row) => eligibleWhatsappRecipient(row, ownerId));
 }
 
 export function eligibleWhatsappRecipient(
   row: NotificationRecipient,
   ownerId: string | null,
 ) {
-  return (
-    (!ownerId || ownerId === row.id) &&
-    row.roles.includes(ownerId ? 'COORDINATOR' : 'BUSINESS_MANAGER') &&
-    effectiveAccountPermissions(
-      'website',
-      row.roles,
-      null,
-      row.username,
-    ).includes(
-      ownerId ? 'whatsapp:message:send' : 'whatsapp:conversation:assign',
-    )
+  return eligibleWebsiteNotificationRecipient(
+    row,
+    ownerId,
+    whatsappRecipientPermission(ownerId),
   );
 }
 

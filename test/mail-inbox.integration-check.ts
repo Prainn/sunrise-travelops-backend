@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
-import { IsolationHarness } from './business-isolation.harness';
+import { Actor, IsolationHarness } from './business-isolation.harness';
 import { MailSync } from '../src/mail/mail.sync';
 import {
   AliMailProvider,
@@ -19,6 +19,28 @@ import {
 } from '../src/mail/mail.types';
 import type { CustomerNotes } from '../src/whatsapp/whatsapp.types';
 import { MediaStorage } from '../src/media/media.storage';
+
+type MailRuntimeState = {
+  environment: string;
+  version: number;
+  inboundAvailable: boolean;
+  outboundAvailable: boolean;
+  inboundEnabled: boolean;
+  outboundEnabled: boolean;
+};
+
+type MailIntegrationState = {
+  runtime: MailRuntimeState;
+  mailboxes: {
+    mailbox: string;
+    inbox: {
+      state: string;
+      lastCompletedAt: string | null;
+      lastErrorAt: string | null;
+    };
+    sent: { state: string; lastCompletedAt: string | null };
+  }[];
+};
 
 async function main() {
   const h = new IsolationHarness(
@@ -56,15 +78,29 @@ async function main() {
           "INSERT INTO mail_thread_keys(mailbox,internet_id,thread_id) VALUES($1,'first@example.test',$2)",
           [MAILBOX, old.id],
         );
+        await h.db.query(
+          "INSERT INTO mail_sync(mailbox,folder,start_at,floor_at) VALUES($1,'2','2026-11-26T00:00:00Z','2026-11-26T00:00:00Z')",
+          [MAILBOX],
+        );
       },
     });
     assert.equal((await h.db.runMigrations()).length, 0);
     const mgr = await h.actor('website', 'BUSINESS_MANAGER');
+    const admin = await h.actor(
+      'headquarters',
+      'ROOT',
+      null,
+      undefined,
+      'mango',
+    );
     const alice = await h.actor('website'),
       bob = await h.actor('website');
     const other = await h.actor('linxi');
     await h.db.query("UPDATE users SET english_name='Alice' WHERE id=$1", [
       alice.id,
+    ]);
+    await h.db.query("UPDATE users SET english_name='Bob' WHERE id=$1", [
+      bob.id,
     ]);
     const remote = (
       id: string,
@@ -88,6 +124,9 @@ async function main() {
       b = remote('second', [a.internetId!]),
       separate = remote('third');
     a.body = firstBody;
+    separate.body =
+      'Latest reply\nOn 20 Nov 2026, at 10:00, Customer <client@example.test> wrote:\nFirst request\n' +
+      'On 19 Nov 2026, at 10:00, Office <office@example.test> wrote:\nEarlier outbound message';
     b.body =
       'Body second\nOn 26 Nov 2026, at 09:02, Customer <client@example.test> wrote:\n' +
       firstBody;
@@ -108,7 +147,42 @@ async function main() {
         'GET',
         '/mail/mailboxes',
       );
+    const integration = () =>
+      h.call<MailIntegrationState>(admin, 'GET', '/mail/integration');
+    const updateRuntime = (
+      actor: Actor,
+      body: unknown,
+      status = 200,
+      code = 'SUCCESS',
+    ) =>
+      h.call<MailRuntimeState>(
+        actor,
+        'PUT',
+        '/mail/integration/runtime',
+        body,
+        status,
+        code,
+      );
     assert.deepEqual((await mailboxOptions(mgr)).mailboxes, []);
+    const unavailable = await integration();
+    assert.equal(unavailable.runtime.environment, 'local');
+    assert.equal(unavailable.runtime.inboundAvailable, false);
+    assert.equal(unavailable.runtime.outboundAvailable, false);
+    assert.equal(unavailable.mailboxes[0].inbox.state, 'disabled');
+    await updateRuntime(
+      admin,
+      { version: unavailable.runtime.version, inboundEnabled: true },
+      409,
+      'CONFLICT',
+    );
+    const [preservedSync] = await h.db.query<{ startAt: Date }[]>(
+      `SELECT start_at AS "startAt" FROM mail_sync WHERE mailbox=$1 AND folder='2'`,
+      [MAILBOX],
+    );
+    assert.equal(
+      preservedSync.startAt.toISOString(),
+      '2026-11-26T00:00:00.000Z',
+    );
     Object.defineProperties(provider, {
       enabled: { get: () => true },
       startAt: { get: () => '2026-11-26T00:00:00Z' },
@@ -318,7 +392,7 @@ async function main() {
     type Notes = CustomerNotes & { customerName: string; version: number };
     const initial = await h.call<Notes>(alice, 'GET', notesUrl);
     assert.equal(initial.customerName, 'Customer');
-    assert.equal(initial.requirements, b.subject + '\n\n' + b.body);
+    assert.equal(initial.requirements, a.subject + '\n\nBody first');
     assert.equal(initial.updatedAt, null);
     assert.equal(
       (await h.call<Notes>(alice, 'GET', firstNotesUrl)).contactInfo,
@@ -353,9 +427,17 @@ async function main() {
       400,
       'VALIDATION_ERROR',
     );
-    const [foreignSource] = await h.db.query<{ id: string }[]>(
-      "SELECT id FROM mail_messages WHERE provider_id='third'",
+    const [foreignSource] = await h.db.query<
+      { id: string; threadId: string }[]
+    >(
+      `SELECT id,thread_id AS "threadId" FROM mail_messages WHERE provider_id='third'`,
     );
+    const quotedNotes = await h.call<Notes>(
+      mgr,
+      'GET',
+      `/mail/threads/${foreignSource.threadId}/messages/${foreignSource.id}/customer-notes`,
+    );
+    assert.equal(quotedNotes.requirements, 'First request');
     await h.call(
       alice,
       'PUT',
@@ -376,7 +458,7 @@ async function main() {
       'CONFLICT',
     );
     const firstNotes = await h.call<Notes>(mgr, 'GET', firstNotesUrl);
-    assert.equal(firstNotes.requirements, a.subject + '\n\n' + firstBody);
+    assert.equal(firstNotes.requirements, base.requirements);
     assert.equal(firstNotes.customerName, base.customerName);
     assert.equal(firstNotes.internalRemark, base.internalRemark);
     const found = await h.call<{ list: MailThread[] }>(
@@ -916,8 +998,225 @@ async function main() {
       400,
       'VALIDATION_ERROR',
     );
+
+    // The two switches are environment-only and share WhatsApp's administrator boundary.
+    const { runtime } = await integration();
+    assert.equal(runtime.inboundEnabled, true);
+    assert.equal(runtime.outboundEnabled, true);
+    await h.call(
+      mgr,
+      'GET',
+      '/mail/integration',
+      undefined,
+      403,
+      'AUTH_FORBIDDEN',
+    );
+    await updateRuntime(
+      mgr,
+      { version: runtime.version, inboundEnabled: false },
+      403,
+      'AUTH_FORBIDDEN',
+    );
+    await updateRuntime(
+      admin,
+      { version: runtime.version, environment: 'prod', inboundEnabled: false },
+      400,
+      'VALIDATION_ERROR',
+    );
+    await updateRuntime(
+      admin,
+      { version: runtime.version },
+      400,
+      'VALIDATION_ERROR',
+    );
+
+    const heldInbound = remote('held-runtime-inbound', [a.internetId!]);
+    const observedSent = {
+      ...remote('observed-runtime-sent', [a.internetId!]),
+      sender: { email: MAILBOX },
+    };
+    let sentReads = 0;
+    let inboxReads = 0;
+    let failInbox = false;
+    let includeSent = false;
+    const inboxCursors: (string | null)[] = [];
+    provider.list = (folder, _start, _end, cursor) => {
+      if (folder === '1') {
+        sentReads++;
+        return Promise.resolve({
+          messages: includeSent ? [{ id: observedSent.providerId }] : [],
+          hasMore: false,
+        });
+      }
+      inboxReads++;
+      inboxCursors.push(cursor ?? null);
+      if (failInbox) return Promise.reject(new Error('synthetic sync failure'));
+      if (!cursor)
+        return Promise.resolve({
+          messages: [],
+          nextCursor: 'runtime-page-2',
+          hasMore: true,
+        });
+      return Promise.resolve({
+        messages: [{ id: heldInbound.providerId }],
+        hasMore: false,
+      });
+    };
+    let announceDownload!: () => void;
+    let releaseInbound!: () => void;
+    const downloaded = new Promise<void>((resolve) => {
+      announceDownload = resolve;
+    });
+    const allowIngest = new Promise<void>((resolve) => {
+      releaseInbound = resolve;
+    });
+    provider.message = async (id) => {
+      if (id === observedSent.providerId) return observedSent;
+      assert.equal(id, heldInbound.providerId);
+      announceDownload();
+      await allowIngest;
+      return heldInbound;
+    };
+    await sync.poll();
+    const progress = () =>
+      h.db.query<{ cursor: string; startAt: Date; endAt: Date }[]>(
+        `SELECT cursor,start_at AS "startAt",end_at AS "endAt" FROM mail_sync WHERE mailbox=$1 AND folder='2'`,
+        [MAILBOX],
+      );
+    const beforePause = await progress();
+    assert.equal(beforePause[0].cursor, 'runtime-page-2');
+    const currentPoll = sync.poll();
+    try {
+      await Promise.race([
+        downloaded,
+        currentPoll.then(() =>
+          assert.fail('Expected mail detail fetch before pausing'),
+        ),
+      ]);
+      const paused = await updateRuntime(admin, {
+        version: runtime.version,
+        inboundEnabled: false,
+      });
+      assert.equal(paused.inboundEnabled, false);
+      assert.equal(paused.outboundEnabled, true);
+      await updateRuntime(
+        admin,
+        { version: runtime.version, outboundEnabled: false },
+        409,
+        'CONFLICT',
+      );
+      await updateRuntime(admin, {
+        version: paused.version,
+        outboundEnabled: false,
+      });
+    } finally {
+      releaseInbound();
+      await currentPoll;
+    }
+    assert.deepEqual(await progress(), beforePause);
+    const countProviderMessage = async (providerId: string) =>
+      (
+        await h.db.query<{ count: number }[]>(
+          'SELECT count(*)::int AS count FROM mail_messages WHERE provider_id=$1',
+          [providerId],
+        )
+      )[0].count;
+    assert.equal(await countProviderMessage(heldInbound.providerId), 0);
+    includeSent = true;
+    const priorSentReads = sentReads;
+    const priorInboxReads = inboxReads;
+    await sync.poll();
+    assert.equal(sentReads, priorSentReads + 1);
+    assert.equal(inboxReads, priorInboxReads);
+    assert.equal(await countProviderMessage(observedSent.providerId), 1);
+    assert.deepEqual(await progress(), beforePause);
+    const pausedStatus = await integration();
+    const primary = pausedStatus.mailboxes.find(
+      (row) => row.mailbox === MAILBOX,
+    )!;
+    assert.equal(primary.inbox.state, 'paused');
+    assert.equal(primary.sent.state, 'running');
+    assert(primary.sent.lastCompletedAt);
+
+    const heldDraft = await h.call<MailMessage>(
+      bob,
+      'POST',
+      `${inboxSource}/reply`,
+      undefined,
+      201,
+    );
+    const heldDraftPath = `${path}/drafts/${heldDraft.id}`;
+    const savedWhilePaused = await h.call<MailMessage>(
+      bob,
+      'PUT',
+      heldDraftPath,
+      {
+        ...draftInput,
+        body: 'Draft saved while outbound is paused',
+        version: heldDraft.version,
+      },
+    );
+    const beforeSendCalls = sendCalls;
+    await h.call(
+      bob,
+      'POST',
+      `${heldDraftPath}/send`,
+      { version: savedWhilePaused.version },
+      409,
+      'CONFLICT',
+    );
+    assert.equal(sendCalls, beforeSendCalls);
+    const blocked = await h.call<{
+      sendBlockedReason: string;
+      canReply: boolean;
+      messages: MailMessage[];
+    }>(bob, 'GET', path);
+    assert.equal(blocked.canReply, true);
+    assert.equal(blocked.sendBlockedReason, 'send_paused');
+    assert(
+      blocked.messages.some(
+        (message) =>
+          message.id === heldDraft.id &&
+          message.body === savedWhilePaused.body &&
+          message.state === 'draft',
+      ),
+    );
+
+    const resumed = await updateRuntime(admin, {
+      version: pausedStatus.runtime.version,
+      inboundEnabled: true,
+    });
+    assert.equal(resumed.outboundEnabled, false);
+    failInbox = true;
+    await sync.poll();
+    const failedSync = (await integration()).mailboxes.find(
+      (row) => row.mailbox === MAILBOX,
+    )!;
+    assert.equal(failedSync.inbox.state, 'error');
+    assert(failedSync.inbox.lastErrorAt);
+    failInbox = false;
+    await sync.poll();
+    assert.equal(inboxCursors.at(-1), 'runtime-page-2');
+    assert.equal(await countProviderMessage(heldInbound.providerId), 1);
+    assert.equal(
+      (await integration()).mailboxes.find((row) => row.mailbox === MAILBOX)
+        ?.inbox.state,
+      'running',
+    );
+    await updateRuntime(admin, {
+      version: resumed.version,
+      outboundEnabled: true,
+    });
+    const afterResume = await h.call<MailMessage>(
+      bob,
+      'POST',
+      `${heldDraftPath}/send`,
+      { version: savedWhilePaused.version },
+      201,
+    );
+    assert.equal(afterResume.state, 'sent');
     console.log(
-      'Mail inbox isolated PostgreSQL upgrade, sync, role scope, MIME attachments, draft concurrency, reply reconciliation, customer notes, original-specific prefill, inquiry transfer and permanent ledger lock passed.',
+      'Mail inbox isolated PostgreSQL upgrade, runtime switches, sync, role scope, MIME attachments, draft concurrency, reply reconciliation, customer notes, inquiry transfer and permanent ledger lock passed.',
       h.requests,
       'HTTP checks.',
     );
