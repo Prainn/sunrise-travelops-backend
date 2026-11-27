@@ -10,6 +10,10 @@ import { ReadableStream } from 'node:stream/web';
 import { MediaConfig } from '../media/media.config';
 import { MediaStorage } from '../media/media.storage';
 import { AliMailError, AliMailProvider, RemoteMail } from './alimail.provider';
+import {
+  insertMailQuotes,
+  splitMailBody,
+} from '../migrations/support/mail-quoted-body-v1';
 import { MAILBOX } from './mail.types';
 
 export function mailObjectKey(environment: string, thread: string, id: string) {
@@ -145,10 +149,12 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       ...new Set([...mail.refs, ...(mail.internetId ? [mail.internetId] : [])]),
     ];
     if (!inbound && mail.sender.email.toLowerCase() === MAILBOX) {
+      // A sent parent can acquire its final Message-ID after this reply was sent.
       const [local] = await m.query<{ id: string; threadId: string }[]>(
         `SELECT d.id,d.thread_id AS "threadId" FROM mail_messages d JOIN mail_messages original ON original.id=d.original_id
          JOIN mail_threads t ON t.id=d.thread_id
-         WHERE t.mailbox=$5 AND d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent') AND original.internet_id=ANY($3::text[])
+         WHERE t.mailbox=$5 AND d.actor_id IS NOT NULL AND d.state IN ('sending','unknown','sent')
+         AND (original.internet_id=ANY($3::text[]) OR d.refs[cardinality(d.refs)]=ANY($3::text[]))
          AND (d.id::text=$1 OR d.internet_id=$2 OR d.remote_draft_id=$4) FOR UPDATE OF d`,
         [
           mail.marker ?? '',
@@ -160,8 +166,14 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       );
       if (local) {
         await m.query(
-          `UPDATE mail_messages SET state='sent',provider_id=$2,internet_id=$3,occurred_at=$4,updated_at=now() WHERE id=$1`,
-          [local.id, mail.providerId, mail.internetId, mail.occurredAt],
+          `UPDATE mail_messages SET state='sent',provider_id=$2,internet_id=coalesce($3,internet_id),occurred_at=$4,refs=$5,updated_at=now() WHERE id=$1`,
+          [
+            local.id,
+            mail.providerId,
+            mail.internetId,
+            mail.occurredAt,
+            mail.refs,
+          ],
         );
         await this.bind(m, local.threadId, keys);
         await m.query(
@@ -205,9 +217,10 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         ],
       );
     }
+    const { authoredBody, quotes } = splitMailBody(mail.body);
     const [msg] = await m.query<{ id: string }[]>(
-      `INSERT INTO mail_messages(thread_id,provider_id,internet_id,refs,direction,state,subject,sender,recipients,cc,reply_to,body,occurred_at,is_read)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING RETURNING id`,
+      `INSERT INTO mail_messages(thread_id,provider_id,internet_id,refs,direction,state,subject,sender,recipients,cc,reply_to,body,occurred_at,is_read,authored_body)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING RETURNING id`,
       [
         threadId,
         mail.providerId,
@@ -223,9 +236,11 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         mail.body,
         mail.occurredAt,
         !inbound || mail.isRead,
+        authoredBody,
       ],
     );
     if (!msg) return;
+    await insertMailQuotes(m, msg.id, quotes);
     await this.bind(m, threadId, keys);
     await m.query(
       'UPDATE mail_threads SET last_at=greatest(last_at,$2) WHERE id=$1',
@@ -250,7 +265,7 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         removed_at: Date | null;
       }[]
     >(
-      `SELECT a.*,m.provider_id AS message,m.thread_id,t.mailbox FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id JOIN mail_threads t ON t.id=m.thread_id
+      `SELECT a.*,m.provider_id AS message,m.thread_id,t.mailbox FROM mail_attachments a LEFT JOIN mail_messages m ON m.id=a.message_id LEFT JOIN mail_threads t ON t.id=m.thread_id
        WHERE (a.removed_at IS NOT NULL OR (a.provider_id IS NOT NULL AND a.object_key IS NULL)) AND a.retry_at<=now()
        ORDER BY a.retry_at,a.id LIMIT 12`,
     );

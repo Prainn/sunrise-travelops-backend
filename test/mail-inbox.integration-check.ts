@@ -11,7 +11,12 @@ import {
   RemoteMail,
   OutgoingMail,
 } from '../src/mail/alimail.provider';
-import { MAILBOX, MailMessage, MailThread } from '../src/mail/mail.types';
+import {
+  MAILBOX,
+  MailMessage,
+  MailReadingMessage,
+  MailThread,
+} from '../src/mail/mail.types';
 import type { CustomerNotes } from '../src/whatsapp/whatsapp.types';
 import { MediaStorage } from '../src/media/media.storage';
 
@@ -21,6 +26,8 @@ async function main() {
     { mail: true },
   );
   const countryId = randomUUID();
+  const firstBody =
+    'Body first\nOn 5 Nov 2026, at 15:06, Office <office@example.test> wrote:\nEarlier turn';
   try {
     await h.start({
       from: 1796256024000,
@@ -36,12 +43,13 @@ async function main() {
         );
         await h.db.query(
           `INSERT INTO mail_messages(thread_id,direction,state,provider_id,internet_id,subject,sender,recipients,reply_to,body,occurred_at)
-           VALUES($1,'inbound','received','first','first@example.test','Same subject',$2,$3,$4,'Body first','2026-11-26T01:02:00Z')`,
+           VALUES($1,'inbound','received','first','first@example.test','Same subject',$2,$3,$4,$5,'2026-11-26T01:02:00Z')`,
           [
             old.id,
             { email: 'client@example.test', name: 'Customer' },
             JSON.stringify([{ email: MAILBOX }]),
             JSON.stringify([{ email: 'first-reply@example.test' }]),
+            firstBody,
           ],
         );
         await h.db.query(
@@ -79,6 +87,10 @@ async function main() {
     const a = remote('first'),
       b = remote('second', [a.internetId!]),
       separate = remote('third');
+    a.body = firstBody;
+    b.body =
+      'Body second\nOn 26 Nov 2026, at 09:02, Customer <client@example.test> wrote:\n' +
+      firstBody;
     b.occurredAt = new Date('2026-11-26T02:03:00Z');
     b.attachments = [{ id: 'attachment', name: 'sample.pdf', size: 4 }];
     const sync = h.get(MailSync),
@@ -225,7 +237,7 @@ async function main() {
     const detail = () =>
       h.call<
         MailThread & {
-          messages: MailMessage[];
+          messages: MailReadingMessage[];
           canUpdateCustomer: boolean;
           ledger: { id: string; orderNo: string } | null;
           canCreateLedger: boolean;
@@ -234,6 +246,24 @@ async function main() {
     const original = (await detail()).messages;
     assert.equal(original.length, 2);
     const source = original.find((msg) => msg.body === b.body)!;
+    const firstMessage = original.find((msg) => msg.body === firstBody)!;
+    assert.equal(firstMessage.authoredBody, 'Body first');
+    assert.deepEqual(
+      firstMessage.quotedHistory.map((q) => [
+        q.sourceMessageId,
+        q.position,
+        q.sentAt,
+        q.body,
+      ]),
+      [[firstMessage.id, 1, '2026-11-05 15:06', 'Earlier turn']],
+    );
+    assert.equal(source.authoredBody, 'Body second');
+    assert.deepEqual(source.quotedHistory, []);
+    const quoteCount = await h.db.query<{ count: number }[]>(
+      'SELECT count(*)::int AS count FROM mail_message_quotes WHERE message_id=ANY($1::uuid[])',
+      [[source.id, firstMessage.id]],
+    );
+    assert.equal(quoteCount[0].count, 3);
     assert(source.attachments[0].available);
     assert.equal(
       (
@@ -346,7 +376,7 @@ async function main() {
       'CONFLICT',
     );
     const firstNotes = await h.call<Notes>(mgr, 'GET', firstNotesUrl);
-    assert.equal(firstNotes.requirements, 'Same subject\n\nBody first');
+    assert.equal(firstNotes.requirements, a.subject + '\n\n' + firstBody);
     assert.equal(firstNotes.customerName, base.customerName);
     assert.equal(firstNotes.internalRemark, base.internalRemark);
     const found = await h.call<{ list: MailThread[] }>(
@@ -367,6 +397,116 @@ async function main() {
         undefined,
         201,
       );
+    // Discard exercises the same draft ID, actor, version and file cleanup as the reply dialog.
+    const disposable = await open();
+    const discardPath = path + '/drafts/' + disposable.id;
+    const replyTo = (messageId: string) =>
+      path + '/messages/' + messageId + '/reply';
+    const earlierDraft = await h.call<MailMessage>(
+      alice,
+      'POST',
+      replyTo(firstMessage.id),
+      undefined,
+      201,
+    );
+    assert.equal(earlierDraft.originalId, firstMessage.id);
+    assert.equal(earlierDraft.recipients[0].email, 'first-reply@example.test');
+    assert.notEqual(earlierDraft.id, disposable.id);
+    await h.call(
+      alice,
+      'POST',
+      replyTo(disposable.id),
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
+    await h.call(alice, 'DELETE', path + '/drafts/' + earlierDraft.id, {
+      version: earlierDraft.version,
+    });
+    await h.call(
+      mgr,
+      'DELETE',
+      discardPath,
+      { version: disposable.version },
+      404,
+      'NOT_FOUND',
+    );
+    const pdf = Buffer.from('%PDF-1.4\\nfixture\\n%%EOF');
+    const part = new FormData();
+    part.append('file', new Blob([new Uint8Array(pdf)]), 'discard.pdf');
+    const withFile = await h.call<MailMessage>(
+      alice,
+      'POST',
+      discardPath + '/attachments',
+      part,
+      201,
+    );
+    const file = withFile.attachments[0].id;
+    const [pendingFile] = await h.db.query<{ key: string }[]>(
+      'SELECT object_key AS key FROM mail_attachments WHERE id=$1',
+      [file],
+    );
+    assert(objects.has(pendingFile.key));
+    await h.call(
+      alice,
+      'DELETE',
+      discardPath,
+      { version: disposable.version },
+      409,
+      'CONFLICT',
+    );
+    assert.equal((await open()).id, disposable.id);
+    // A known send failure can be discarded as well.
+    await h.db.query("UPDATE mail_messages SET state='failed' WHERE id=$1", [
+      disposable.id,
+    ]);
+    assert.deepEqual(
+      await h.call(alice, 'DELETE', discardPath, { version: withFile.version }),
+      { id: disposable.id },
+    );
+    await h.call(
+      alice,
+      'DELETE',
+      discardPath,
+      { version: withFile.version },
+      404,
+      'NOT_FOUND',
+    );
+    await h.call(
+      alice,
+      'GET',
+      path + '/attachments/' + file + '/download',
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
+    assert(!(await detail()).messages.some((m) => m.id === disposable.id));
+    assert.equal(
+      (await detail()).messages.find((m) => m.id === source.id)?.attachments[0]
+        .id,
+      source.attachments[0].id,
+    );
+    const [pending] = await h.db.query<{ detached: boolean }[]>(
+      'SELECT message_id IS NULL AND removed_at IS NOT NULL AS detached FROM mail_attachments WHERE id=$1',
+      [file],
+    );
+    assert.equal(pending.detached, true);
+    await sync.poll();
+    assert(!objects.has(pendingFile.key));
+    assert.equal(
+      (
+        await h.db.query<unknown[]>(
+          'SELECT id FROM mail_attachments WHERE id=$1',
+          [file],
+        )
+      ).length,
+      0,
+    );
+    const empty = await open();
+    assert.notEqual(empty.id, disposable.id);
+    await h.call(alice, 'DELETE', path + '/drafts/' + empty.id, {
+      version: empty.version,
+    });
     const active = await Promise.all([open(), open()]);
     assert.equal(active[0].id, active[1].id);
     let draft = active[0];
@@ -376,13 +516,15 @@ async function main() {
       to: ['reply@example.test'],
       cc: ['copy@example.test'],
       subject: 'Re: Same subject',
-      body: 'Quote ready',
+      body: 'Quote ready\nOn 5 Nov 2026, at 19:06, Guest <first@example.test> wrote:\nEarlier request',
       version: draft.version,
     };
-    draft = await h.call<MailMessage>(alice, 'PUT', draftPath, draftInput);
+    draft = await h.call<MailMessage>(alice, 'PUT', draftPath, {
+      ...draftInput,
+      to: [...draftInput.to, MAILBOX.toUpperCase()],
+    });
     await h.call(alice, 'PUT', draftPath, draftInput, 409, 'CONFLICT');
     assert.equal((await open()).body, draftInput.body);
-    const pdf = Buffer.from('%PDF-1.4\\nfixture\\n%%EOF');
     const png = await sharp({
       create: { width: 2, height: 2, channels: 3, background: 'red' },
     })
@@ -431,8 +573,20 @@ async function main() {
       ),
     );
     assert.equal(sendCalls, 1);
+    const delivered = (await detail()).messages.find((m) => m.id === draft.id)!;
+    assert.equal(delivered.authoredBody, 'Quote ready');
+    assert.equal(delivered.quotedHistory[0].body, 'Earlier request');
+    await h.call(
+      alice,
+      'DELETE',
+      draftPath,
+      { version: delivered.version },
+      409,
+      'CONFLICT',
+    );
     assert.equal(drafts[0].name, 'Alice');
     assert.equal(drafts[0].parent, b.internetId);
+    assert.deepEqual(delivered.refs, [a.internetId, b.internetId]);
     assert.equal(drafts[0].cc[0].email, 'copy@example.test');
     for (const [name, bytes] of files)
       assert.deepEqual(uploads.get(name), bytes);
@@ -441,17 +595,68 @@ async function main() {
         .find((m) => m.id === draft.id)
         ?.signature?.includes('Alice\nTravel Consultant'),
     );
-    // Reconcile a rewritten provider Message-ID without creating a duplicate local reply.
+    // Existing sent mail can carry only its original_id from an earlier release.
+    await h.db.query("UPDATE mail_messages SET refs='{}' WHERE id=$1", [
+      delivered.id,
+    ]);
+    const nested = await h.call<MailMessage>(
+      alice,
+      'POST',
+      replyTo(delivered.id),
+      undefined,
+      201,
+    );
+    assert.equal(nested.originalId, delivered.id);
+    assert.deepEqual(
+      nested.recipients.map((address) => address.email),
+      draftInput.to,
+    );
+    assert.deepEqual(nested.cc, []);
+    const nestedPath = path + '/drafts/' + nested.id;
+    const prepared = await h.call<MailMessage>(alice, 'PUT', nestedPath, {
+      to: draftInput.to,
+      cc: [],
+      subject: nested.subject,
+      body: 'Following up on my sent mail',
+      version: nested.version,
+    });
+    const nestedSent = await h.call<MailMessage>(
+      alice,
+      'POST',
+      nestedPath + '/send',
+      { version: prepared.version },
+      201,
+    );
+    assert.equal(nestedSent.state, 'sent');
+    assert.equal(drafts.at(-1)?.parent, delivered.internetId);
+    assert.deepEqual(nestedSent.refs, [
+      a.internetId,
+      b.internetId,
+      delivered.internetId,
+    ]);
+    assert.deepEqual(drafts.at(-1)?.references, nestedSent.refs);
+    // Both sent copies must still match if the provider rewrites the parent's Message-ID.
     const sent = {
       ...remote('server-sent', [a.internetId!, b.internetId!]),
       sender: { email: MAILBOX },
       marker: draft.id,
     };
     await h.db.transaction((m) => sync.ingest(m, sent, false));
+    const nestedCopy = {
+      ...remote('nested-sent', nestedSent.refs),
+      marker: nested.id,
+      sender: { email: MAILBOX },
+    };
+    await h.db.transaction((m) => sync.ingest(m, nestedCopy, false));
     await h.db.transaction((m) =>
       sync.ingest(m, remote('follow-up', [sent.internetId!]), true),
     );
-    assert.equal((await detail()).messages.length, 4);
+    const reconciled = (await detail()).messages;
+    assert.equal(reconciled.length, 5);
+    assert.equal(
+      reconciled.find((message) => message.id === nested.id)?.internetId,
+      nestedCopy.internetId,
+    );
     const inquiryInput = {
       countryItemId: countryId,
       customerName: 'Inquiry name',
@@ -465,6 +670,14 @@ async function main() {
       acquisitionSource: 'forged',
       version: (await detail()).version,
     };
+    await h.call(
+      alice,
+      'POST',
+      path + '/messages/' + delivered.id + '/inquiry',
+      inquiryInput,
+      404,
+      'NOT_FOUND',
+    );
     const inquiries = await Promise.all(
       [1, 2].map(() =>
         h.call<{ inquiryId: string; created: boolean }>(
@@ -525,11 +738,27 @@ async function main() {
     await h.call(
       alice,
       'POST',
+      replyTo(uncertain.id),
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
+    await h.call(
+      alice,
+      'DELETE',
+      retryPath,
+      { version: uncertain.version },
+      409,
+      'CONFLICT',
+    );
+    await h.call(
+      alice,
+      'POST',
       retryPath + '/send',
       { version: uncertain.version },
       201,
     );
-    assert.equal(sendCalls, 2);
+    assert.equal(sendCalls, 3);
     await h.call(
       mgr,
       'POST',
@@ -629,6 +858,14 @@ async function main() {
     assert.equal(assigned.total, 1);
     assert.equal((await secondPage(bob)).total, 0);
     const secondThread = assigned.list[0].id;
+    await h.call(
+      alice,
+      'POST',
+      '/mail/threads/' + secondThread + '/messages/' + delivered.id + '/reply',
+      undefined,
+      404,
+      'NOT_FOUND',
+    );
     const [secondSource] = await h.db.query<{ id: string }[]>(
       `INSERT INTO mail_messages(thread_id,direction,state,internet_id,subject,sender,body)
        VALUES ($1,'inbound','received','second-box@example.test','Same subject',$2,'Hello') RETURNING id`,
