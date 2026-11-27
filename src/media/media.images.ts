@@ -2,6 +2,7 @@ import sharp from 'sharp';
 sharp.concurrency(1);
 sharp.cache({ memory: 16, files: 0, items: 20 });
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_MANAGEMENT_IMAGE_BYTES = 10 * 1024 * 1024;
 export const PROVIDER_MEDIA_ORIGIN =
   'https://bucket-chatapp-file-internal.oss-ap-southeast-1.aliyuncs.com';
 
@@ -51,8 +52,13 @@ export async function downloadProviderMedia(value: unknown): Promise<Buffer> {
     await reader.cancel();
   }
 }
-export async function prepareImage(bytes: Buffer, kind: 'image' | 'sticker') {
-  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES)
+export async function prepareImage(
+  bytes: Buffer,
+  kind: 'image' | 'sticker',
+  management = false,
+) {
+  const maxBytes = management ? MAX_MANAGEMENT_IMAGE_BYTES : MAX_IMAGE_BYTES;
+  if (!bytes.length || bytes.length > maxBytes)
     throw new Error('MEDIA_TOO_LARGE');
   const image = sharp(bytes, { limitInputPixels: 40000000, failOn: 'error' });
   const meta = await image.metadata().catch(() => {
@@ -90,7 +96,7 @@ export async function prepareImage(bytes: Buffer, kind: 'image' | 'sticker') {
       throw new Error('MEDIA_TYPE_INVALID');
     });
   const send =
-    kind === 'image' && !['jpeg', 'png'].includes(meta.format)
+    kind === 'image' && !management && !['jpeg', 'png'].includes(meta.format)
       ? await image
           .clone()
           .rotate()

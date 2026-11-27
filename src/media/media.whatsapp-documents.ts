@@ -21,8 +21,6 @@ import { MediaStorage } from './media.storage';
 
 const DRAFT_MS = 24 * 60 * 60 * 1000;
 const TRANSFER_TTL_SECONDS = 15 * 60;
-const OSS_DOCUMENT_ORIGIN =
-  'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com';
 type DocumentRow = {
   id: string;
   conversation_id: string;
@@ -333,33 +331,12 @@ export class WhatsappDocuments implements OnModuleInit, OnModuleDestroy {
 
   private async openObject(row: StoredDocument) {
     try {
-      const key = this.key(row);
       const { url } = await this.sign(row, 'send');
-      const signed = new URL(url);
-      if (
-        signed.origin !== OSS_DOCUMENT_ORIGIN ||
-        signed.pathname !== '/' + key ||
-        signed.username ||
-        signed.password ||
-        signed.hash ||
-        !signed.search
-      )
-        throw new Error('DOCUMENT_OSS_URL_INVALID');
-      const response = await fetch(signed, {
-        redirect: 'error',
-        headers: { 'accept-encoding': 'identity' },
-        signal: AbortSignal.timeout(25_000),
-      });
-      if (
-        response.status !== 200 ||
-        Number(response.headers.get('content-length')) !== row.size_bytes ||
-        !response.body ||
-        ![null, 'identity'].includes(response.headers.get('content-encoding'))
-      ) {
-        await response.body?.cancel();
-        throw new Error('DOCUMENT_OSS_READ_INVALID');
-      }
-      return response.body;
+      return await this.storage.openPrivateObject(
+        this.key(row),
+        url,
+        row.size_bytes,
+      );
     } catch {
       chatFail('CONFLICT', '文档暂时无法读取', 409);
     }

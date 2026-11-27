@@ -213,6 +213,14 @@ async function main() {
     'CONFLICT',
   );
   const download = path + '/messages/' + messages[0].id + '/document-download';
+  await h.call(
+    root,
+    'DELETE',
+    '/system/oss/resources/' + draft.id + '?version=1',
+    undefined,
+    409,
+    'CONFLICT',
+  );
   assert.match(
     (await h.call<{ url: string }>(otherManager, 'GET', download)).url,
     /\/download\/private\/dev\/whatsapp\//,

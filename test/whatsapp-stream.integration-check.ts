@@ -235,6 +235,104 @@ async function main() {
   await pause(550);
   assert.equal(supervisor.text, '');
   passed('reopen, shared read and unchanged-read suppression');
+
+  const replyAt = Date.now() - 2000;
+  const receive = async (id: string, timestamp: number) => {
+    await events.receive({ ...payload(id), Timestamp: timestamp }, 'inbound');
+    assert(await events.processOne());
+  };
+  const assertUnread = async (count: number) => {
+    for (const actor of [manager, b]) {
+      const detail = await h.call<Conversation & { unreadCount: number }>(
+        actor,
+        'GET',
+        `/whatsapp/conversations/${c.id}`,
+      );
+      const list = await h.call<Page<typeof detail>>(
+        actor,
+        'GET',
+        `/whatsapp/conversations?unread=${count > 0}`,
+      );
+      const summary = await h.call<{ unreadCount: number }>(
+        actor,
+        'GET',
+        '/whatsapp/summary',
+      );
+      assert.equal(detail.unreadCount, count);
+      assert.equal(
+        list.list.find((row) => row.id === c.id)?.unreadCount,
+        count,
+      );
+      assert.equal(summary.unreadCount, count);
+    }
+  };
+  const phone = {
+    From: '0000000000',
+    To: 'ZZ.synthetic-contact',
+    UserId: 'ZZ.synthetic-contact',
+  };
+  await receive('sse-before-phone-reply', replyAt - 1000);
+  // This customer callback was already processed when the earlier reply arrived.
+  await receive('sse-after-phone-reply', replyAt + 1000);
+  await assertUnread(2);
+  await events.receive(
+    {
+      ...payload('sse-mobile-reaction'),
+      ...phone,
+      NoticeType: 'echos',
+      Type: 'REACTION',
+      Message: '{}',
+      Timestamp: replyAt + 1500,
+    },
+    'inbound',
+  );
+  assert(await events.processOne());
+  await assertUnread(2);
+  await until(
+    () => supervisor.text.includes('event: summary.changed'),
+    'inbound summary',
+  );
+  await pause(550);
+  for (const s of streams) s.text = '';
+  await events.receive(
+    {
+      ...payload('sse-phone-reply'),
+      ...phone,
+      NoticeType: 'echos',
+      Timestamp: replyAt,
+    },
+    'inbound',
+  );
+  assert(await events.processOne());
+  await until(
+    () =>
+      [supervisor, second].every(
+        (s) =>
+          s.text.includes(c.id) && s.text.includes('event: summary.changed'),
+      ),
+    'phone reply refreshes list and summary',
+  );
+  assert(!first.text.includes(c.id));
+  await assertUnread(1);
+  await receive('sse-later-callback-before-reply', replyAt - 500);
+  await assertUnread(1);
+  await receive('sse-same-time-as-reply', replyAt);
+  await assertUnread(2);
+  for (const [Status, count] of [
+    ['Failed', 4],
+    ['Delivered', 2],
+  ] as const) {
+    await events.receive(
+      { ...payload('sse-phone-reply'), ...phone, Status },
+      'status',
+    );
+    assert(await events.processOne());
+    await assertUnread(count);
+  }
+  passed(
+    'mobile reply refreshes shared unread counts by message time despite out-of-order callbacks',
+  );
+
   h.get(WhatsappProvider).send = () =>
     Promise.resolve({
       status: 'accepted',

@@ -1,6 +1,7 @@
 import { EntityManager } from 'typeorm';
 import type { LoginScope } from '../users/user-identity.entity';
 import { eligibleWhatsappRecipient } from '../whatsapp/whatsapp-notifications';
+import { unreadWhatsappMessageSql } from '../whatsapp/whatsapp-unread';
 import {
   eligibleLedgerRecipient,
   LedgerReminderRow,
@@ -83,9 +84,9 @@ export async function digestParts(
        LEFT JOIN whatsapp_messages last_msg ON last_msg.id=b.latest_message_id
        LEFT JOIN LATERAL (
          SELECT count(*)::int AS count,min(m.occurred_at) AS oldest FROM whatsapp_messages m
-         WHERE b.type='whatsapp_message' AND m.conversation_id=c.id AND m.direction='inbound' AND m.source='customer'
+         WHERE b.type='whatsapp_message' AND m.conversation_id=c.id AND m.source='customer'
            AND m.kind NOT IN ('reaction','edit','system')
-           AND m.seq>coalesce((SELECT max(last_seq) FROM whatsapp_reads WHERE conversation_id=c.id),0)
+           AND ${unreadWhatsappMessageSql('c.id')}
            AND m.seq BETWEEN coalesce(first_msg.seq,(SELECT min(old.seq) FROM
               (SELECT a.seq FROM whatsapp_messages a WHERE a.conversation_id=c.id AND a.seq<=last_msg.seq
                AND a.direction='inbound' AND a.source='customer' AND a.kind NOT IN ('reaction','edit','system')

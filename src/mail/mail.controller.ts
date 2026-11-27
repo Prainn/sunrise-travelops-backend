@@ -9,11 +9,18 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiProduces,
+  ApiTags,
+} from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -210,5 +217,22 @@ export class MailController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.mail.download(id, file, user);
+  }
+  @Get('threads/:id/attachments/:file/image-preview')
+  @Permissions('mail:thread:list')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @ApiProduces('image/webp')
+  async imagePreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('file', ParseUUIDPipe) file: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('size') size = 'thumbnail',
+  ) {
+    const image = await this.mail.imagePreview(id, file, size, user);
+    return new StreamableFile(image, {
+      type: 'image/webp',
+      length: image.length,
+    });
   }
 }

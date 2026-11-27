@@ -22,9 +22,10 @@ export class UpdateMediaDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
+  @IsOptional()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name?: string;
   @IsString() @MaxLength(1000) remark = '';
 }
 export class MediaVersionDto {

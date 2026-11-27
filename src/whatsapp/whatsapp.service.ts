@@ -1,5 +1,6 @@
 import { canCreateLinkedWebsiteLedger } from '../ledgers/ledger-access';
 import { notifyWhatsappChange } from './whatsapp-changes';
+import { unreadWhatsappMessageSql } from './whatsapp-unread';
 import { MediaService } from '../media/media.service';
 import { WhatsappDocuments } from '../media/media.whatsapp-documents';
 import {
@@ -84,8 +85,7 @@ type EnqueueOptions = {
 
 function unreadCountSql(conversationId: 'c.id' | '$1') {
   return `(SELECT count(*)::int FROM whatsapp_messages m
-    WHERE m.conversation_id=${conversationId} AND m.direction='inbound'
-      AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=${conversationId}),0)
+    WHERE m.conversation_id=${conversationId} AND ${unreadWhatsappMessageSql(conversationId)}
       AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done'))`;
 }
 
@@ -322,10 +322,7 @@ export class WhatsappService {
         SELECT c.id,c.owner_id,c.state FROM whatsapp_conversations c
         WHERE ${scope} AND c.state<>'archived'
       )
-      SELECT (SELECT count(*)::int FROM whatsapp_messages m
-        JOIN visible c ON c.id=m.conversation_id
-        WHERE m.direction='inbound' AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=c.id),0)
-        AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done')) AS "unreadCount",
+      SELECT (SELECT coalesce(sum(${unreadCountSql('c.id')}),0)::int FROM visible c) AS "unreadCount",
         (SELECT count(*)::int FROM visible WHERE owner_id IS NULL AND state='open') AS "unassignedCount"`,
       params,
     );
@@ -1511,6 +1508,10 @@ export class WhatsappService {
           await manager.query('DELETE FROM whatsapp_messages WHERE id=$1', [
             echo.id,
           ]);
+          await notifyWhatsappChange(manager, {
+            conversationId: echo.conversationId,
+            reason: 'message',
+          });
         }
         await manager.query(
           `UPDATE whatsapp_messages SET provider_id=$2,status=$3,updated_at=now() WHERE id=$1`,

@@ -7,6 +7,7 @@ import {
 import { DataSource, EntityManager } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { canPreviewMailImage } from '../mail/mail-image-preview';
 import { mailManager } from '../mail/mail.types';
 import { ChatMessage } from '../whatsapp/whatsapp.types';
 import { chatAdmin, chatFail } from '../whatsapp/whatsapp.policy';
@@ -14,7 +15,11 @@ import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
 import { MediaConfig } from './media.config';
 import { MediaStorage } from './media.storage';
 import { WhatsappDocumentArchive } from './media.document-archive';
-import { downloadProviderMedia, prepareImage } from './media.images';
+import {
+  downloadProviderMedia,
+  MAX_MANAGEMENT_IMAGE_BYTES,
+  prepareImage,
+} from './media.images';
 import { MediaQuery, UpdateMediaDto } from './media.dto';
 import { MEDIA_CATALOG, MediaCatalogRow } from './media.catalog';
 import { DOC_MIME } from './media.document-format';
@@ -90,18 +95,20 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   present(r: MediaCatalogRow, user?: AuthenticatedUser) {
     const documentMessage =
       r.extension &&
-      this.config.documentsEnabled &&
       user &&
-      chatAdmin(user) &&
-      user.permissions.includes('whatsapp:conversation:list') &&
+      this.canReadChatDocuments(user) &&
       r.conversation_id &&
       r.message_id
         ? { conversationId: r.conversation_id, messageId: r.message_id }
         : null;
     const publicMedia = !r.extension && r.source !== 'mail';
+    const mailImage =
+      r.source === 'mail' &&
+      r.kind === 'image' &&
+      canPreviewMailImage(r.name, r.size ?? 0);
     const previewable = publicMedia
       ? r.state === 'ready' && !!this.config.publicOrigin
-      : !!documentMessage && r.extension !== 'doc';
+      : mailImage || (!!documentMessage && r.extension !== 'doc');
     return {
       id: r.id,
       environment: r.environment,
@@ -141,11 +148,19 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
     manager = this.db.manager,
     lock = false,
   ): Promise<MediaResource> {
+    const r = await this.findResource(id, manager, lock);
+    if (!r) chatFail('NOT_FOUND', '资源不存在', 404);
+    return r;
+  }
+  private async findResource(
+    id: string,
+    manager: EntityManager,
+    lock: boolean,
+  ) {
     const [r] = await manager.query<MediaResource[]>(
       `SELECT * FROM oss_resources WHERE id=$1 AND environment=$2 ${lock ? 'FOR UPDATE' : ''}`,
       [id, this.config.environment],
     );
-    if (!r) chatFail('NOT_FOUND', '资源不存在', 404);
     return r;
   }
   async list(query: MediaQuery, user: AuthenticatedUser) {
@@ -178,38 +193,83 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   }
   async detail(id: string, user: AuthenticatedUser) {
     this.admin(user, 'list');
-    const [row] = await this.db.query<MediaCatalogRow[]>(
-      `${MEDIA_CATALOG} SELECT * FROM resources WHERE id=$3`,
+    return this.present(await this.catalogResource(id, user), user);
+  }
+  private async catalogResource(
+    id: string,
+    user: AuthenticatedUser,
+    manager = this.db.manager,
+  ) {
+    const [row] = await manager.query<MediaCatalogRow[]>(
+      `${MEDIA_CATALOG} SELECT * FROM resources WHERE id=$4`,
       [...this.catalogParams(user), id],
     );
     if (!row) chatFail('NOT_FOUND', '资源不存在', 404);
-    return this.present(row, user);
+    return row;
   }
-  private catalogParams(user: AuthenticatedUser): [string, boolean] {
+  private canReadChatDocuments(user: AuthenticatedUser) {
+    return (
+      this.config.documentsEnabled &&
+      chatAdmin(user) &&
+      user.permissions.includes('whatsapp:conversation:list')
+    );
+  }
+  private catalogParams(user: AuthenticatedUser): [string, boolean, boolean] {
     return [
       this.config.environment,
       mailManager(user) && user.permissions.includes('mail:thread:list'),
+      this.canReadChatDocuments(user),
     ];
   }
   async update(id: string, input: UpdateMediaDto, user: AuthenticatedUser) {
     this.admin(user, 'update');
-    if (!input.name.trim())
-      chatFail('VALIDATION_ERROR', '文件名称不能为空', 400);
+    const row = await this.catalogResource(id, user);
+    if (row.extension || row.mail_thread_id) {
+      return this.updateAttachmentRemark(row, input, user);
+    }
+    const name = input.name?.trim();
+    if (!name) chatFail('VALIDATION_ERROR', '文件名称不能为空', 400);
     const [rows] = await this.db.query<[MediaResource[], number]>(
       `UPDATE oss_resources SET name=$3,remark=$4,version=version+1,updated_at=now() WHERE id=$1 AND environment=$2 AND version=$5 AND state<>'deleting' RETURNING *`,
-      [
-        id,
-        this.config.environment,
-        input.name.trim(),
-        input.remark,
-        input.version,
-      ],
+      [id, this.config.environment, name, input.remark, input.version],
     );
     if (!rows.length) {
       await this.get(id);
       chatFail('CONFLICT', '资源已更新，请刷新', 409);
     }
     return this.present(rows[0]);
+  }
+  private async updateAttachmentRemark(
+    row: MediaCatalogRow,
+    input: UpdateMediaDto,
+    user: AuthenticatedUser,
+  ) {
+    if (row.extension && !this.present(row, user).documentMessage)
+      chatFail('NOT_FOUND', '资源不存在', 404);
+    if (input.name !== undefined && input.name !== row.name)
+      chatFail('VALIDATION_ERROR', '附件原文件名不可修改', 400);
+    const [saved] = await this.db.query<
+      { remark: string; version: number; updated_at: Date }[]
+    >(
+      `${MEDIA_CATALOG}
+       INSERT INTO oss_attachment_remarks(environment,source,attachment_id,remark,version)
+       SELECT environment,source,id,$7,version+1
+       FROM resources WHERE id=$4 AND source=$5 AND version=$6
+         AND (extension IS NOT NULL OR mail_thread_id IS NOT NULL)
+       ON CONFLICT (environment,source,attachment_id) DO UPDATE
+         SET remark=excluded.remark, version=excluded.version, updated_at=now()
+         WHERE oss_attachment_remarks.version=$6
+       RETURNING remark,version,updated_at`,
+      [
+        ...this.catalogParams(user),
+        row.id,
+        row.source,
+        input.version,
+        input.remark,
+      ],
+    );
+    if (!saved) chatFail('CONFLICT', '资源已更新，请刷新', 409);
+    return this.present({ ...row, ...saved }, user);
   }
   private async references(r: MediaResource, m: EntityManager) {
     const [v] = await m.query<{ n: number }[]>(
@@ -221,7 +281,16 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   async remove(id: string, version: number, user: AuthenticatedUser) {
     this.admin(user, 'delete');
     const resource = await this.db.transaction(async (m) => {
-      const r = await this.get(id, m, true);
+      const r = await this.findResource(id, m, true);
+      if (!r) {
+        // Private files enter the catalog through their live mail or message reference.
+        const attachment = await this.catalogResource(id, user, m);
+        if (attachment.mail_thread_id)
+          chatFail('CONFLICT', '资源已被邮件引用，不能删除', 409);
+        if (attachment.extension && this.canReadChatDocuments(user))
+          chatFail('CONFLICT', '资源已被消息引用，不能删除', 409);
+        chatFail('NOT_FOUND', '资源不存在', 404);
+      }
       if (r.version !== version)
         chatFail('CONFLICT', '资源已更新，请刷新', 409);
       if (r.state === 'processing') chatFail('CONFLICT', '资源正在处理', 409);
@@ -287,15 +356,16 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       chatFail('CONFLICT', '图片正在处理，请稍后重试', 409);
     this.processing++;
     let resource: MediaResource | undefined;
+    const management = !conversationId;
     try {
-      const prepared = await prepareImage(bytes, 'image');
+      const prepared = await prepareImage(bytes, 'image', management);
       const [row] = await this.db.query<MediaResource[]>(
         `INSERT INTO oss_resources(id,environment,name,kind,source,actor_id,conversation_id,state) VALUES($1,$2,$3,'image',$4,$5,$6,'processing') RETURNING *`,
         [
           randomUUID(),
           this.config.environment,
           name.slice(0, 200) || 'image',
-          conversationId ? 'upload' : 'management',
+          management ? 'management' : 'upload',
           user.id,
           conversationId ?? null,
         ],
@@ -312,7 +382,9 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
         chatFail(
           'VALIDATION_ERROR',
           error.message === 'MEDIA_TOO_LARGE'
-            ? '单张图片不能超过5MB'
+            ? management
+              ? `单张图片不能超过 ${MAX_MANAGEMENT_IMAGE_BYTES / (1024 * 1024)} MiB`
+              : '单张图片不能超过5MB'
             : '仅支持有效的JPEG、PNG、WebP、GIF图片',
           400,
         );
