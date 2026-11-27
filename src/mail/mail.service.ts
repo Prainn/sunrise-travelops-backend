@@ -11,6 +11,7 @@ import {
   writeMailCustomerNotes,
 } from './mail.customer-notes';
 import { MailCustomerNotesDto, MailListQuery } from './mail.dto';
+import { orderMailReadingHistory, StoredReadingMessage } from './mail-reading';
 import { AliMailProvider } from './alimail.provider';
 import {
   MAILBOX,
@@ -140,8 +141,13 @@ export class MailService {
     return this.db.transaction(async (m) => {
       const t = await this.thread(id, user, m);
       const canWrite = t.ownerId === user.id || mailManager(user);
-      const messages = await m.query<MailMessage[]>(
-        `SELECT ${messageColumns} FROM mail_messages m WHERE m.thread_id=$1 AND (m.state IN ('received','sent') OR m.actor_id=$2)
+      const messages = await m.query<StoredReadingMessage[]>(
+        `SELECT ${messageColumns}, CASE WHEN m.state IN ('received','sent') THEN m.authored_body END AS "authoredBody",
+          to_char(m.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI') AS "occurredMinute",
+          coalesce((SELECT jsonb_agg(jsonb_build_object('sourceMessageId',q.message_id,'position',q.position,
+            'sender',q.sender,'sentAt',q.sent_at_text,'to',q.recipient_text,'cc',q.cc_text,'subject',q.subject,'body',q.body)
+            ORDER BY q.position) FROM mail_message_quotes q WHERE q.message_id=m.id AND m.state IN ('received','sent')), '[]') AS "quotedHistory"
+          FROM mail_messages m WHERE m.thread_id=$1 AND (m.state IN ('received','sent') OR m.actor_id=$2)
        ORDER BY m.occurred_at,m.id`,
         [id, user.id],
       );
@@ -173,7 +179,7 @@ export class MailService {
           : [];
       return {
         ...t,
-        messages,
+        messages: orderMailReadingHistory(messages),
         assignments,
         ledger: ledger ?? null,
         canUpdateCustomer:

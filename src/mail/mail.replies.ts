@@ -7,6 +7,10 @@ import { MediaStorage } from '../media/media.storage';
 import { validateDocument } from '../media/media.document-format';
 import { prepareImage } from '../media/media.images';
 import { AliMailError, AliMailProvider } from './alimail.provider';
+import {
+  insertMailQuotes,
+  splitMailBody,
+} from '../migrations/support/mail-quoted-body-v1';
 import { MailVersionDto, SaveMailDraftDto } from './mail.dto';
 import { MailService, mailVersion, messageColumns } from './mail.service';
 import { MailMessage, mailFail, mailSignature } from './mail.types';
@@ -31,7 +35,7 @@ export class MailReplies {
     const t = await this.mail.thread(thread, user, m, lock);
     this.mail.writable(t, user, 'mail:message:send');
     const [row] = await m.query<MailMessage[]>(
-      `SELECT ${messageColumns} FROM mail_messages m WHERE m.id=$1 AND m.thread_id=$2 AND m.actor_id=$3${lock ? ' FOR UPDATE OF m' : ''}`,
+      `SELECT ${messageColumns} FROM mail_messages m WHERE m.id=$1 AND m.thread_id=$2 AND m.actor_id=$3 AND m.direction='outbound'${lock ? ' FOR UPDATE OF m' : ''}`,
       [id, thread, user.id],
     );
     if (!row) mailFail('NOT_FOUND', '回复草稿不存在或不可访问', 404);
@@ -81,19 +85,43 @@ export class MailReplies {
     return this.db.transaction(async (m) => {
       const draft = await this.reply(m, thread, id, user, true);
       this.editable(draft, input.version);
+      const { authoredBody, quotes } = splitMailBody(input.body);
       const addresses = (items: string[]) =>
         JSON.stringify(items.map((email) => ({ email })));
       await m.query(
-        `UPDATE mail_messages SET state='draft',body=$2,subject=$3,recipients=$4,cc=$5,version=version+1,updated_at=now() WHERE id=$1`,
+        `UPDATE mail_messages SET state='draft',body=$2,subject=$3,recipients=$4,cc=$5,authored_body=$6,version=version+1,updated_at=now() WHERE id=$1`,
         [
           id,
           input.body,
           input.subject,
           addresses(input.to),
           addresses(input.cc),
+          authoredBody,
         ],
       );
+      await m.query('DELETE FROM mail_message_quotes WHERE message_id=$1', [
+        id,
+      ]);
+      await insertMailQuotes(m, id, quotes);
       return this.reply(m, thread, id, user);
+    });
+  }
+  async discard(
+    thread: string,
+    id: string,
+    input: MailVersionDto,
+    user: AuthenticatedUser,
+  ) {
+    return this.db.transaction(async (m) => {
+      const draft = await this.reply(m, thread, id, user, true);
+      this.editable(draft, input.version);
+      // Keep the OSS cleanup job reachable after the draft itself is gone.
+      await m.query(
+        'UPDATE mail_attachments SET message_id=NULL,removed_at=coalesce(removed_at,now()),retry_at=now() WHERE message_id=$1',
+        [id],
+      );
+      await m.query('DELETE FROM mail_messages WHERE id=$1', [id]);
+      return { id };
     });
   }
   async attach(

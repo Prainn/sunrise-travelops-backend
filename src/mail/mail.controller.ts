@@ -131,6 +131,16 @@ export class MailController {
   ) {
     return this.replies.save(id, draft, input, user);
   }
+  @Delete('threads/:id/drafts/:draft')
+  @Permissions('mail:message:send')
+  discard(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('draft', ParseUUIDPipe) draft: string,
+    @Body() input: MailVersionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.replies.discard(id, draft, input, user);
+  }
   @Post('threads/:id/drafts/:draft/attachments')
   @Permissions('mail:message:send')
   @UseInterceptors(

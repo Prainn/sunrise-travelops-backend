@@ -10,6 +10,10 @@ import { ReadableStream } from 'node:stream/web';
 import { MediaConfig } from '../media/media.config';
 import { MediaStorage } from '../media/media.storage';
 import { AliMailError, AliMailProvider, RemoteMail } from './alimail.provider';
+import {
+  insertMailQuotes,
+  splitMailBody,
+} from '../migrations/support/mail-quoted-body-v1';
 import { MAILBOX } from './mail.types';
 
 export function mailObjectKey(environment: string, thread: string, id: string) {
@@ -205,9 +209,10 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         ],
       );
     }
+    const { authoredBody, quotes } = splitMailBody(mail.body);
     const [msg] = await m.query<{ id: string }[]>(
-      `INSERT INTO mail_messages(thread_id,provider_id,internet_id,refs,direction,state,subject,sender,recipients,cc,reply_to,body,occurred_at,is_read)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING RETURNING id`,
+      `INSERT INTO mail_messages(thread_id,provider_id,internet_id,refs,direction,state,subject,sender,recipients,cc,reply_to,body,occurred_at,is_read,authored_body)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING RETURNING id`,
       [
         threadId,
         mail.providerId,
@@ -223,9 +228,11 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         mail.body,
         mail.occurredAt,
         !inbound || mail.isRead,
+        authoredBody,
       ],
     );
     if (!msg) return;
+    await insertMailQuotes(m, msg.id, quotes);
     await this.bind(m, threadId, keys);
     await m.query(
       'UPDATE mail_threads SET last_at=greatest(last_at,$2) WHERE id=$1',
@@ -250,7 +257,7 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         removed_at: Date | null;
       }[]
     >(
-      `SELECT a.*,m.provider_id AS message,m.thread_id,t.mailbox FROM mail_attachments a JOIN mail_messages m ON m.id=a.message_id JOIN mail_threads t ON t.id=m.thread_id
+      `SELECT a.*,m.provider_id AS message,m.thread_id,t.mailbox FROM mail_attachments a LEFT JOIN mail_messages m ON m.id=a.message_id LEFT JOIN mail_threads t ON t.id=m.thread_id
        WHERE (a.removed_at IS NOT NULL OR (a.provider_id IS NOT NULL AND a.object_key IS NULL)) AND a.retry_at<=now()
        ORDER BY a.retry_at,a.id LIMIT 12`,
     );
