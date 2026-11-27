@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { AddWhatsappCustomerNotes1795910400000 } from '../src/migrations/1795910400000-AddWhatsappCustomerNotes';
+import { AddWhatsappContactUsername1796256031000 } from '../src/migrations/1796256031000-AddWhatsappContactUsername';
 import { WhatsappEvents } from '../src/whatsapp/whatsapp.events';
 import { Actor, IsolationHarness, Page } from './business-isolation.harness';
 
@@ -23,6 +24,7 @@ interface Notes {
   conversationId: string;
   version: number;
   customerName: string;
+  title: string;
   countryItemId: string | null;
   plannedDays: number | null;
   startDate: string | null;
@@ -53,9 +55,10 @@ async function main() {
   const get = (actor: Actor = owner) => h.call<Notes>(actor, 'GET', route);
   let notes: Notes;
   const input = (n: Notes) => {
-    const { conversationId, updatedAt, ...fields } = n;
+    const { conversationId, updatedAt, title, ...fields } = n;
     assert(conversationId);
     void updatedAt;
+    void title;
     return fields;
   };
   const [country] = await h.db.query<{ id: string }[]>(
@@ -79,9 +82,11 @@ async function main() {
       );
       await h.db.transaction(async (m) => {
         assert(m.queryRunner);
+        await new AddWhatsappContactUsername1796256031000().down(m.queryRunner);
         await new AddWhatsappCustomerNotes1795910400000().down(m.queryRunner);
-        await m.query('DELETE FROM migrations WHERE name=$1', [
+        await m.query('DELETE FROM migrations WHERE name IN ($1,$2)', [
           'AddWhatsappCustomerNotes1795910400000',
+          'AddWhatsappContactUsername1796256031000',
         ]);
       });
       await h.db.query(
@@ -100,11 +105,18 @@ async function main() {
         'INSERT INTO whatsapp_conversations(id,account_id,contact_id,owner_id) VALUES($1,$2,$3,$4)',
         [ids.conversation, ids.account, ids.contact, owner.id],
       );
-      await h.db.query(
-        "INSERT INTO whatsapp_messages(account_id,conversation_id,direction,source,kind,text,status,occurred_at) VALUES($1,$2,'inbound','customer','text','Original incoming text','received',now())",
+      const [historical] = await h.db.query<{ id: string }[]>(
+        `INSERT INTO whatsapp_messages(account_id,conversation_id,direction,source,kind,text,status,occurred_at)
+         VALUES($1,$2,'inbound','customer','text','Original incoming text','received',now()-interval '2 minutes')
+         RETURNING id`,
         [ids.account, ids.conversation],
       );
-      assert.equal((await h.db.runMigrations()).length, 1);
+      await h.db.query(
+        `INSERT INTO whatsapp_events(account_id,event_key,kind,state,message_id,payload)
+         VALUES($1,'historical-inbound','inbound','done',$2,'{"FromUserName":"historical_handle"}'::jsonb)`,
+        [ids.account, historical.id],
+      );
+      assert.equal((await h.db.runMigrations()).length, 2);
       assert.equal((await h.db.runMigrations()).length, 0);
       const existing = await h.call<{ requirements: string }>(
         owner,
@@ -114,10 +126,67 @@ async function main() {
       assert.equal(existing.requirements, 'Original inquiry');
       notes = await get();
       assert.equal(notes.customerName, 'Supplier name');
+      assert.equal(notes.title, '@historical_handle');
       assert.equal(notes.requirements, 'Original incoming text');
       assert.equal(notes.plannedDays, null);
       assert.equal(notes.countryItemId, null);
       assert.equal(notes.updatedAt, null);
+    },
+  );
+  await check(
+    'title falls back to phone before BSUID and uses a username on a delayed original callback',
+    async () => {
+      const events = h.get(WhatsappEvents);
+      const inbound = {
+        MessageId: 'title-phone',
+        CustSpaceId: 'notes-test-space',
+        WabaId: 'notes-test-waba',
+        FromUserId: 'ZZ.title-contact',
+        To: '0000000000',
+        Type: 'TEXT',
+        Message: 'Synthetic inbound',
+        Timestamp: Date.now(),
+        Name: 'Provider profile name',
+      };
+      const search = async (keyword: string) => {
+        const result = await h.call<Page<{ title: string; name: string }>>(
+          manager,
+          'GET',
+          `/whatsapp/conversations?keyword=${encodeURIComponent(keyword)}`,
+        );
+        assert.equal(result.total, 1);
+        return result.list[0];
+      };
+      await events.receive(inbound, 'inbound');
+      await events.processOne();
+      assert.equal(
+        (await search(inbound.FromUserId)).title,
+        inbound.FromUserId,
+      );
+      const phone = '0000000012';
+      const enriched = { ...inbound, MessageId: 'title-enriched', From: phone };
+      await events.receive(enriched, 'inbound');
+      await events.processOne();
+      assert.equal((await search(inbound.FromUserId)).title, phone);
+      await events.receive(
+        { ...enriched, FromUserName: '@synthetic_title' },
+        'inbound',
+      );
+      await events.processOne();
+      const found = await search('@synthetic_title');
+      assert.equal(found.title, '@synthetic_title');
+      assert.equal(found.name, inbound.Name);
+      await events.receive(
+        {
+          ...inbound,
+          MessageId: 'title-late',
+          FromUserName: 'old_title',
+          Timestamp: inbound.Timestamp - 1000,
+        },
+        'inbound',
+      );
+      await events.processOne();
+      assert.equal((await search('synthetic_title')).title, '@synthetic_title');
     },
   );
   await check(
@@ -167,20 +236,22 @@ async function main() {
         customerName: '  Agent name  ',
       });
       assert.equal(notes.customerName, 'Agent name');
+      assert.equal(notes.title, 'Agent name');
       assert.equal(notes.plannedDays, null);
       assert.equal(notes.version, 2);
-      const list = await h.call<Page<{ id: string; name: string }>>(
-        owner,
-        'GET',
-        '/whatsapp/conversations?keyword=Agent%20name',
-      );
+      const list = await h.call<
+        Page<{ id: string; name: string; title: string }>
+      >(owner, 'GET', '/whatsapp/conversations?keyword=Agent%20name');
       assert.equal(list.total, 1);
       assert.equal(list.list[0].name, 'Agent name');
+      assert.equal(list.list[0].title, 'Agent name');
       const detail = await h.call<{
         name: string;
+        title: string;
         capabilities: { canUpdateCustomer: boolean };
       }>(owner, 'GET', `/whatsapp/conversations/${ids.conversation}`);
       assert.equal(detail.name, 'Agent name');
+      assert.equal(detail.title, 'Agent name');
       assert.equal(detail.capabilities.canUpdateCustomer, true);
       await h.call(
         owner,
@@ -193,7 +264,7 @@ async function main() {
     },
   );
   await check(
-    'provider name changes do not replace the manual name; clearing restores provider name',
+    'a nameless edit preserves the provider name behind the manual name',
     async () => {
       const events = h.get(WhatsappEvents);
       await events.receive(
@@ -206,6 +277,26 @@ async function main() {
           Type: 'TEXT',
           Message: 'New provider message',
           Name: 'Latest provider',
+          FromUserName: 'current_handle',
+          Timestamp: Date.now(),
+        },
+        'inbound',
+      );
+      await events.processOne();
+      await events.receive(
+        {
+          MessageId: 'notes-inbound-edit',
+          CustSpaceId: 'notes-test-space',
+          WabaId: 'notes-test-waba',
+          FromUserId: 'ZZ.notes-contact',
+          To: '0000000000',
+          Type: 'INTERACTIVE',
+          Message: {
+            type: 'edit',
+            message_id: 'notes-new-inbound',
+            text: 'Edited provider message',
+          },
+          DisplayName: 'Synthetic business',
           Timestamp: Date.now(),
         },
         'inbound',
@@ -218,6 +309,7 @@ async function main() {
         customerName: '',
       });
       assert.equal(notes.customerName, 'Latest provider');
+      assert.equal(notes.title, '@current_handle');
     },
   );
   await check(
