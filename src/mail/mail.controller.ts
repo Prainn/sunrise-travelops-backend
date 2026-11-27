@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { UpdateIntegrationRuntimeDto } from '../common/integration-runtime';
 import { MAX_DOCUMENT_BYTES } from '../media/media.document-format';
 import { AssignChatDto, CreateChatInquiryDto } from '../whatsapp/whatsapp.dto';
 import {
@@ -28,6 +29,7 @@ import {
 } from './mail.dto';
 import { MailService } from './mail.service';
 import { MailReplies } from './mail.replies';
+import { MailRuntime } from './mail-runtime.service';
 
 @ApiTags('独立站邮件收件箱')
 @ApiBearerAuth()
@@ -36,7 +38,22 @@ export class MailController {
   constructor(
     private readonly mail: MailService,
     private readonly replies: MailReplies,
+    private readonly runtime: MailRuntime,
   ) {}
+  @Get('integration')
+  @Header('Cache-Control', 'private, no-store')
+  @Permissions('whatsapp:integration:manage')
+  integration(@CurrentUser() user: AuthenticatedUser) {
+    return this.runtime.integration(user);
+  }
+  @Put('integration/runtime')
+  @Permissions('whatsapp:integration:manage')
+  updateRuntime(
+    @Body() input: UpdateIntegrationRuntimeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.runtime.update(input, user);
+  }
   @Get('summary')
   @Permissions('mail:thread:list')
   summary(@CurrentUser() user: AuthenticatedUser) {

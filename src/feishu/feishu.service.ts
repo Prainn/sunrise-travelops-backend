@@ -74,6 +74,18 @@ export class FeishuService {
     return url.toString();
   }
 
+  mailThreadUrl(mailbox: string, thread: string, message: string) {
+    const url = new URL(
+      '/website-inquiries/mail',
+      this.config.getOrThrow<string>('FEISHU_WEB_BASE_URL'),
+    );
+    url.searchParams.set('mailbox', mailbox);
+    url.searchParams.set('thread', thread);
+    url.searchParams.set('message', message);
+    url.searchParams.set('from', 'feishu');
+    return url.toString();
+  }
+
   private async request<T>(
     path: string,
     body: object,

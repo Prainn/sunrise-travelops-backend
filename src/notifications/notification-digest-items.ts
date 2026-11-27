@@ -1,15 +1,16 @@
 import { EntityManager } from 'typeorm';
 import type { LoginScope } from '../users/user-identity.entity';
-import {
-  eligibleWhatsappRecipient,
-  NotificationRecipient,
-} from '../whatsapp/whatsapp-notifications';
+import { eligibleWhatsappRecipient } from '../whatsapp/whatsapp-notifications';
 import {
   eligibleLedgerRecipient,
   LedgerReminderRow,
   reminderKind,
 } from '../ledgers/ledger-notifications.service';
 import { NotificationType } from './notification-settings';
+import {
+  eligibleWebsiteNotificationRecipient,
+  NotificationRecipient,
+} from './website-notification-recipients';
 
 export interface DigestItem {
   id: string;
@@ -111,6 +112,24 @@ export async function digestParts(
         add(row.id, row.count, row.oldest ?? undefined);
       else add(row.id);
     }
+  }
+  const mails = items
+    .filter((i) => i.type === 'mail_unassigned')
+    .map((i) => i.id);
+  if (
+    mails.length &&
+    identities.some(
+      (i) =>
+        i.scope === 'website' &&
+        eligibleWebsiteNotificationRecipient(i, null, 'mail:thread:assign'),
+    )
+  ) {
+    const rows = await manager.query<{ id: string }[]>(
+      `SELECT d.id FROM mail_notification_deliveries d JOIN mail_threads t ON t.id=d.thread_id
+       WHERE d.id=ANY($1::uuid[]) AND d.status='pending' AND d.open_id=$2 AND t.has_inbound AND t.owner_id IS NULL`,
+      [mails, openId],
+    );
+    for (const row of rows) add(row.id);
   }
   const ledgers = items
     .filter((i) => i.type.includes('_ledger_'))

@@ -13,21 +13,24 @@ import { MediaService } from '../src/media/media.service';
 import { MediaStorage } from '../src/media/media.storage';
 import { PROVIDER_MEDIA_ORIGIN } from '../src/media/media.images';
 
-const h = new IsolationHarness({
-  WHATSAPP_CHAT_ENABLED: 'true',
-  WHATSAPP_CHAT_WORKER_ENABLED: 'false',
-  WHATSAPP_CHAT_RECEIVE_MODE: 'http',
-  WHATSAPP_CHAT_SEND_ENABLED: 'true',
-  WHATSAPP_CHAT_ENVIRONMENT: 'test',
-  WHATSAPP_CHAT_TEST_RECIPIENTS: 'ZZ.synthetic',
-  WHATSAPP_CHAT_SPACE_ID: 'test-space',
-  WHATSAPP_CHAT_WABA_ID: 'test-waba',
-  WHATSAPP_CHAT_PHONE: '0000000000',
-  WHATSAPP_CHAT_HTTP_TOKEN: 'synthetic-media-http-token-not-production-0000',
-  WHATSAPP_CHAT_SOURCE_TOKEN:
-    'synthetic-media-source-token-not-production-0000',
-  OSS_MEDIA_ENABLED: 'false',
-});
+const h = new IsolationHarness(
+  {
+    WHATSAPP_CHAT_ENABLED: 'true',
+    WHATSAPP_CHAT_WORKER_ENABLED: 'false',
+    WHATSAPP_CHAT_RECEIVE_MODE: 'http',
+    WHATSAPP_CHAT_SEND_ENABLED: 'true',
+    WHATSAPP_CHAT_ENVIRONMENT: 'test',
+    WHATSAPP_CHAT_TEST_RECIPIENTS: 'ZZ.synthetic',
+    WHATSAPP_CHAT_SPACE_ID: 'test-space',
+    WHATSAPP_CHAT_WABA_ID: 'test-waba',
+    WHATSAPP_CHAT_PHONE: '0000000000',
+    WHATSAPP_CHAT_HTTP_TOKEN: 'synthetic-media-http-token-not-production-0000',
+    WHATSAPP_CHAT_SOURCE_TOKEN:
+      'synthetic-media-source-token-not-production-0000',
+    OSS_MEDIA_ENABLED: 'false',
+  },
+  { mail: true },
+);
 type Resource = {
   id: string;
   version: number;
@@ -38,6 +41,10 @@ type Resource = {
   thumbnailUrl: string;
   objectKey: string;
   clickable: boolean;
+  source: string;
+  kind: string;
+  size: number;
+  mailThreadId?: string;
 };
 async function main() {
   await h.start();
@@ -466,8 +473,96 @@ async function main() {
     404,
     'NOT_FOUND',
   );
+  const mailRoot = await h.actor(
+    'headquarters',
+    'ROOT',
+    null,
+    undefined,
+    'mango',
+  );
+  const threadId = randomUUID();
+  const messageId = randomUUID();
+  await h.db.query(
+    `INSERT INTO mail_threads(id,mailbox,subject,customer_email,has_inbound,last_at)
+     VALUES($1,'office@example.test','OSS test','client@example.test',true,now())`,
+    [threadId],
+  );
+  await h.db.query(
+    `INSERT INTO mail_messages(id,thread_id,direction,state,subject,sender)
+     VALUES($1,$2,'inbound','received','OSS test','{}')`,
+    [messageId, threadId],
+  );
+  const mailFileId = randomUUID();
+  const mailKey = `private/dev/email/${threadId}/${mailFileId}.bin`;
+  await h.db.query(
+    `INSERT INTO mail_attachments(id,message_id,file_name,size_bytes,object_key,removed_at)
+     SELECT id,$2,name,24,'private/' || environment || '/email/' || $3::uuid || '/' || id || '.bin',removed_at
+     FROM (VALUES ($1::uuid,'Catalog-mail.JPEG','dev',NULL::timestamptz),
+                  (gen_random_uuid(),'Catalog-mail-pending.jpeg',NULL,NULL),
+                  (gen_random_uuid(),'Catalog-mail-cross-env.jpeg','prod',NULL),
+                  (gen_random_uuid(),'Catalog-mail-removed.jpeg','dev',now())
+     ) AS fixtures(id,name,environment,removed_at)`,
+    [mailFileId, messageId, threadId],
+  );
+  const catalog = '/system/oss/resources';
+  const query = catalog + '?keyword=Catalog-mail&kind=image&state=ready';
+  const mailPage = await h.call<Page<Resource>>(mailRoot, 'GET', query);
+  assert.equal(mailPage.total, 1);
+  assert.equal(
+    (await h.call<Page<Resource>>(mailRoot, 'GET', query + '&page=2')).list
+      .length,
+    0,
+  );
+  const mail = await h.call<Resource>(
+    mailRoot,
+    'GET',
+    catalog + '/' + mailFileId,
+  );
+  assert.deepEqual(mail, mailPage.list[0]);
+  assert.deepEqual(
+    [
+      mail.source,
+      mail.kind,
+      mail.size,
+      mail.mailThreadId,
+      mail.version,
+      mail.objectKey,
+      mail.originalUrl,
+    ],
+    ['mail', 'image', 24, threadId, null, null, null],
+  );
+  assert.equal((await h.call<Page<Resource>>(root, 'GET', query)).total, 0);
+  await h.call(
+    root,
+    'GET',
+    catalog + '/' + mailFileId,
+    undefined,
+    404,
+    'NOT_FOUND',
+  );
+  await h.call(
+    mailRoot,
+    'DELETE',
+    catalog + '/' + mailFileId + '?version=1',
+    undefined,
+    404,
+    'NOT_FOUND',
+  );
+  const downloadUrl = 'https://media.example.test/signed-mail-download';
+  storage.signDocument = (key, purpose, name) => {
+    assert.deepEqual(
+      [key, purpose, name],
+      [mailKey, 'download', 'Catalog-mail.JPEG'],
+    );
+    return Promise.resolve({ url: downloadUrl });
+  };
+  const download = `/mail/threads/${threadId}/attachments/${mailFileId}/download`;
+  assert.deepEqual(await h.call(mailRoot, 'GET', download), {
+    url: downloadUrl,
+  });
+  await h.call(root, 'GET', download, undefined, 403, 'AUTH_FORBIDDEN');
   console.log(
-    `PASS media: old-data upgrade/repeat, archive/thumbnail, CRUD/CAS/references, scope/env, multipart validation, image idempotency/retry/provider, batch atomicity/order, quote thumbnail, expired draft recovery; ${h.requests} requests`,
+    `PASS media: old-data upgrade/repeat, archive/thumbnail, CRUD/CAS/references, scope/env, multipart validation, image idempotency/retry/provider, batch atomicity/order, quote thumbnail, expired draft recovery, private mail catalog and download; ${h.requests} requests`,
   );
 }
 main()

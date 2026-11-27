@@ -7,6 +7,7 @@ import {
 import { DataSource, EntityManager } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { mailManager } from '../mail/mail.types';
 import { ChatMessage } from '../whatsapp/whatsapp.types';
 import { chatAdmin, chatFail } from '../whatsapp/whatsapp.policy';
 import { notifyWhatsappChange } from '../whatsapp/whatsapp-changes';
@@ -97,9 +98,10 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       r.message_id
         ? { conversationId: r.conversation_id, messageId: r.message_id }
         : null;
-    const previewable = r.extension
-      ? !!documentMessage && r.extension !== 'doc'
-      : r.state === 'ready' && !!this.config.publicOrigin;
+    const publicMedia = !r.extension && r.source !== 'mail';
+    const previewable = publicMedia
+      ? r.state === 'ready' && !!this.config.publicOrigin
+      : !!documentMessage && r.extension !== 'doc';
     return {
       id: r.id,
       environment: r.environment,
@@ -115,18 +117,19 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
       version: r.version,
       errorCode: r.error_code,
       originalUrl:
-        !r.extension && r.state === 'ready'
+        publicMedia && r.state === 'ready'
           ? this.config.url(r.object_key)
           : null,
       thumbnailUrl:
-        !r.extension && r.state === 'ready'
+        publicMedia && r.state === 'ready'
           ? this.config.url(
               r.kind === 'sticker' ? r.object_key : r.thumbnail_key,
             )
           : null,
       previewable,
-      clickable: r.extension ? previewable : r.kind === 'image',
+      clickable: publicMedia ? r.kind === 'image' : previewable,
       ...(r.extension ? { extension: r.extension, documentMessage } : {}),
+      ...(r.mail_thread_id ? { mailThreadId: r.mail_thread_id } : {}),
       objectKey: r.object_key,
       referenceCount: r.references ?? 0,
       createdAt: r.created_at,
@@ -147,7 +150,7 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   }
   async list(query: MediaQuery, user: AuthenticatedUser) {
     this.admin(user, 'list');
-    const args: unknown[] = [this.config.environment];
+    const args: unknown[] = this.catalogParams(user);
     const filters: string[] = [];
     if (query.kind) filters.push(`kind=$${args.push(query.kind)}`);
     if (query.state) filters.push(`state=$${args.push(query.state)}`);
@@ -176,11 +179,17 @@ export class MediaService implements OnModuleInit, OnModuleDestroy {
   async detail(id: string, user: AuthenticatedUser) {
     this.admin(user, 'list');
     const [row] = await this.db.query<MediaCatalogRow[]>(
-      `${MEDIA_CATALOG} SELECT * FROM resources WHERE id=$2`,
-      [this.config.environment, id],
+      `${MEDIA_CATALOG} SELECT * FROM resources WHERE id=$3`,
+      [...this.catalogParams(user), id],
     );
     if (!row) chatFail('NOT_FOUND', '资源不存在', 404);
     return this.present(row, user);
+  }
+  private catalogParams(user: AuthenticatedUser): [string, boolean] {
+    return [
+      this.config.environment,
+      mailManager(user) && user.permissions.includes('mail:thread:list'),
+    ];
   }
   async update(id: string, input: UpdateMediaDto, user: AuthenticatedUser) {
     this.admin(user, 'update');

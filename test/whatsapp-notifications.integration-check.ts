@@ -15,6 +15,7 @@ import {
 import { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import { Conversation } from '../src/whatsapp/whatsapp.types';
 import { NotificationDigestsService } from '../src/notifications/notification-digests.service';
+import { FeishuNotificationWindows1796256021000 } from '../src/migrations/1796256021000-FeishuNotificationWindows';
 import {
   NotificationWindow,
   NotificationType,
@@ -183,7 +184,7 @@ async function main() {
         before,
       );
       const upgraded = await settings();
-      assert.equal(upgraded.length, 8);
+      assert.equal(upgraded.length, 9);
       assert(upgraded.every((row) => row.sendWindow === null));
       assert.equal(
         upgraded.find((row) => row.type === 'linxi_ledger_operate')?.version,
@@ -925,7 +926,15 @@ async function main() {
           after.find((s) => s.type === row.type),
           row,
         );
-      await assert.rejects(h.db.undoLastMigration(), /Retain notification/);
+      const runner = h.db.createQueryRunner();
+      try {
+        await assert.rejects(
+          new FeishuNotificationWindows1796256021000().down(runner),
+          /Retain notification/,
+        );
+      } finally {
+        await runner.release();
+      }
       assert.equal((await h.db.runMigrations()).length, 0);
       assert(unboundManager.id);
     },

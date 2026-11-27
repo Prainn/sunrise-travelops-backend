@@ -92,8 +92,12 @@ jobs:
           trap 'code=$?; echo "::error title=Backend release failed::Stage: $stage (exit $code). See the command error above."; printf "\n### Backend release failed\n\nStage: %s (exit %s). See the command error in this step.\n" "$stage" "$code" >> "$GITHUB_STEP_SUMMARY"' ERR
           enter_stage "Acquire release lock"
           export PATH="/opt/sunrise-ci/node/bin:$PATH"
+          lock_deadline=$((SECONDS + 2700))
+          exec 8</opt/sunrise-ci/dev-release-wait.lock
+          flock -s -w 2700 8
           exec 9>/opt/sunrise-ci/build.lock
-          flock -w 2700 9
+          flock -w "$((lock_deadline > SECONDS ? lock_deadline - SECONDS : 0))" 9
+          exec 8<&-
           export SUNRISE_LOCK_HELD=1
           enter_stage "Validate candidate and current branch"
           test -z "$EXPECTED_SHA" || test "$EXPECTED_SHA" = "$GITHUB_SHA"

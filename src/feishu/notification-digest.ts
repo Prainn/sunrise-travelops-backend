@@ -7,6 +7,7 @@ import type { DigestPart } from '../notifications/notification-digest-items';
 const labels: Record<NotificationType, [string, string, string]> = {
   whatsapp_message: ['WhatsApp 客户消息未读', '条', 'WhatsApp 未读消息'],
   whatsapp_unassigned: ['WhatsApp 会话待分配', '个', 'WhatsApp 会话待分配提醒'],
+  mail_unassigned: ['邮件会话待分配', '个', '邮件会话待分配提醒'],
   whatsapp_assignment: [
     'WhatsApp 会话分配与改派',
     '个',

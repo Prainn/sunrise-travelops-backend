@@ -27,6 +27,7 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { UpdateIntegrationRuntimeDto } from '../common/integration-runtime';
 import { WhatsappService } from './whatsapp.service';
 import {
   AssignChatDto,
@@ -42,7 +43,6 @@ import {
   SendReactionDto,
   SendImageBatchDto,
   SendDocumentDto,
-  UpdateWhatsappRuntimeDto,
 } from './whatsapp.dto';
 @ApiTags('WhatsApp Workbench')
 @ApiBearerAuth()
@@ -295,7 +295,7 @@ export class WhatsappController {
   @Put('integration/runtime')
   @Permissions('whatsapp:integration:manage')
   updateRuntime(
-    @Body() input: UpdateWhatsappRuntimeDto,
+    @Body() input: UpdateIntegrationRuntimeDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.service.updateRuntime(input, user);

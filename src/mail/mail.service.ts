@@ -13,6 +13,7 @@ import {
 import { MailCustomerNotesDto, MailListQuery } from './mail.dto';
 import { orderMailReadingHistory, StoredReadingMessage } from './mail-reading';
 import { AliMailProvider } from './alimail.provider';
+import { MailRuntime } from './mail-runtime.service';
 import {
   MAILBOX,
   MailMessage,
@@ -43,6 +44,7 @@ export class MailService {
     private readonly website: WebsiteService,
     private readonly storage: MediaStorage,
     private readonly provider: AliMailProvider,
+    private readonly runtime: MailRuntime,
   ) {}
   private scope(user: AuthenticatedUser, params: unknown[]) {
     requireMail(user, 'mail:thread:list');
@@ -141,6 +143,8 @@ export class MailService {
     return this.db.transaction(async (m) => {
       const t = await this.thread(id, user, m);
       const canWrite = t.ownerId === user.id || mailManager(user);
+      const { outboundEnabled, outboundAvailable } =
+        await this.runtime.state(m);
       const messages = await m.query<StoredReadingMessage[]>(
         `SELECT ${messageColumns}, CASE WHEN m.state IN ('received','sent') THEN m.authored_body END AS "authoredBody",
           to_char(m.occurred_at AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI') AS "occurredMinute",
@@ -192,6 +196,11 @@ export class MailService {
           ? mailSignature(englishName.trim())
           : null,
         canReply: canWrite && user.permissions.includes('mail:message:send'),
+        sendBlockedReason: !outboundAvailable
+          ? 'not_configured'
+          : outboundEnabled
+            ? null
+            : 'send_paused',
         canAssign:
           !t.assignmentLocked &&
           mailManager(user) &&

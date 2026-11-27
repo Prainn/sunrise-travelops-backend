@@ -2,6 +2,7 @@ import { EntityManager } from 'typeorm';
 
 export const NOTIFICATION_TYPES = {
   whatsapp_unassigned: 'WhatsApp待分配',
+  mail_unassigned: '邮件待分配',
   whatsapp_message: 'WhatsApp新消息',
   whatsapp_assignment: 'WhatsApp分配与改派',
   linxi_ledger_review: '霖熹台账待审核',

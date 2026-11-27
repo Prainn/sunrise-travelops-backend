@@ -14,6 +14,10 @@ import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { WebsiteService } from '../website/website.service';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import {
+  outboundPaused,
+  UpdateIntegrationRuntimeDto,
+} from '../common/integration-runtime';
 import { validateCustomerNotesLocations } from '../website/customer-notes';
 import { WhatsappConfig } from './whatsapp.config';
 import { WhatsappRuntime } from './whatsapp-runtime.service';
@@ -34,7 +38,6 @@ import {
   SendTextDto,
   SendImageBatchDto,
   SendDocumentDto,
-  UpdateWhatsappRuntimeDto,
 } from './whatsapp.dto';
 import {
   ChatAccount,
@@ -249,7 +252,7 @@ export class WhatsappService {
       c.bsuid || c.phone || '',
     );
     const sendBlockedReason =
-      configuredSendBlock ?? (outboundEnabled ? null : 'send_disabled');
+      configuredSendBlock ?? (outboundEnabled ? null : 'send_paused');
     const canReply =
       c.state === 'open' &&
       sendBlockedReason === null &&
@@ -1080,7 +1083,7 @@ export class WhatsappService {
     assertWindow(c.lastInboundAt);
     this.config.assertSend(c.bsuid || c.phone || '');
     if (!(await this.runtime.state(manager, true)).outboundEnabled)
-      chatFail('CONFLICT', 'WhatsApp 出站已暂停', 409);
+      outboundPaused();
     if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
     if (retryOf) {
       const [old] = await manager.query<ChatMessage[]>(
@@ -1638,7 +1641,7 @@ export class WhatsappService {
       ...summary,
     };
   }
-  updateRuntime(input: UpdateWhatsappRuntimeDto, user: AuthenticatedUser) {
+  updateRuntime(input: UpdateIntegrationRuntimeDto, user: AuthenticatedUser) {
     this.integrationPermission(user);
     return this.runtime.update(input);
   }
