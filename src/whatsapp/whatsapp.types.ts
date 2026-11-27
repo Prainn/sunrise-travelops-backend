@@ -78,6 +78,6 @@ export const CONVERSATION_COLUMNS = `c.id,c.account_id AS "accountId",c.contact_
  u.nickname AS "ownerName",c.inquiry_id AS "inquiryId",c.state,c.version,c.assignment_locked_at AS "assignmentLockedAt",
  c.previous_id AS "previousId",c.created_at AS "createdAt",c.archived_at AS "archivedAt",c.updated_at AS "updatedAt",
  coalesce(p.manual_name,p.name) AS name,
- coalesce(nullif(p.manual_name,''),'@'||p.username,nullif(p.phone,''),nullif(p.bsuid,''),'') AS title,
+ coalesce(nullif(p.manual_name,''),'@'||p.username,nullif(btrim(p.name),''),nullif(p.phone,''),nullif(p.bsuid,''),'') AS title,
  p.phone,p.bsuid,p.last_inbound_at AS "lastInboundAt"`;
 export const CONVERSATION_FROM = `FROM whatsapp_conversations c JOIN whatsapp_contacts p ON p.id=c.contact_id LEFT JOIN users u ON u.id=c.owner_id`;

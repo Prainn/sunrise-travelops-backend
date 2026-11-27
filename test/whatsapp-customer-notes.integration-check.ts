@@ -134,7 +134,7 @@ async function main() {
     },
   );
   await check(
-    'title falls back to phone before BSUID and uses a username on a delayed original callback',
+    'title uses username, original name, phone and BSUID in order',
     async () => {
       const events = h.get(WhatsappEvents);
       const inbound = {
@@ -146,10 +146,11 @@ async function main() {
         Type: 'TEXT',
         Message: 'Synthetic inbound',
         Timestamp: Date.now(),
-        Name: 'Provider profile name',
       };
       const search = async (keyword: string) => {
-        const result = await h.call<Page<{ title: string; name: string }>>(
+        const result = await h.call<
+          Page<{ id: string; title: string; name: string }>
+        >(
           manager,
           'GET',
           `/whatsapp/conversations?keyword=${encodeURIComponent(keyword)}`,
@@ -168,14 +169,26 @@ async function main() {
       await events.receive(enriched, 'inbound');
       await events.processOne();
       assert.equal((await search(inbound.FromUserId)).title, phone);
+      const Name = 'Provider profile name';
+      const named = { ...enriched, MessageId: 'title-with-name', Name };
+      await events.receive(named, 'inbound');
+      await events.processOne();
+      const { id, title } = await search(inbound.FromUserId);
+      assert.equal(title, Name);
+      const detail = await h.call<{ title: string }>(
+        manager,
+        'GET',
+        `/whatsapp/conversations/${id}`,
+      );
+      assert.equal(detail.title, Name);
       await events.receive(
-        { ...enriched, FromUserName: '@synthetic_title' },
+        { ...named, FromUserName: '@synthetic_title' },
         'inbound',
       );
       await events.processOne();
       const found = await search('@synthetic_title');
       assert.equal(found.title, '@synthetic_title');
-      assert.equal(found.name, inbound.Name);
+      assert.equal(found.name, Name);
       await events.receive(
         {
           ...inbound,
