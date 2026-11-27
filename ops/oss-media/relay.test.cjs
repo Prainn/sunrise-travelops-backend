@@ -26,6 +26,30 @@ test('management upload keys allow put and delete only in the current environmen
   assert(!validate({ ...value, key: uploadKey.replace('/upload/', '/other/') }, 'dev'));
 });
 
+test('accepts a 10 MiB management original through the existing relay endpoint', async () => {
+  const bytes = Buffer.alloc(10 * 1024 * 1024);
+  const uploadKey = key.replace('/whatsapp/', '/upload/');
+  const value = { action: 'put', key: uploadKey, body: bytes.toString('base64'), mime: 'image/png' };
+  assert(!validate({ ...value, key }, 'dev'));
+  assert(!validate({ ...value, key: uploadKey.replace('original.png', 'thumbnail.webp'), mime: 'image/webp' }, 'dev'));
+  assert(!validate({ ...value, body: Buffer.alloc(bytes.length + 1).toString('base64') }, 'dev'));
+  const server = createRelay({ environment: 'dev' }, async (input) => {
+    assert.equal(input.key, uploadKey);
+    assert.equal(Buffer.from(input.body, 'base64').length, bytes.length);
+    return { etag: 'synthetic' };
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await fetch('http://127.0.0.1:' + server.address().port + '/objects', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value),
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(await result.json(), { etag: 'synthetic' });
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
 test('documents only use the private environment prefix and bound binary uploads', async () => {
   const documentKey = 'private/dev/whatsapp/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000002.pdf';
   const value = { action: 'sign-document', key: documentKey, purpose: 'send', fileName: '行程.PDF' };

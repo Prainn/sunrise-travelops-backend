@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource } from 'typeorm';
+import {
+  integrationEnvironment,
+  UpdateIntegrationRuntimeDto,
+} from '../common/integration-runtime';
 import { WhatsappConfig } from './whatsapp.config';
-import { UpdateWhatsappRuntimeDto } from './whatsapp.dto';
 import { chatFail } from './whatsapp.policy';
 import { notifyWhatsappChange } from './whatsapp-changes';
 
@@ -30,13 +33,9 @@ export class WhatsappRuntime {
   }
 
   private present(row: RuntimeRow) {
-    const dbName = this.config.get<string>('DATABASE_NAME');
-    const environment =
-      dbName === 'travelops_dev'
-        ? 'dev'
-        : dbName === 'travelops_prod'
-          ? 'prod'
-          : 'local';
+    const environment = integrationEnvironment(
+      this.config.get<string>('DATABASE_NAME'),
+    );
     const availability = this.availability();
     return {
       environment,
@@ -56,7 +55,7 @@ export class WhatsappRuntime {
     return this.present(row);
   }
 
-  async update(input: UpdateWhatsappRuntimeDto) {
+  async update(input: UpdateIntegrationRuntimeDto) {
     const { inboundAvailable, outboundAvailable } = this.availability();
     if (
       input.inboundEnabled === undefined &&

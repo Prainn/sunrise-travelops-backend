@@ -15,6 +15,8 @@ import {
   splitMailBody,
 } from '../migrations/support/mail-quoted-body-v1';
 import { MAILBOX } from './mail.types';
+import { INBOX_FOLDER, MailRuntime, SENT_FOLDER } from './mail-runtime.service';
+import { enqueueMailUnassigned } from './mail-notifications';
 
 export function mailObjectKey(environment: string, thread: string, id: string) {
   return `private/${environment}/email/${thread}/${id}.bin`;
@@ -35,6 +37,7 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
     private readonly provider: AliMailProvider,
     private readonly storage: MediaStorage,
     private readonly media: MediaConfig,
+    private readonly runtime: MailRuntime,
   ) {}
   onModuleInit() {
     if (!this.provider.enabled) return;
@@ -66,11 +69,19 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
         // Preparation can never have sent mail. A stale send must be reconciled with Sent Items.
         await runner.query(`UPDATE mail_messages SET state=CASE WHEN state='preparing' THEN 'failed' ELSE 'unknown' END,version=version+1,updated_at=now()
           WHERE state IN ('preparing','sending') AND updated_at < now()-interval '15 minutes'`);
-        for (const folder of ['1', '2']) {
+        for (const folder of [SENT_FOLDER, INBOX_FOLDER]) {
           try {
             await this.syncPage(folder);
           } catch {
             this.logger.warn('阿里邮箱文件夹同步未完成 ' + folder);
+            await this.db
+              .query(
+                'UPDATE mail_sync SET last_error_at=now() WHERE mailbox=$1 AND folder=$2',
+                [MAILBOX, folder],
+              )
+              .catch(() =>
+                this.logger.warn('阿里邮箱同步状态写入失败 ' + folder),
+              );
           }
         }
         await this.archiveFiles();
@@ -84,6 +95,8 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
     }
   }
   private async syncPage(folder: string) {
+    const inbound = folder === INBOX_FOLDER;
+    if (inbound && !(await this.runtime.state()).inboundEnabled) return;
     const initial = this.provider.startAt ?? new Date().toISOString();
     await this.db.query(
       'INSERT INTO mail_sync(mailbox,folder,start_at,floor_at) VALUES($1,$2,$3,$3) ON CONFLICT DO NOTHING',
@@ -92,7 +105,7 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
     const [sync] = await this.db.query<
       { start_at: Date; end_at: Date; cursor: string | null }[]
     >(
-      'WITH sync_window AS (UPDATE mail_sync SET end_at=coalesce(end_at,now()) WHERE mailbox=$1 AND folder=$2 RETURNING *) SELECT * FROM sync_window',
+      'WITH sync_window AS (UPDATE mail_sync SET end_at=coalesce(end_at,now()),last_started_at=now() WHERE mailbox=$1 AND folder=$2 RETURNING *) SELECT * FROM sync_window',
       [MAILBOX, folder],
     );
     if (sync.end_at < sync.start_at) {
@@ -115,10 +128,14 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       );
       if (known) continue;
       try {
-        const remote = await this.provider.message(row.id, folder === '2');
-        await this.db.transaction((m) =>
-          this.ingest(m, remote, folder === '2'),
-        );
+        const remote = await this.provider.message(row.id, inbound);
+        const accepted = await this.db.transaction(async (m) => {
+          if (inbound && !(await this.runtime.state(m, true)).inboundEnabled)
+            return false;
+          await this.ingest(m, remote, inbound);
+          return true;
+        });
+        if (!accepted) return;
       } catch (error) {
         // A message may move or be deleted between the folder listing and the detail read.
         if (!(error instanceof AliMailError && error.status === 404))
@@ -129,12 +146,12 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       if (!page.nextCursor || page.nextCursor === sync.cursor)
         throw new Error('ALI_MAIL_INVALID_CURSOR');
       await this.db.query(
-        'UPDATE mail_sync SET cursor=$3 WHERE mailbox=$1 AND folder=$2',
+        'UPDATE mail_sync SET cursor=$3,last_completed_at=now() WHERE mailbox=$1 AND folder=$2',
         [MAILBOX, folder, page.nextCursor],
       );
     } else
       await this.db.query(
-        "UPDATE mail_sync SET start_at=greatest(floor_at,end_at-interval '60 seconds'),end_at=NULL,cursor=NULL WHERE mailbox=$1 AND folder=$2",
+        "UPDATE mail_sync SET start_at=greatest(floor_at,end_at-interval '60 seconds'),end_at=NULL,cursor=NULL,last_completed_at=now() WHERE mailbox=$1 AND folder=$2",
         [MAILBOX, folder],
       );
   }
@@ -206,17 +223,6 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       );
       threadId = thread.id;
     }
-    if (inbound && known) {
-      await m.query(
-        'UPDATE mail_threads SET has_inbound=true,subject=$2,customer_email=$3,customer_name=$4 WHERE id=$1 AND NOT has_inbound',
-        [
-          threadId,
-          mail.subject,
-          customer.email.toLowerCase(),
-          customer.name || '',
-        ],
-      );
-    }
     const { authoredBody, quotes } = splitMailBody(mail.body);
     const [msg] = await m.query<{ id: string }[]>(
       `INSERT INTO mail_messages(thread_id,provider_id,internet_id,refs,direction,state,subject,sender,recipients,cc,reply_to,body,occurred_at,is_read,authored_body)
@@ -240,6 +246,20 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       ],
     );
     if (!msg) return;
+    let firstInbound: boolean = inbound && !known;
+    if (inbound && known) {
+      const [first] = await m.query<{ id: string }[]>(
+        `WITH first_inbound AS (UPDATE mail_threads SET has_inbound=true,subject=$2,customer_email=$3,customer_name=$4
+          WHERE id=$1 AND NOT has_inbound RETURNING id) SELECT id FROM first_inbound`,
+        [
+          threadId,
+          mail.subject,
+          customer.email.toLowerCase(),
+          customer.name || '',
+        ],
+      );
+      firstInbound = !!first;
+    }
     await insertMailQuotes(m, msg.id, quotes);
     await this.bind(m, threadId, keys);
     await m.query(
@@ -250,6 +270,14 @@ export class MailSync implements OnModuleInit, OnModuleDestroy {
       await m.query(
         'INSERT INTO mail_attachments(message_id,provider_id,file_name,size_bytes) VALUES($1,$2,$3,$4)',
         [msg.id, file.id, safeMailFileName(file.name), file.size],
+      );
+    if (firstInbound)
+      await enqueueMailUnassigned(
+        m,
+        MAILBOX,
+        threadId,
+        msg.id,
+        mail.occurredAt,
       );
   }
   private async archiveFiles() {

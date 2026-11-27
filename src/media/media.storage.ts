@@ -3,6 +3,9 @@ import { Readable } from 'node:stream';
 import { request } from 'node:http';
 import { MediaConfig } from './media.config';
 
+const OSS_PRIVATE_ORIGIN =
+  'https://sunrise-travelops-media.oss-cn-hangzhou.aliyuncs.com';
+
 /** Environment-specific Unix socket; cloud credentials never enter API containers. */
 @Injectable()
 export class MediaStorage {
@@ -100,5 +103,32 @@ export class MediaStorage {
       purpose,
       fileName,
     });
+  }
+  async openPrivateObject(key: string, url: string, size: number) {
+    const signed = new URL(url);
+    if (
+      signed.origin !== OSS_PRIVATE_ORIGIN ||
+      signed.pathname !== '/' + key ||
+      signed.username ||
+      signed.password ||
+      signed.hash ||
+      !signed.search
+    )
+      throw new Error('OSS_PRIVATE_URL_INVALID');
+    const response = await fetch(signed, {
+      redirect: 'error',
+      headers: { 'accept-encoding': 'identity' },
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (
+      response.status !== 200 ||
+      Number(response.headers.get('content-length')) !== size ||
+      !response.body ||
+      ![null, 'identity'].includes(response.headers.get('content-encoding'))
+    ) {
+      await response.body?.cancel();
+      throw new Error('OSS_PRIVATE_READ_INVALID');
+    }
+    return response.body;
   }
 }

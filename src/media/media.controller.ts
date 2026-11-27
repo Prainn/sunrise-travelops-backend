@@ -20,7 +20,7 @@ import { AuthenticatedUser } from '../auth/auth.types';
 import { chatFail } from '../whatsapp/whatsapp.policy';
 import { MediaService } from './media.service';
 import { MediaQuery, UpdateMediaDto, MediaVersionDto } from './media.dto';
-import { MAX_IMAGE_BYTES } from './media.images';
+import { MAX_IMAGE_BYTES, MAX_MANAGEMENT_IMAGE_BYTES } from './media.images';
 export const imageUploadOptions = {
   limits: { fileSize: MAX_IMAGE_BYTES, files: 1, fields: 0 },
 };
@@ -48,7 +48,14 @@ export class MediaController {
   }
   @Post()
   @Permissions('sys:oss:create')
-  @UseInterceptors(FileInterceptor('file', imageUploadOptions))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        ...imageUploadOptions.limits,
+        fileSize: MAX_MANAGEMENT_IMAGE_BYTES + 1,
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {

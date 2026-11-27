@@ -418,6 +418,33 @@ async function main() {
   const metadata = await h.call<CatalogItem>(ossOnly, 'GET', itemPath);
   assert.equal(metadata.documentMessage, null);
   assert.equal(metadata.previewable, false);
+  assert.deepEqual([item.remark, item.version], ['', 1]);
+  const remark = 'WhatsApp private fixture note';
+  const changed = await h.call<CatalogItem>(root, 'PUT', itemPath, {
+    version: 1,
+    remark,
+  });
+  assert.deepEqual(
+    [changed.name, changed.remark, changed.version],
+    [item.name, remark, 2],
+  );
+  assert.deepEqual(await h.call(root, 'GET', itemPath), changed);
+  const hidden = await h.call<CatalogItem>(ossOnly, 'GET', itemPath);
+  assert.deepEqual([hidden.remark, hidden.version], ['', 1]);
+  const hiddenSearch = await h.call<Page<CatalogItem>>(
+    ossOnly,
+    'GET',
+    catalog + '?keyword=' + encodeURIComponent(remark),
+  );
+  assert.equal(hiddenSearch.total, 0);
+  await h.call(
+    ossOnly,
+    'PUT',
+    itemPath,
+    { version: 1, remark: 'outside scope' },
+    404,
+    'NOT_FOUND',
+  );
   await h.call(
     ossOnly,
     'GET',
@@ -427,13 +454,22 @@ async function main() {
     'AUTH_FORBIDDEN',
   );
   await h.call(
-    root,
+    ossOnly,
     'DELETE',
-    itemPath + '?version=1',
+    itemPath + '?version=' + changed.version,
     undefined,
     404,
     'NOT_FOUND',
   );
+  await h.call(
+    root,
+    'DELETE',
+    itemPath + '?version=' + changed.version,
+    undefined,
+    409,
+    'CONFLICT',
+  );
+  assert.deepEqual(await h.call(root, 'GET', itemPath), changed);
   for (const kind of ['pdf', 'docx', 'doc'] as const) {
     const m = byName.get(kind)!,
       bytes = providerFiles.get(kind)!;

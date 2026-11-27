@@ -109,7 +109,7 @@ async function main() {
     'GET',
     path,
   );
-  assert.equal(detail.sendBlockedReason, 'send_disabled');
+  assert.equal(detail.sendBlockedReason, 'send_paused');
   let sends = 0;
   h.get(WhatsappProvider).send = () => {
     sends++;

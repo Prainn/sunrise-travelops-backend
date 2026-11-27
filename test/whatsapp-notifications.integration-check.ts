@@ -15,6 +15,7 @@ import {
 import { InquiryRemindersService } from '../src/inquiries/inquiry-reminders.service';
 import { Conversation } from '../src/whatsapp/whatsapp.types';
 import { NotificationDigestsService } from '../src/notifications/notification-digests.service';
+import { FeishuNotificationWindows1796256021000 } from '../src/migrations/1796256021000-FeishuNotificationWindows';
 import {
   NotificationWindow,
   NotificationType,
@@ -183,7 +184,7 @@ async function main() {
         before,
       );
       const upgraded = await settings();
-      assert.equal(upgraded.length, 8);
+      assert.equal(upgraded.length, 9);
       assert(upgraded.every((row) => row.sendWindow === null));
       assert.equal(
         upgraded.find((row) => row.type === 'linxi_ledger_operate')?.version,
@@ -700,7 +701,7 @@ async function main() {
     },
   );
   await check(
-    'quiet messages coalesce by consultation and recipient, partial shared reads and oldest receipt use actual send time',
+    'quiet messages coalesce by recipient and exclude workbench reads and earlier messages answered on mobile',
     async () => {
       // Route both consultations to the same recipient.
       await assign(b);
@@ -743,12 +744,19 @@ async function main() {
         "SELECT count(*)::int n FROM feishu_pending_digest_items WHERE open_id='ou_b' AND type='whatsapp_message'",
       );
       assert.equal(queued.n, 2);
+      await incoming('digest-mobile-reply', 'ZZ.digest', {
+        NoticeType: 'echos',
+        From: '0000000000',
+        To: 'ZZ.digest',
+        UserId: 'ZZ.digest',
+        Timestamp: now - 2.5 * 3600000,
+      });
       await setWindow('whatsapp_message', null);
       await Promise.all([digest.drain(), digest.drain()]);
       assert.equal(sent.length, before + 1);
       assert.match(
         sent.at(-1)!.text,
-        /你有 3 条 WhatsApp 客户消息未读，最早一条是 3 小时 0 分钟前收到的/,
+        /你有 2 条 WhatsApp 客户消息未读，最早一条是 2 小时 0 分钟前收到的/,
       );
       assert.match(
         sent.at(-1)!.text,
@@ -925,7 +933,15 @@ async function main() {
           after.find((s) => s.type === row.type),
           row,
         );
-      await assert.rejects(h.db.undoLastMigration(), /Retain notification/);
+      const runner = h.db.createQueryRunner();
+      try {
+        await assert.rejects(
+          new FeishuNotificationWindows1796256021000().down(runner),
+          /Retain notification/,
+        );
+      } finally {
+        await runner.release();
+      }
       assert.equal((await h.db.runMigrations()).length, 0);
       assert(unboundManager.id);
     },

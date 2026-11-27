@@ -4,7 +4,6 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
-  IsBoolean,
   IsDateString,
   IsDefined,
   IsIn,
@@ -37,15 +36,6 @@ export class MessageListQuery extends PaginationQueryDto {
 }
 export class ChatVersionDto {
   @IsInt() @Min(1) version: number;
-}
-export class UpdateWhatsappRuntimeDto extends ChatVersionDto {
-  @ValidateIf((_, value: unknown) => value !== undefined)
-  @IsBoolean()
-  inboundEnabled?: boolean;
-
-  @ValidateIf((_, value: unknown) => value !== undefined)
-  @IsBoolean()
-  outboundEnabled?: boolean;
 }
 export class AssignChatDto extends ChatVersionDto {
   @IsUUID() ownerId: string;

@@ -10,7 +10,9 @@ import { Transform, Type } from 'class-transformer';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 export class MediaQuery extends PaginationQueryDto {
   @IsOptional() @IsString() @MaxLength(200) keyword?: string = undefined;
-  @IsOptional() @IsIn(['image', 'sticker', 'pdf', 'word']) kind?: string;
+  @IsOptional()
+  @IsIn(['image', 'sticker', 'pdf', 'word', 'file'])
+  kind?: string;
   @IsOptional()
   @IsIn(['pending', 'processing', 'ready', 'failed', 'deleting'])
   state?: string;
@@ -20,9 +22,10 @@ export class UpdateMediaDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
+  @IsOptional()
   @IsString()
   @MaxLength(200)
-  name: string;
+  name?: string;
   @IsString() @MaxLength(1000) remark = '';
 }
 export class MediaVersionDto {

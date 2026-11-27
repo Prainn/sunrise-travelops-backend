@@ -5,6 +5,8 @@ const fs = require('node:fs');
 const OSS = require('ali-oss');
 const Credentials = require('@alicloud/credentials').default;
 const MAX = 5 * 1024 * 1024;
+const MAX_MANAGEMENT_IMAGE = 10 * 1024 * 1024;
+const MAX_JSON_BODY = Math.ceil(MAX_MANAGEMENT_IMAGE / 3) * 4 + 4096;
 const MAX_DOCUMENT = 20 * 1024 * 1024;
 const MIME_BY_EXTENSION = {
   pdf: 'application/pdf',
@@ -37,12 +39,14 @@ function validate(value, environment) {
       !/[\p{C}\\/]/u.test(value.fileName) &&
       value.fileName.length > 0 && (mailKey(value.key, environment) || value.fileName.toLowerCase().endsWith('.' + value.key.split('.').pop()));
   if (value.action !== 'put' || Object.keys(value).some(k => !['action', 'key', 'body', 'mime'].includes(k)) ||
-      !validKey(value.key, environment) || typeof value.body !== 'string' ||
-      !value.body.length || value.body.length > Math.ceil(MAX / 3) * 4 ||
+      !validKey(value.key, environment) || typeof value.body !== 'string') return false;
+  const maxBytes = value.key.startsWith(environment + '/upload/') && value.key.includes('/original.')
+    ? MAX_MANAGEMENT_IMAGE : MAX;
+  if (!value.body.length || value.body.length > Math.ceil(maxBytes / 3) * 4 ||
       !/^[A-Za-z0-9+/]+={0,2}$/.test(value.body)) return false;
   const bytes = Buffer.from(value.body, 'base64');
   const mime = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' }[value.key.split('.').pop()];
-  return value.mime === mime && bytes.length > 0 && bytes.length <= MAX && bytes.toString('base64') === value.body;
+  return value.mime === mime && bytes.length > 0 && bytes.length <= maxBytes && bytes.toString('base64') === value.body;
 }
 function createRelay(config, execute) {
   let inflight = 0;
@@ -73,7 +77,7 @@ function createRelay(config, execute) {
       const chunks = []; let size = 0;
       for await (const chunk of req) {
         size += chunk.length;
-        if (size > (document ? contentLength : 7 * 1024 * 1024)) { respond(413, { error: 'TOO_LARGE' }); req.destroy(); return; }
+        if (size > (document ? contentLength : MAX_JSON_BODY)) { respond(413, { error: 'TOO_LARGE' }); req.destroy(); return; }
         chunks.push(chunk);
       }
       if (document) {

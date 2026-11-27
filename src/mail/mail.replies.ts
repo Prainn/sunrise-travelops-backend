@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
+import { outboundPaused } from '../common/integration-runtime';
 import { MediaConfig } from '../media/media.config';
 import { MediaStorage } from '../media/media.storage';
 import { validateDocument } from '../media/media.document-format';
@@ -12,6 +13,7 @@ import {
   splitMailBody,
 } from '../migrations/support/mail-quoted-body-v1';
 import { MailVersionDto, SaveMailDraftDto } from './mail.dto';
+import { MailRuntime } from './mail-runtime.service';
 import { MailService, mailVersion, messageColumns } from './mail.service';
 import { MailMessage, mailFail, mailSignature } from './mail.types';
 import { mailObjectKey, safeMailFileName } from './mail.sync';
@@ -24,6 +26,7 @@ export class MailReplies {
     private readonly provider: AliMailProvider,
     private readonly storage: MediaStorage,
     private readonly media: MediaConfig,
+    private readonly runtime: MailRuntime,
   ) {}
   private async reply(
     m: EntityManager,
@@ -237,11 +240,13 @@ export class MailReplies {
     user: AuthenticatedUser,
   ) {
     const job = await this.db.transaction(async (m) => {
+      const { outboundEnabled } = await this.runtime.state(m, true);
       const draft = await this.reply(m, thread, id, user, true);
       if (['preparing', 'sending', 'sent', 'unknown'].includes(draft.state))
         return null;
       this.editable(draft, input.version);
       if (!this.provider.enabled) mailFail('CONFLICT', '邮箱接入尚未启用', 409);
+      if (!outboundEnabled) outboundPaused();
       if (
         !draft.recipients.length ||
         (!draft.body.trim() && !draft.attachments.length)

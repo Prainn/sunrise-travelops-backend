@@ -1,5 +1,6 @@
 import { canCreateLinkedWebsiteLedger } from '../ledgers/ledger-access';
 import { notifyWhatsappChange } from './whatsapp-changes';
+import { unreadWhatsappMessageSql } from './whatsapp-unread';
 import { MediaService } from '../media/media.service';
 import { WhatsappDocuments } from '../media/media.whatsapp-documents';
 import {
@@ -14,6 +15,10 @@ import { DataSource, EntityManager } from 'typeorm';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { WebsiteService } from '../website/website.service';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import {
+  outboundPaused,
+  UpdateIntegrationRuntimeDto,
+} from '../common/integration-runtime';
 import { validateCustomerNotesLocations } from '../website/customer-notes';
 import { WhatsappConfig } from './whatsapp.config';
 import { WhatsappRuntime } from './whatsapp-runtime.service';
@@ -34,7 +39,6 @@ import {
   SendTextDto,
   SendImageBatchDto,
   SendDocumentDto,
-  UpdateWhatsappRuntimeDto,
 } from './whatsapp.dto';
 import {
   ChatAccount,
@@ -81,8 +85,7 @@ type EnqueueOptions = {
 
 function unreadCountSql(conversationId: 'c.id' | '$1') {
   return `(SELECT count(*)::int FROM whatsapp_messages m
-    WHERE m.conversation_id=${conversationId} AND m.direction='inbound'
-      AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=${conversationId}),0)
+    WHERE m.conversation_id=${conversationId} AND ${unreadWhatsappMessageSql(conversationId)}
       AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done'))`;
 }
 
@@ -249,7 +252,7 @@ export class WhatsappService {
       c.bsuid || c.phone || '',
     );
     const sendBlockedReason =
-      configuredSendBlock ?? (outboundEnabled ? null : 'send_disabled');
+      configuredSendBlock ?? (outboundEnabled ? null : 'send_paused');
     const canReply =
       c.state === 'open' &&
       sendBlockedReason === null &&
@@ -319,10 +322,7 @@ export class WhatsappService {
         SELECT c.id,c.owner_id,c.state FROM whatsapp_conversations c
         WHERE ${scope} AND c.state<>'archived'
       )
-      SELECT (SELECT count(*)::int FROM whatsapp_messages m
-        JOIN visible c ON c.id=m.conversation_id
-        WHERE m.direction='inbound' AND m.seq>coalesce((SELECT max(r.last_seq) FROM whatsapp_reads r WHERE r.conversation_id=c.id),0)
-        AND NOT EXISTS (SELECT 1 FROM whatsapp_events e WHERE e.message_id=m.id AND e.kind='history_import' AND e.state='done')) AS "unreadCount",
+      SELECT (SELECT coalesce(sum(${unreadCountSql('c.id')}),0)::int FROM visible c) AS "unreadCount",
         (SELECT count(*)::int FROM visible WHERE owner_id IS NULL AND state='open') AS "unassignedCount"`,
       params,
     );
@@ -1080,7 +1080,7 @@ export class WhatsappService {
     assertWindow(c.lastInboundAt);
     this.config.assertSend(c.bsuid || c.phone || '');
     if (!(await this.runtime.state(manager, true)).outboundEnabled)
-      chatFail('CONFLICT', 'WhatsApp 出站已暂停', 409);
+      outboundPaused();
     if (c.state !== 'open') chatFail('CONFLICT', '请先重新打开会话', 409);
     if (retryOf) {
       const [old] = await manager.query<ChatMessage[]>(
@@ -1508,6 +1508,10 @@ export class WhatsappService {
           await manager.query('DELETE FROM whatsapp_messages WHERE id=$1', [
             echo.id,
           ]);
+          await notifyWhatsappChange(manager, {
+            conversationId: echo.conversationId,
+            reason: 'message',
+          });
         }
         await manager.query(
           `UPDATE whatsapp_messages SET provider_id=$2,status=$3,updated_at=now() WHERE id=$1`,
@@ -1638,7 +1642,7 @@ export class WhatsappService {
       ...summary,
     };
   }
-  updateRuntime(input: UpdateWhatsappRuntimeDto, user: AuthenticatedUser) {
+  updateRuntime(input: UpdateIntegrationRuntimeDto, user: AuthenticatedUser) {
     this.integrationPermission(user);
     return this.runtime.update(input);
   }

@@ -10,20 +10,23 @@ import { formatNotificationDigest } from '../feishu/notification-digest';
 import { digestParts, DigestItem } from './notification-digest-items';
 
 type Outcome = 'sent' | 'skipped' | 'failed' | 'unknown';
-type Family = 'whatsapp' | 'ledger' | 'inquiry';
+type Family = 'whatsapp' | 'mail' | 'ledger' | 'inquiry';
 const tables: Record<Family, string> = {
   whatsapp: 'whatsapp_notification_deliveries',
+  mail: 'mail_notification_deliveries',
   ledger: 'feishu_ledger_notifications',
   inquiry: 'inquiry_follow_up_reminders',
 };
-const families: Family[] = ['whatsapp', 'ledger', 'inquiry'];
+const families: Family[] = ['whatsapp', 'mail', 'ledger', 'inquiry'];
 function family(item: DigestItem): Family {
   if (item.type.startsWith('whatsapp_')) return 'whatsapp';
+  if (item.type === 'mail_unassigned') return 'mail';
   return item.type === 'inquiry_follow_up' ? 'inquiry' : 'ledger';
 }
 function sourceOutcome(kind: Family, outcome: Outcome) {
   if (kind === 'inquiry' && outcome === 'skipped') return 'cancelled';
-  if (kind !== 'whatsapp' && outcome === 'unknown') return 'failed';
+  if ((kind === 'inquiry' || kind === 'ledger') && outcome === 'unknown')
+    return 'failed';
   return outcome;
 }
 interface Claim {
@@ -132,7 +135,7 @@ export class NotificationDigestsService
     const [seed] = await manager.query<
       { open_id: string; digest_at: Date; digest_id: string | null }[]
     >(
-      `SELECT p.open_id,p.digest_at,p.digest_id FROM feishu_pending_digest_items p
+      `SELECT p.open_id,p.digest_at,p.digest_id FROM feishu_pending_digest_items_with_mail p
        LEFT JOIN feishu_notification_digests r ON r.id=p.digest_id
        WHERE p.digest_at<=now() AND (p.digest_id IS NULL OR (r.status='retry' AND r.retry_at<=now()))
        AND NOT EXISTS (SELECT 1 FROM feishu_notification_digests WHERE claimed_at>clock_timestamp()-interval '1 second')
@@ -143,7 +146,7 @@ export class NotificationDigestsService
     // Skip a busy opening and try on the next tick. No lock is held during the network call.
     const [barrier] = await manager.query<{ ready: boolean }[]>(
       `WITH wanted AS MATERIALIZED (SELECT type FROM feishu_notification_settings WHERE window_start IS NOT NULL OR
-         type IN (SELECT type FROM feishu_pending_digest_items WHERE open_id=$1 AND digest_at<=now())),
+         type IN (SELECT type FROM feishu_pending_digest_items_with_mail WHERE open_id=$1 AND digest_at<=now())),
        locked AS (SELECT s.type FROM feishu_notification_settings s JOIN wanted w USING(type) ORDER BY s.type FOR UPDATE OF s SKIP LOCKED)
        SELECT (SELECT count(*) FROM wanted)=(SELECT count(*) FROM locked) AS ready`,
       [seed.open_id],
@@ -153,7 +156,7 @@ export class NotificationDigestsService
       `SELECT p.*,
       s.enabled AND (s.last_disabled_at IS NULL OR s.last_disabled_at<p.created_at) AS enabled,
       feishu_window_resume(s.window_start,s.window_end,clock_timestamp()) AS resume
-      FROM feishu_pending_digest_items p JOIN feishu_notification_settings s ON s.type=p.type
+      FROM feishu_pending_digest_items_with_mail p JOIN feishu_notification_settings s ON s.type=p.type
       WHERE p.open_id=$1 AND p.digest_at<=now() AND p.digest_id IS NOT DISTINCT FROM $2::uuid`,
       [seed.open_id, seed.digest_id],
     );
@@ -189,7 +192,7 @@ export class NotificationDigestsService
       if (seed.digest_id)
         await manager.query(
           `UPDATE feishu_notification_digests SET status='skipped' WHERE id=$1
-        AND status='retry' AND NOT EXISTS(SELECT 1 FROM feishu_pending_digest_items WHERE digest_id=$1)`,
+        AND status='retry' AND NOT EXISTS(SELECT 1 FROM feishu_pending_digest_items_with_mail WHERE digest_id=$1)`,
           [seed.digest_id],
         );
       return;
