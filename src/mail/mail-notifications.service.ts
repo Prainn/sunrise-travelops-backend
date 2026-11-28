@@ -87,7 +87,7 @@ export class MailNotificationsService implements OnModuleInit, OnModuleDestroy {
           const recipients = await websiteNotificationRecipients(
             manager,
             null,
-            'mail:thread:assign',
+            'mail:thread:list',
           );
           if (!recipients.some((row) => row.openId === job.open_id))
             reason = 'RECIPIENT_UNAVAILABLE';

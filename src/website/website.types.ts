@@ -110,6 +110,7 @@ export interface WebsiteInquiryInput {
 }
 export interface WebsiteInquiry extends WebsiteInquiryInput {
   mailSource?: { threadId: string; messageId: string; mailbox: string } | null;
+  canTransfer?: boolean;
   canDelete: boolean;
   businessUnit: WebsiteBusinessUnit;
   hasActiveTour: boolean;

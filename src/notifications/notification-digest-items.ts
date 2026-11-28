@@ -122,7 +122,7 @@ export async function digestParts(
     identities.some(
       (i) =>
         i.scope === 'website' &&
-        eligibleWebsiteNotificationRecipient(i, null, 'mail:thread:assign'),
+        eligibleWebsiteNotificationRecipient(i, null, 'mail:thread:list'),
     )
   ) {
     const rows = await manager.query<{ id: string }[]>(

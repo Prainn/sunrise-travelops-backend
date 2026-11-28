@@ -207,7 +207,6 @@ export class MailService {
             : 'send_paused',
         canAssign:
           !t.assignmentLocked &&
-          mailManager(user) &&
           user.permissions.includes('mail:thread:assign'),
         canCreateInquiry:
           canWrite &&
@@ -250,12 +249,10 @@ export class MailService {
   }
   owners(user: AuthenticatedUser) {
     requireMail(user, 'mail:thread:assign');
-    if (!mailManager(user)) mailFail('AUTH_FORBIDDEN', '只有主管可分配', 403);
     return this.website.owners(user, 'website');
   }
   async assign(id: string, input: AssignChatDto, user: AuthenticatedUser) {
     requireMail(user, 'mail:thread:assign');
-    if (!mailManager(user)) mailFail('AUTH_FORBIDDEN', '只有主管可分配', 403);
     return this.db.transaction(async (m) => {
       const initial = await this.thread(id, user, m);
       const [owner] = await m.query<{ id: string }[]>(

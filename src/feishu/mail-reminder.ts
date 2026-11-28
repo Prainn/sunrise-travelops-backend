@@ -16,7 +16,7 @@ export function formatMailUnassignedReminder(
     `客户：${summary(name) || '未命名客户'}`,
     `邮件主题：${summary(subject) || '无主题'}`,
     `收到时间：${occurredAt.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })}`,
-    '请使用独立站账号登录系统，为该客户分配负责人。',
+    '可使用独立站账号查看邮件，负责人由总部 mango 账号分配。',
     ...(url ? [`查看会话：${url}`] : []),
   ].join('\n');
 }

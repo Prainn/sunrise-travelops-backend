@@ -851,9 +851,16 @@ export class WebsiteService {
       (query.page - 1) * query.pageSize,
     ];
     const list = await this.db.manager.query<WebsiteInquiry[]>(
-      `SELECT ${inquiryColumns} FROM website_inquiries i${where}
+      `SELECT ${inquiryColumns},($${params.length + 3}::boolean AND (
+        $${params.length + 4}::boolean OR NOT EXISTS(
+          SELECT 1 FROM mail_threads mt WHERE mt.inquiry_id=i.id
+        ))) AS "canTransfer" FROM website_inquiries i${where}
       ORDER BY i.created_at DESC,i.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      paging,
+      [
+        ...paging,
+        user.permissions.includes('website:inquiry:transfer'),
+        user.permissions.includes('mail:thread:assign'),
+      ],
     );
     return {
       list: list.map((row) => this.inquiryResponse(row, user)),
@@ -1156,12 +1163,6 @@ export class WebsiteService {
       );
       if (mail) {
         requireMail(user, 'mail:thread:assign');
-        if (!mailManager(user))
-          fail(
-            'AUTH_FORBIDDEN',
-            '只有主管可改派邮件询盘',
-            HttpStatus.FORBIDDEN,
-          );
         await assertMailAssignable(manager, mail);
       }
       await this.mutable(old, manager);

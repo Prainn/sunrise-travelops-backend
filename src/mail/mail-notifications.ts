@@ -22,7 +22,7 @@ export async function enqueueMailUnassigned(
   const recipients = await websiteNotificationRecipients(
     manager,
     null,
-    'mail:thread:assign',
+    'mail:thread:list',
   );
   for (const recipient of recipients)
     await manager.query(

@@ -119,7 +119,7 @@ async function main() {
   };
   const assign = (thread: string) =>
     h.call(
-      manager,
+      root,
       'POST',
       `/mail/threads/${thread}/assign`,
       { ownerId: coordinator.id, version: 1 },
@@ -147,6 +147,7 @@ async function main() {
   await Promise.all([worker.drain(), worker.drain()]);
   assert.equal(sends.length, 1);
   assert.match(sends[0].text, /【邮件待分配】[\s\S]*云南行程咨询/);
+  assert.match(sends[0].text, /由总部 mango 账号分配/);
   assert.doesNotMatch(sends[0].text, /Synthetic body/);
   const url = new URL(sends[0].text.split('查看会话：')[1]);
   assert.equal(url.pathname, '/website-inquiries/mail');

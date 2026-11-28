@@ -96,6 +96,11 @@ async function main() {
     const alice = await h.actor('website'),
       bob = await h.actor('website');
     const other = await h.actor('linxi');
+    const otherRoot = await h.actor('headquarters', 'ROOT');
+    await h.db.query(
+      "INSERT INTO identity_roles(identity_id,role_id) SELECT $1,id FROM roles WHERE code='COORDINATOR'",
+      [mgr.identityId],
+    );
     await h.db.query("UPDATE users SET english_name='Alice' WHERE id=$1", [
       alice.id,
     ]);
@@ -308,15 +313,16 @@ async function main() {
       "SELECT thread_id AS id FROM mail_messages WHERE provider_id='first'",
     );
     const path = '/mail/threads/' + thread.id;
-    const detail = () =>
+    const detail = (actor = mgr) =>
       h.call<
         MailThread & {
           messages: MailReadingMessage[];
+          canAssign: boolean;
           canUpdateCustomer: boolean;
           ledger: { id: string; orderNo: string } | null;
           canCreateLedger: boolean;
         }
-      >(mgr, 'GET', path);
+      >(actor, 'GET', path);
     const original = (await detail()).messages;
     assert.equal(original.length, 2);
     const source = original.find((msg) => msg.body === b.body)!;
@@ -358,8 +364,24 @@ async function main() {
       403,
       'AUTH_FORBIDDEN',
     );
+    assert.equal((await detail()).canAssign, false);
+    assert.equal((await detail(admin)).canAssign, true);
+    await h.call(mgr, 'GET', '/mail/owners', undefined, 403, 'AUTH_FORBIDDEN');
+    const owners = await h.call<{ id: string }[]>(admin, 'GET', '/mail/owners');
+    assert(owners.some((owner) => owner.id === alice.id));
+    for (const actor of [mgr, alice, otherRoot]) {
+      await h.call(
+        actor,
+        'POST',
+        path + '/assign',
+        { ownerId: alice.id, version: 1 },
+        403,
+        'AUTH_FORBIDDEN',
+      );
+    }
+    assert.equal((await detail()).ownerId, null);
     await h.call(
-      mgr,
+      admin,
       'POST',
       path + '/assign',
       { ownerId: alice.id, version: 1 },
@@ -842,7 +864,7 @@ async function main() {
     );
     assert.equal(sendCalls, 3);
     await h.call(
-      mgr,
+      admin,
       'POST',
       path + '/assign',
       { ownerId: bob.id, version: (await detail()).version },
@@ -861,8 +883,25 @@ async function main() {
         false,
       ),
     );
+    const listCanTransfer = async (actor: typeof mgr) => {
+      const { list: rows } = await h.call<{
+        list: { id: string; canTransfer: boolean }[];
+      }>(actor, 'GET', '/website/inquiries?businessUnit=website');
+      return rows.find((row) => row.id === inquiries[0].inquiryId)?.canTransfer;
+    };
+    assert.equal(await listCanTransfer(mgr), false);
+    assert.equal(await listCanTransfer(admin), true);
     await h.call(
       mgr,
+      'POST',
+      inquiryPath + '/transfer',
+      { version: inquiry.version, ownerId: bob.id, reason: 'transfer' },
+      403,
+      'AUTH_FORBIDDEN',
+    );
+    assert.equal((await detail()).ownerId, alice.id);
+    await h.call(
+      admin,
       'POST',
       inquiryPath + '/transfer',
       { version: inquiry.version, ownerId: bob.id, reason: 'transfer' },
@@ -895,7 +934,7 @@ async function main() {
     );
     await h.db.query('DELETE FROM direct_ledgers WHERE id=$1', [ledger.id]);
     await h.call(
-      mgr,
+      admin,
       'POST',
       path + '/assign',
       { ownerId: alice.id, version: (await detail()).version },

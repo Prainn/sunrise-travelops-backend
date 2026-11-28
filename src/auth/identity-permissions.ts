@@ -189,10 +189,7 @@ export function effectivePermissions(
   return [
     ...(scope === 'website' &&
     selected.some((role) => ['BUSINESS_MANAGER', 'COORDINATOR'].includes(role))
-      ? MAIL_PERMISSIONS.filter(
-          (p) =>
-            p !== 'mail:thread:assign' || selected.includes('BUSINESS_MANAGER'),
-        )
+      ? MAIL_PERMISSIONS.filter((p) => p !== 'mail:thread:assign')
       : []),
     ...(scope === 'website'
       ? selected.includes('BUSINESS_MANAGER')
